@@ -1,0 +1,259 @@
+Below is the **complete ready-to-use list of ALL question types**, including:
+
+* Correct MongoDB payload
+* Correct Postman **form-data** payload
+* Optional image uploading (`media`)
+* Supported schemas:
+  ✔ MCQ (text & image)
+  ✔ Paragraph + sub-questions
+  ✔ Short Answer
+  ✔ True/False
+  ✔ Matching (A → 1 type)
+
+Your current schema supports exactly **these 5 types**:
+
+```
+"mcq_text"
+"paragraph"
+"short_answer"
+"true_false"
+"matching"
+```
+
+---
+
+# ✅ 1. MCQ (TEXT / IMAGE OPTIONS)
+
+## 🔵 **Route**
+
+```
+POST http://localhost:5000/api/questions/create
+```
+
+## 🔵 **POSTMAN → form-data**
+
+* `payload`: Text → paste JSON below
+* `media`: file (optional images for the question)
+
+## 🔵 **Payload**
+
+```json
+{
+  "type": "mcq_text",
+  "classId": "class_6",
+  "subjectId": "maths",
+  "topicId": "algebra",
+
+  "text": "What is 12 × 2?",
+
+  "options": [
+    { "id": "A", "text": "22", "isCorrect": false },
+    { "id": "B", "text": "20", "isCorrect": false },
+    { "id": "C", "text": "24", "isCorrect": true },
+    { "id": "D", "text": "18", "isCorrect": false }
+  ],
+
+  "correctAnswer": "C",
+  "marks": 1,
+  "negativeMarks": 0,
+  "difficulty": "easy"
+}
+```
+
+---
+
+# ✅ 2. MCQ with **Image Options**
+
+Use when options are in images (like in your INNOSAT papers).
+
+## 🔵 **form-data**
+
+| key     | type | value      |
+| ------- | ---- | ---------- |
+| payload | text | JSON below |
+| media   | file | (optional) |
+| optionA | file | upload     |
+| optionB | file | upload     |
+| optionC | file | upload     |
+| optionD | file | upload     |
+
+You choose names yourself — then client assigns them to mediaUrl.
+
+### **Payload**
+
+```json
+{
+  "type": "mcq_text",
+  "classId": "class_7",
+  "subjectId": "reasoning",
+  "topicId": "patterns",
+
+  "text": "Select the matching figure.",
+
+  "options": [
+    { "id": "A", "mediaUrl": "/uploads/optionA.png", "isCorrect": false },
+    { "id": "B", "mediaUrl": "/uploads/optionB.png", "isCorrect": true },
+    { "id": "C", "mediaUrl": "/uploads/optionC.png", "isCorrect": false },
+    { "id": "D", "mediaUrl": "/uploads/optionD.png", "isCorrect": false }
+  ],
+
+  "correctAnswer": "B",
+  "marks": 1
+}
+```
+
+---
+
+# ✅ 3. **Paragraph Question + Sub-Questions**
+
+For comprehension, big passages, etc.
+
+## 🔵 **Payload**
+
+```json
+{
+  "type": "paragraph",
+  "classId": "class_8",
+  "subjectId": "english",
+  "topicId": "reading_comprehension",
+
+  "text": "Read the passage and answer the following questions.",
+  "media": [],
+
+  "subQuestions": [
+    {
+      "id": "Q1",
+      "type": "mcq_text",
+      "text": "What is the main idea?",
+      "options": [
+        { "id": "A", "text": "Option 1" },
+        { "id": "B", "text": "Option 2", "isCorrect": true }
+      ]
+    },
+    {
+      "id": "Q2",
+      "type": "short_answer",
+      "text": "Write one sentence summary.",
+      "correctAnswer": "Any relevant explanation."
+    },
+    {
+      "id": "Q3",
+      "type": "true_false",
+      "text": "The story is fictional.",
+      "correctAnswer": true
+    }
+  ],
+
+  "marks": 5,
+  "difficulty": "medium"
+}
+```
+
+---
+
+# ✅ 4. **Short Answer**
+
+For fill-in-the-blank / numeric answers.
+
+## 🔵 **Payload**
+
+```json
+{
+  "type": "short_answer",
+  "classId": "class_6",
+  "subjectId": "science",
+  "topicId": "light",
+
+  "text": "What is the speed of light in vacuum?",
+  "correctAnswer": "3 × 10^8 m/s",
+
+  "marks": 2
+}
+```
+
+---
+
+# ✅ 5. **True / False**
+
+## 🔵 **Payload**
+
+```json
+{
+  "type": "true_false",
+  "classId": "class_5",
+  "subjectId": "gk",
+  "topicId": "world",
+
+  "text": "Sun rises in the East.",
+  "correctAnswer": true,
+
+  "marks": 1
+}
+```
+
+---
+
+# ✅ 6. **Matching Questions**
+
+(A → 1, B → 2 style)
+
+## 🔵 **Payload**
+
+```json
+{
+  "type": "matching",
+  "classId": "class_7",
+  "subjectId": "science",
+  "topicId": "body_parts",
+
+  "text": "Match the following:",
+  "matches": {
+    "A": "1",
+    "B": "3",
+    "C": "2"
+  },
+
+  "marks": 3
+}
+```
+
+---
+
+# 📌 Bonus: **Question With Only Image (NO Text)**
+
+Used in reasoning/matrices.
+
+## 🔵 **Payload**
+
+```json
+{
+  "type": "mcq_text",
+  "classId": "class_7",
+  "subjectId": "reasoning",
+  "topicId": "figure_analysis",
+
+  "text": "",
+  "options": [
+    { "id": "A", "mediaUrl": "/uploads/A.png" },
+    { "id": "B", "mediaUrl": "/uploads/B.png" },
+    { "id": "C", "mediaUrl": "/uploads/C.png", "isCorrect": true },
+    { "id": "D", "mediaUrl": "/uploads/D.png" }
+  ],
+
+  "correctAnswer": "C",
+  "marks": 1
+}
+```
+
+---
+
+# 🎯 Summary — Supported Types & Quick Payload Links
+
+| Type           | Use Case                | Payload |
+| -------------- | ----------------------- | ------- |
+| `mcq_text`     | text or image MCQs      | ✔ above |
+| `paragraph`    | passage + sub questions | ✔ above |
+| `short_answer` | fill-in blank / numeric | ✔ above |
+| `true_false`   | boolean                 | ✔ above |
+| `matching`     | match the pair          | ✔ above |
+
