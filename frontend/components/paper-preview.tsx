@@ -198,7 +198,7 @@ export function PaperPreview({ config }: PaperPreviewProps) {
             size="sm"
             variant="outline"
             className="gap-2 bg-transparent"
-            onClick={handleExportPDF}
+            onClick={()=>{handleExportPDF(config)}}
           >
             <FileText className="h-4 w-4" />
             Export as PDF
@@ -208,7 +208,7 @@ export function PaperPreview({ config }: PaperPreviewProps) {
             size="sm"
             variant="outline"
             className="gap-2 bg-transparent"
-            onClick={handleExportWord}
+            onClick={()=>handleExportWord(config)}
           >
             <FileText className="h-4 w-4" />
             Export as Word
@@ -218,7 +218,7 @@ export function PaperPreview({ config }: PaperPreviewProps) {
             size="sm"
             variant="outline"
             className="gap-2 bg-transparent"
-            onClick={handleFullPreview}
+            onClick={()=>handleFullPreview(config)}
           >
             <Eye className="h-4 w-4" />
             Full Preview
@@ -228,7 +228,7 @@ export function PaperPreview({ config }: PaperPreviewProps) {
             size="sm"
             variant="outline"
             className="gap-2 bg-transparent"
-            onClick={handleDownloadAnswerKey}
+            onClick={()=>handleDownloadAnswerKey(config)}
           >
             <Download className="h-4 w-4" />
             Download Answer Key
@@ -242,7 +242,7 @@ export function PaperPreview({ config }: PaperPreviewProps) {
 /* ============================
    EXPORT AS PDF
 ============================ */
-const handleExportPDF = async () => {
+export const handleExportPDF = async (config: PaperConfig) => {
   const element = document.getElementById("paper-preview")
   if (!element) return
 
@@ -260,7 +260,7 @@ const handleExportPDF = async () => {
 /* ============================
    EXPORT AS WORD (.docx)
 ============================ */
-const handleExportWord = () => {
+export const handleExportWord = (config: PaperConfig) => {
   const element = document.getElementById("paper-preview")
   if (!element) return
 
@@ -292,7 +292,7 @@ const handleExportWord = () => {
 /* ============================
    FULL PREVIEW (PRINT VIEW)
 ============================ */
-const handleFullPreview = () => {
+export const handleFullPreview = (config: PaperConfig) => {
   const element = document.getElementById("paper-preview")
   if (!element) return
 
@@ -320,7 +320,7 @@ const handleFullPreview = () => {
 /* ============================
    DOWNLOAD ANSWER KEY (TXT)
 ============================ */
-const handleDownloadAnswerKey = () => {
+export const handleDownloadAnswerKey = (config: PaperConfig) => {
   let content = `ANSWER KEY\n\n${config.title}\n\n`
 
   config.sections.forEach((section, sIndex) => {

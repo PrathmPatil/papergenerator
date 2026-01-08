@@ -11,28 +11,36 @@ const axiosInstance: AxiosInstance = axios.create({
   },
 });
 
-// Optional: Request interceptor
+// Request interceptor – attach token
 axiosInstance.interceptors.request.use(
   (config) => {
-    // Example: add token dynamically
-    const token = typeof window !== "undefined"
-      ? localStorage.getItem("token")
-      : null;
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("token");
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
-
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Optional: Response interceptor
+// Response interceptor – handle 403
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
-    console.error("API Error:", error.response?.data || error.message);
+    const status = error.response?.status;
+
+    if (status === 403) {
+      console.warn("Token expired or forbidden. Redirecting to login...");
+
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("token"); // optional but recommended
+        localStorage.removeItem("user");
+        window.location.href = "/"; // login route
+      }
+    }
+
     return Promise.reject(error);
   }
 );

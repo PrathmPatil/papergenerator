@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { fetchPaperByIdApi } from "@/utils/apis"
 import { baseURL } from "@/hooks/common"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { handleExportPDF } from "@/components/paper-preview"
 
 /* ---------------- TYPES ---------------- */
 
@@ -125,9 +126,9 @@ export default function PaperDetailsPage() {
       {/* ACTIONS */}
       <div className="flex gap-2">
         <Button variant="outline" onClick={()=>router.push(`/dashboard/papers/edit/${paperId}`)}><Edit className="mr-2 h-4 w-4" /> Edit</Button>
-        <Button><Download className="mr-2 h-4 w-4" /> Download PDF</Button>
-        <Button variant="outline"><Printer className="mr-2 h-4 w-4" /> Print</Button>
-        <Button variant="outline"><Share2 className="mr-2 h-4 w-4" /> Share</Button>
+        <Button><Download className="mr-2 h-4 w-4" onClick={()=>handleExportPDF(paper)} /> Download PDF</Button>
+        <Button variant="outline"><Printer className="mr-2 h-4 w-4" onClick={()=>handleExportPDF(paper)} /> Print</Button>
+        <Button variant="outline"><Share2 className="mr-2 h-4 w-4"  /> Share</Button>
       </div>
 
       {/* SUBJECT-WISE QUESTIONS */}

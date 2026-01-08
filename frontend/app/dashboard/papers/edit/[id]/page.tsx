@@ -560,7 +560,10 @@ export default function EditPaperPage() {
                       const usedMarks = getUsedMarksExcept(subject.id);
                       const remaining = totalMarks - usedMarks;
                       const currentMarks = getSubjectMarks(subject.id);
-
+                      console.log("Remaining marks:", remaining);
+                      console.log("Current marks:", currentMarks);
+                      console.log("Total marks:", totalMarks);
+                      console.log("Used marks:", usedMarks);
                       return (
                         <div
                           key={subject.id}

@@ -325,13 +325,13 @@ export default function QuestionBankPage() {
 
       {/* STATS */}
       <div className="grid md:grid-cols-4 gap-4">
-        <StatCard label="Total Questions" value={stats.total} />
-        <StatCard label="Total Marks" value={stats.totalMarks} />
-        <StatCard label="Easy" value={stats.byDifficulty.easy} />
-        <StatCard
+        <StatCard label="Total Questions" value={totalRecords} />
+         <StatCard label="Records Per Page" value={recordsPerPage} />
+        <StatCard label="Total Pages" value={totalPages} />
+       {/*} <StatCard
           label="Medium / Hard"
           value={stats.byDifficulty.medium + stats.byDifficulty.hard}
-        />
+        /> */}
       </div>
 
       {/* FILTERS */}

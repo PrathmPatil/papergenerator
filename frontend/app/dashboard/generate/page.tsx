@@ -27,12 +27,21 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { ClassLevel, Section, Sections } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { PaperPreview } from "@/components/paper-preview";
 import { CLASSES, SUBJECTS } from "../../../lib/data";
 import { TOPICS } from "@/lib/mock-data";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { createPaperTemplateApi, fetchQuestionByIdApi, generatePaperApiManual, isTitleExist } from "@/utils/apis";
-import PaperGenerationTemplate from "@/components/paper-generation-template";
+import dynamic from "next/dynamic";
+
+const PaperPreview = dynamic(
+  () => import("@/components/paper-preview"),
+  { ssr: false }
+);
+
+const PaperGenerationTemplate = dynamic(
+  () => import("@/components/paper-generation-template"),
+  { ssr: false }
+);
 
 // Steps for the wizard
 const STEPS = [

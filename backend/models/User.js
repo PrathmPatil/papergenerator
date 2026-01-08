@@ -9,6 +9,8 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, required: true, default: Date.now },
   updatedAt: { type: Date, required: true, default: Date.now },
   password: { type: String, required: true, select: false },
+  phone: { type: String, required: true, default: "" },
+  institution: { type: String, required: true, default: "" },
 });
 
 export default mongoose.model("User", userSchema);

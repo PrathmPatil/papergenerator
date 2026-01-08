@@ -153,7 +153,7 @@ export default function PaperBankPage() {
             Manage exam papers and sections
           </p>
         </div>
-        <Link href="/dashboard/papers/new">
+        <Link href="/dashboard/generate" className="cursor-pointer">
           <Button>
             <Plus className="mr-2 h-4 w-4" /> Create Paper
           </Button>

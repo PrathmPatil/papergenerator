@@ -272,3 +272,52 @@ export const toggleUserDeleteApi = async (id: string, payload: any) => {
   });
   return response;
 }
+
+// /:userId/password
+export const changePasswordApi = async (id: string, payload: any) => {
+  const response = await apiClient({
+    url: `/api/users/${id}/password`,
+    method: "PUT",
+    data: payload,
+  });
+  return response;
+}
+
+// Put // /:userId/profile
+export const updateProfileApi = async (id: string, payload: any) => {
+  const response = await apiClient({
+    url: `/api/users/${id}/profile`,
+    method: "PUT",
+    data: payload,
+  });
+  return response;
+}
+
+// /profile/:id
+export const fetchProfileApi = async (id: string) => {
+  const response = await apiClient({
+    url: `/api/users/profile/${id}`,
+  });
+  return response;
+}
+
+// /:userId/notifications
+export const updateNotificationsApi = async (id: string, payload: any) => {
+  const response = await apiClient({
+    url: `/api/setting/${id}/notifications`,
+    method: "PUT",
+    data: payload,
+  });
+  return response;
+}
+
+// /:userId/theme
+export const updateThemeApi = async (id: string, payload: any) => {
+  const response = await apiClient({
+    url: `/api/setting/${id}/theme`,
+    method: "PUT",
+    data: payload,
+  });
+  return response;
+}
+

@@ -12,6 +12,7 @@ interface UserContextType {
   token: string | null;
   setToken: (token: string | null) => void;
   login: (role: UserRole) => void;
+  logout: () => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -41,9 +42,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       router.push("/dashboard");
       // localStorage.setItem("paper_setter_user", JSON.stringify(user))
     } else {
-      localStorage.removeItem("user");
-      localStorage.removeItem("token");
-      router.push("/");
+      // localStorage.removeItem("user");
+      // localStorage.removeItem("token");
+      // router.push("/");
     }
   }, [user]);
 
@@ -52,8 +53,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     // setUser(mockUser)
   };
 
+  const logout = () => {
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem("user");
+    localStorage.removeItem("token");
+    router.push("/");
+  }
+
   return (
-    <UserContext.Provider value={{ user, setUser, setToken, token, login }}>
+    <UserContext.Provider value={{ user, setUser, setToken, token, login, logout }}>
       {children}
     </UserContext.Provider>
   );

@@ -115,6 +115,8 @@ router.post("/login", async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          phone: user.phone ?? "",
+          institution: user.institution ?? "",
         },
         token,
       },
@@ -262,5 +264,67 @@ router.put("/:id/is-deleted",verifyToken, async (req, res) => {
     res.status(400).json({ success: false, message: error.message });
   }
 });
+
+router.put("/:userId/profile", verifyToken, async (req, res) => {
+  try {
+
+    const { name, email, phone, institution } = req.body;
+
+    await User.findByIdAndUpdate(req.params.userId, {
+      phone,
+      institution,
+      name
+    });
+
+    res.json({ success: true, message: "Profile updated" });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// get profile
+router.get("/profile/:id",verifyToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const user = await User.findById(id).select("-password");
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+    res.status(200).json({
+      success: true,
+      message: "User profile fetched successfully",
+      data: user,
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+
+router.put("/:userId/password", verifyToken, async (req, res) => {
+  try {
+
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await User.findById(req.params.userId).select("+password");
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Incorrect current password" });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await User.findByIdAndUpdate(req.params.userId, {
+      password: user.password,
+    });
+
+    res.json({ success: true, message: "Password updated" });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 
 export default router;

@@ -7,8 +7,10 @@ import mongoose from "mongoose";
 import questionRoutes from "./routes/questions.js";
 import paperRoutes from "./routes/papers.js";
 import userRoutes from "./routes/users.js";
+import userSettingRoutes from "./routes/userSetting.js"
 import { swaggerDocs } from "./swagger.js";
 import { verifyToken } from "./middleware/tokenVerification.middleware.js";
+import { seedMasterUser } from "./master.seed.js";
 
 
 dotenv.config();
@@ -32,6 +34,7 @@ app.use((req, res, next) => {
 app.use("/api/questions",verifyToken, questionRoutes);
 app.use("/api/papers",verifyToken, paperRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/setting",userSettingRoutes)
 
 app.post("/ping", (req, res) => {
   console.log("🔥 PING HIT");
@@ -46,7 +49,7 @@ app.get("/api/hello", (req, res) => {
 
 mongoose
   .connect("mongodb://127.0.0.1:27017/papergenerator")
-  .then(() => console.log("MongoDB connected"))
+  .then(async () =>{ console.log("MongoDB connected"); await seedMasterUser(); })
   .catch((err) => console.error(err));
 
 swaggerDocs(app);  

@@ -30,7 +30,7 @@ import {
 export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, setUser } = useUser()
+  const { user, setUser, logout } = useUser()
 
   if (!user) return null
 
@@ -40,7 +40,7 @@ export function AppSidebar() {
     { name: "Question Bank", href: "/dashboard/questions", icon: BookOpen },
     { name: "Paper Generator", href: "/dashboard/generate", icon: FileText },
     { name: "Papers", href: "/dashboard/papers", icon: GraduationCap },
-    { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
+    // { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
     { name: "User Management", href: "/dashboard/users", icon: Users },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ]
@@ -48,7 +48,7 @@ export function AppSidebar() {
   const teacherLinks = [
     { name: "Question Bank", href: "/dashboard/questions", icon: BookOpen },
     { name: "Paper Generator", href: "/dashboard/generate", icon: FileText },
-    { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
+    // { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
     { name: "My Classes", href: "/dashboard/classes", icon: GraduationCap },
   ]
 
@@ -68,8 +68,7 @@ export function AppSidebar() {
   ]
 
   const handleLogout = () => {
-    setUser(null)
-    router.push("/login")
+    logout()
   }
 
   return (

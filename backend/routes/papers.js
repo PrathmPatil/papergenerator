@@ -513,10 +513,11 @@ router.post("/", async (req, res) => {
 
     // ✅ Await only at the end
     const papers = await query;
+    const count = await Paper.countDocuments(filter);
 
     return res.status(200).json({
       success: true,
-      count: papers.length,
+      count,
       papers,
     });
   } catch (error) {
