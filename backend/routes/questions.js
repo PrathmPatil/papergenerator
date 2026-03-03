@@ -245,7 +245,7 @@ router.post("/", async (req, res) => {
     } = req.body;
 
     const filter = {};
-
+      filter.$or = [{ isDeleted: false }, { isDeleted: { $exists: false } }];
     // -----------------------------
     // BASIC FILTERS
     // -----------------------------
@@ -294,9 +294,9 @@ router.post("/", async (req, res) => {
     // ======================================================
     if (selectedQuestions.length > 0) {
       selectedQuestionDocs = await Question.find({
+        ...filter,
         _id: { $in: selectedQuestions },
       }).lean();
-
       // Preserve order of selectedQuestions array
       const map = new Map(
         selectedQuestionDocs.map((q) => [q._id.toString(), q])
@@ -488,5 +488,44 @@ router.post(
     }
   }
 );
+
+// SOFT DELETE QUESTION
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const question = await Question.findById(id);
+    if (!question) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Question not found" });
+    }
+
+    // already deleted?
+    if (question.isDeleted) {
+      return res.json({
+        success: true,
+        message: "Question already deleted",
+        question,
+      });
+    }
+
+    question.isDeleted = true;
+    question.deletedAt = new Date();
+
+    // if you have auth middleware setting req.user
+    if (req.user?._id) question.deletedBy = req.user._id;
+
+    await question.save();
+
+    return res.json({
+      success: true,
+      message: "Question deleted (soft)",
+      question,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 export default router;

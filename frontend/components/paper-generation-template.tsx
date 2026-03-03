@@ -10,7 +10,6 @@ import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 
 import { fetchAllQuestionsApi } from "@/utils/apis";
-import { baseURL } from "@/hooks/common";
 import { getClassNameById, getSubjectNameById } from "@/lib/data";
 
 /* ----------------------------------------
@@ -38,31 +37,79 @@ interface SubjectState {
   questions: IQuestion[];
 }
 
+type SelectedMap = Record<string, string[]>;
+
+/* ----------------------------------------
+   HELPERS
+---------------------------------------- */
+function getSectionId(sec: any) {
+  return String(sec?.id ?? sec?._id ?? "");
+}
+
+function normalizeSectionQuestions(sec: any): string[] {
+  if (!Array.isArray(sec?.questions)) return [];
+  return sec.questions
+    .map((q: any) => String(q?.questionId ?? q?._id ?? q?.id ?? q))
+    .filter(Boolean);
+}
+
+// supports:
+// 1) { [sectionId]: ["q1","q2"] }
+// 2) [{sectionId:"...", questionId:"..."}]
+// 3) [{sectionId:"...", _id:"..."}]
+function normalizeSelectedQuestionsEdit(input: any): SelectedMap {
+  const out: SelectedMap = {};
+
+  // map style
+  if (input && !Array.isArray(input) && typeof input === "object") {
+    for (const [k, v] of Object.entries(input)) {
+      out[String(k)] = Array.isArray(v) ? (v as any[]).map(String) : [];
+    }
+    return out;
+  }
+
+  // array style
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const sectionId = String(
+        item?.sectionId ?? item?.section?._id ?? item?.section ?? ""
+      );
+      const qid = String(item?.questionId ?? item?._id ?? item?.id ?? "");
+      if (!sectionId || !qid) continue;
+
+      if (!out[sectionId]) out[sectionId] = [];
+      if (!out[sectionId].includes(qid)) out[sectionId].push(qid);
+    }
+    return out;
+  }
+
+  return {};
+}
+
 /* ----------------------------------------
    COMPONENT
 ---------------------------------------- */
 export default function PaperGenerationTemplate({
   data,
   paperGenerateFunction,
-  selectedQuestionsEdit=[],
+  selectedQuestionsEdit = null,
 }: any) {
-
   const [subjects, setSubjects] = useState<Record<string, SubjectState>>({});
-  const [selectedQuestions, setSelectedQuestions] = useState<
-    Record<string, string[]>
-  >({});
+  const [selectedQuestions, setSelectedQuestions] = useState<SelectedMap>({});
 
   const [selectedQuestion, setSelectedQuestion] = useState<IQuestion | null>(
     null
   );
   const [viewModalOpen, setViewModalOpen] = useState(false);
-  console.log(selectedQuestionsEdit);
-  console.log("Selected Questions:", selectedQuestions);
-  console.log(data);
+
   /* ----------------------------------------
-     OBSERVERS (PER SUBJECT)
+     KEEP A STABLE REF TO PARENT CALLBACK
+     (prevents dependency loops when parent recreates function)
   ---------------------------------------- */
-  const observers = useRef<Record<string, IntersectionObserver>>({});
+  const parentSyncRef = useRef<any>(paperGenerateFunction);
+  useEffect(() => {
+    parentSyncRef.current = paperGenerateFunction;
+  }, [paperGenerateFunction]);
 
   /* ----------------------------------------
      INIT SUBJECTS
@@ -71,18 +118,73 @@ export default function PaperGenerationTemplate({
     if (!data?.subjectId) return;
 
     const initial: Record<string, SubjectState> = {};
-    data.subjectId.split(",").forEach((id: string) => {
-      initial[id] = {
-        open: false,
-        page: 1,
-        hasMore: true,
-        loading: false,
-        questions: [],
-      };
-    });
+    String(data.subjectId)
+      .split(",")
+      .map((x: string) => x.trim())
+      .filter(Boolean)
+      .forEach((id: string) => {
+        initial[id] = {
+          open: false,
+          page: 1,
+          hasMore: true,
+          loading: false,
+          questions: [],
+        };
+      });
 
     setSubjects(initial);
-  }, [data.subjectId]);
+  }, [data?.subjectId]);
+
+  /* ----------------------------------------
+     INIT SELECTED QUESTIONS (EDIT LOAD)
+     - build merged selection from template + edit payload
+     - set local state only if different
+  ---------------------------------------- */
+  useEffect(() => {
+    if (!data?.sections?.length) return;
+
+    const base: SelectedMap = {};
+    data.sections.forEach((sec: any) => {
+      const sid = getSectionId(sec);
+      if (!sid) return;
+      base[sid] = normalizeSectionQuestions(sec);
+    });
+
+    const fromEdit = normalizeSelectedQuestionsEdit(selectedQuestionsEdit);
+    const merged: SelectedMap = { ...base, ...fromEdit };
+
+    // ✅ prevent resetting selection repeatedly
+    const currentSnap = JSON.stringify(selectedQuestions);
+    const mergedSnap = JSON.stringify(merged);
+    if (currentSnap === mergedSnap) return;
+
+    setSelectedQuestions(merged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.sections, selectedQuestionsEdit]);
+
+  /* ----------------------------------------
+     SYNC LOCAL SELECTED QUESTIONS TO PARENT
+     - ensures preview shows already-selected questions
+     - prevents infinite loops by deduping snapshots
+  ---------------------------------------- */
+  const lastSentSnapRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!selectedQuestions || Object.keys(selectedQuestions).length === 0) return;
+
+    const snap = JSON.stringify(selectedQuestions);
+
+    // ✅ send only when changed
+    if (snap === lastSentSnapRef.current) return;
+
+    lastSentSnapRef.current = snap;
+    parentSyncRef.current?.(selectedQuestions);
+  }, [selectedQuestions]);
+
+  /* ----------------------------------------
+     OBSERVERS (PER SUBJECT)
+  ---------------------------------------- */
+  const observers = useRef<Record<string, IntersectionObserver>>({});
 
   /* ----------------------------------------
      FETCH QUESTIONS
@@ -92,15 +194,16 @@ export default function PaperGenerationTemplate({
       ...p,
       [subjectId]: { ...p[subjectId], loading: true },
     }));
-const selectedQuestions =
-  data.sections.find((s: any) => s.subjectId === subjectId)?.questions || [];
-  const sectionId = data.sections.find((s: any) => s.subjectId === subjectId)?.id;
-  setSelectedQuestions((prev)=>{
-    return {
-      ...prev,
-      [sectionId]: selectedQuestions
-    }
-  });
+
+    const sec = data?.sections?.find(
+      (s: any) => String(s.subjectId) === String(subjectId)
+    );
+    const sectionId = sec ? getSectionId(sec) : "";
+
+    const selectedForThisSection = sectionId
+      ? selectedQuestions[sectionId] || []
+      : [];
+
     const payload = {
       classId: data.classId,
       subjectId,
@@ -108,7 +211,7 @@ const selectedQuestions =
       limit: 5,
       type: data.type,
       difficulty: data.difficulty,
-      selectedQuestions
+      selectedQuestions: selectedForThisSection,
     };
 
     const res = await fetchAllQuestionsApi(payload);
@@ -146,22 +249,6 @@ const selectedQuestions =
   };
 
   /* ----------------------------------------
-     TOGGLE QUESTION (SECTION BASED)
-  ---------------------------------------- */
-  const toggleQuestion = (question: IQuestion, sectionId: string) => {
-    setSelectedQuestions((prev) => {
-      const prevIds = prev[sectionId] || [];
-      const nextIds = prevIds.includes(question._id)
-        ? prevIds.filter((id) => id !== question._id)
-        : [...prevIds, question._id];
-
-      const updated = { ...prev, [sectionId]: nextIds };
-      paperGenerateFunction(updated);
-      return updated;
-    });
-  };
-
-  /* ----------------------------------------
      INFINITE SCROLL
   ---------------------------------------- */
   const loadMoreRef = (subjectId: string) => (node: HTMLDivElement | null) => {
@@ -190,9 +277,10 @@ const selectedQuestions =
       <h1 className="text-2xl font-bold">Question Paper Generator</h1>
 
       {Object.entries(subjects).map(([subjectId, state]) => {
-        const sectionId = data.sections?.find(
-          (s: any) => s.subjectId === subjectId
-        )?.id;
+        const sec = data?.sections?.find(
+          (s: any) => String(s.subjectId) === String(subjectId)
+        );
+        const sectionId = sec ? getSectionId(sec) : "";
 
         return (
           <Card key={subjectId} className="p-4">
@@ -208,42 +296,56 @@ const selectedQuestions =
 
             {state.open && (
               <div className="mt-4 space-y-3">
-                {state.questions.map((q) => (
-                  <div
-                    key={q._id}
-                    className="flex gap-3 border p-3 rounded"
-                  >
-                    <Checkbox
-                      className="cursor-pointer"
-                      checked={
-                        !!sectionId &&
-                        selectedQuestions[sectionId]?.includes(q._id)
-                      }
-                      onCheckedChange={() =>
-                        sectionId && toggleQuestion(q, sectionId)
-                      }
-                    />
+                {state.questions.map((q) => {
+                  const checked =
+                    !!sectionId &&
+                    (selectedQuestions[sectionId] || []).includes(q._id);
 
-                    <div className="flex-1">
-                      <p className="font-medium line-clamp-2">{q.text}</p>
-                      <div className="flex gap-2 mt-1">
-                        <Badge variant="outline">{q.type}</Badge>
-                        <Badge>{q.difficulty}</Badge>
+                  return (
+                    <div key={q._id} className="flex gap-3 border p-3 rounded">
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(val) => {
+                          if (!sectionId) return;
+
+                          setSelectedQuestions((prev) => {
+                            const current = prev[sectionId] || [];
+                            const exists = current.includes(q._id);
+
+                            const next =
+                              val === true
+                                ? exists
+                                  ? current
+                                  : [...current, q._id]
+                                : current.filter((id) => id !== q._id);
+
+                            // ✅ only local update (parent sync happens in effect)
+                            return { ...prev, [sectionId]: next };
+                          });
+                        }}
+                      />
+
+                      <div className="flex-1">
+                        <p className="font-medium line-clamp-2">{q.text}</p>
+                        <div className="flex gap-2 mt-1">
+                          <Badge variant="outline">{q.type}</Badge>
+                          <Badge>{q.difficulty}</Badge>
+                        </div>
                       </div>
-                    </div>
 
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        setSelectedQuestion(q);
-                        setViewModalOpen(true);
-                      }}
-                    >
-                      View
-                    </Button>
-                  </div>
-                ))}
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setSelectedQuestion(q);
+                          setViewModalOpen(true);
+                        }}
+                      >
+                        View
+                      </Button>
+                    </div>
+                  );
+                })}
 
                 {state.loading && (
                   <p className="text-center text-sm text-muted-foreground">

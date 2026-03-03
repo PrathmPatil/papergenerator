@@ -142,6 +142,14 @@ export const fetchQuestionByIdApi = async (data: { classId: string; subjectId: s
 //     }
 //   ]  
 // }
+
+export const deleteQuestionApi = async (id: string) => {
+  const response = await apiClient({
+    url: `/api/questions/${id}`,
+    method: "DELETE",
+  });
+  return response;
+};
 export const createPaperTemplateApi = async (payload: any) => {
   const response = await apiClient({
     url: "/api/papers/template/create",
@@ -199,12 +207,22 @@ export const isTitleExist = async (name:string)=>{
 // update the paper :id
 export const updatePaperName = async (id: string, payload: any) => {
   const response = await apiClient({
-    url: `/api/papers/edit/${id}`,
+    url: `/api/papers/${id}`,
     method: "PUT",
     data: payload,
   });
   return response;
 }
+
+// DELETE /api/papers/:id  (soft delete)
+export const deletePaperApi = async (id: string) => {
+  const response = await apiClient({
+    url: `/api/papers/${id}`,
+    method: "DELETE",
+  });
+  return response;
+};
+
 
 
 // POST /api/users/register
@@ -321,3 +339,12 @@ export const updateThemeApi = async (id: string, payload: any) => {
   return response;
 }
 
+// GET /api/papers/export/:id  (download pdf)
+export const exportPaperPdfApi = async (id: string) => {
+  const response = await apiClient({
+    url: `/api/papers/export/${id}`,
+    method: "GET",
+    responseType: "blob", // ✅ IMPORTANT
+  });
+  return response; // this will be Blob response
+};
