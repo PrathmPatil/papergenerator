@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 
 // ⭐ VERY IMPORTANT — ADD .js extension
 import questionRoutes from "./routes/questions.js";
+import topicRoutes from "./routes/topics.js";
 import paperRoutes from "./routes/papers.js";
 import userRoutes from "./routes/users.js";
 import userSettingRoutes from "./routes/userSetting.js"
@@ -32,6 +33,7 @@ app.use((req, res, next) => {
 
 // ⭐ REGISTER ROUTES
 app.use("/api/questions",verifyToken, questionRoutes);
+app.use("/api/topics", verifyToken, topicRoutes);
 app.use("/api/papers",verifyToken, paperRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/setting",userSettingRoutes)

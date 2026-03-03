@@ -174,3 +174,103 @@
 .animate-accordion-up {
   animation: accordion-up 0.2s ease-out;
 }
+
+/* ================= PRINT SETTINGS ================= */
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #paper-preview,
+  #paper-preview * {
+    visibility: visible !important;
+  }
+
+  #paper-preview {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    box-shadow: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
+
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+* {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Make html2pdf/html2canvas safe (no lab/oklab) */
+.pdf-mode,
+.pdf-mode * {
+  color: #000 !important;
+  background-color: #fff !important;
+  border-color: #000 !important;
+}
+/* prevent ugly word breaks in pdf/canvas */
+.print-safe, .print-safe * {
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  hyphens: none !important;
+  letter-spacing: normal !important;
+}
+/* Prevent ugly word breaking */
+#paper-preview, 
+#paper-preview * {
+  word-break: keep-all !important;   /* do not break words */
+  overflow-wrap: normal !important;  /* don't force breaking */
+  hyphens: none !important;          /* no hyphenation */
+}
+
+/* Allow wrapping only between words */
+#paper-preview p,
+#paper-preview li,
+#paper-preview td,
+#paper-preview th,
+#paper-preview div,
+#paper-preview span {
+  white-space: normal !important;
+}
+
+
+/*Paper Page Number*/
+
+@page {
+  size: A4;
+  margin: 20mm;
+}
+
+@media print {
+  body {
+    counter-reset: page;
+  }
+
+  .print-footer {
+    position: fixed;
+    bottom: 10px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 12px;
+    color: #555;
+  }
+
+  .print-footer::after {
+    content: "Page " counter(page);
+  }
+
+  /* Optional: page break utility */
+  .page-break {
+    page-break-before: always;
+  }
+}

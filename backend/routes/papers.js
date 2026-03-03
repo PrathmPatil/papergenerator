@@ -206,6 +206,7 @@
 import express from "express";
 import Question from "../models/Question.js";
 import PaperTemplate from "../models/PaperTemplate.js";
+import PDFDocument from "pdfkit";
 import Paper from "../models/Paper.js";
 const router = express.Router();
 
@@ -340,21 +341,28 @@ router.post("/template/create", async (req, res) => {
     } = req.body;
 
     if (
-      !title ||
-      !classId ||
-      !totalMarks ||
-      !durationMinutes ||
-      !sections ||
-      !type ||
-      !difficulty
-    )
-      return res.status(400).json({ error: "Missing required fields" });
-
+  !title ||
+  !classId ||
+  totalMarks === undefined ||
+  totalMarks === null ||
+  durationMinutes === undefined ||
+  durationMinutes === null ||
+  !sections ||
+  !type ||
+  !difficulty
+) {
+  return res.status(400).json({ error: "Missing required fields" });
+}
     if (!Array.isArray(sections) || sections.length === 0)
       return res
         .status(400)
         .json({ error: "Sections must be a non-empty array" });
-
+    if (Number(totalMarks) <= 0) {
+    return res.status(400).json({ error: "totalMarks must be > 0" });
+    }
+    if (Number(durationMinutes) <= 0) {
+      return res.status(400).json({ error: "durationMinutes must be > 0" });
+    }
     const template = new PaperTemplate({
       title,
       classId,
@@ -439,14 +447,6 @@ router.post("/generate", async (req, res) => {
 ====================================
 */
 
-router.get("/:id", async (req, res) => {
-  try {
-    const paper = await Paper.findById(req.params.id);
-    res.json({ success: true, paper });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 router.get("/edit/:id", async (req, res) => {
   try {
@@ -486,12 +486,16 @@ router.get("/edit/:id", async (req, res) => {
   }
 });
 
+
+
 // POST /api/papers/
 router.post("/", async (req, res) => {
   try {
     const { classId, title, order = "desc", isRecent = false } = req.body;
 
     const filter = {};
+
+    filter.isDeleted = false; 
 
     if (classId) {
       filter.classId = classId;
@@ -551,5 +555,141 @@ router.get("/check/:title", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+
+// SOFT DELETE PAPER
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const paper = await Paper.findById(id);
+    if (!paper) return res.status(404).json({ success: false, message: "Paper not found" });
+
+    // already deleted? (optional)
+    if (paper.isDeleted) {
+      return res.json({ success: true, message: "Paper already deleted", paper });
+    }
+
+    paper.isDeleted = true;
+    paper.deletedAt = new Date();
+
+    // If verifyToken sets req.user, keep this. Otherwise remove safely.
+    if (req.user?._id) paper.deletedBy = req.user._id;
+
+    await paper.save();
+
+    return res.json({ success: true, message: "Paper deleted (soft)", paper });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+/*
+====================================
+ EXPORT PAPER AS PDF
+====================================
+*/
+
+router.get("/export/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const paper = await Paper.findById(id);
+
+    if (!paper) {
+      return res.status(404).json({
+        success: false,
+        message: "Paper not found",
+      });
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${paper.title || "paper"}.pdf"`
+    );
+
+    const doc = new PDFDocument({
+      margin: 40,
+      size: "A4",
+    });
+
+    doc.pipe(res);
+
+    // Title
+    doc.fontSize(18).text(paper.title || "Question Paper", {
+      align: "center",
+    });
+
+    doc.moveDown();
+
+    doc.fontSize(12).text(`Class: ${paper.classId}`);
+    doc.text(`Total Marks: ${paper.totalMarks}`);
+    doc.text(`Duration: ${paper.durationMinutes} minutes`);
+
+    doc.moveDown();
+
+    let qNo = 1;
+
+    for (const section of paper.sections || []) {
+      doc.fontSize(14).text(
+        `${section.name} (${section.marks} Marks)`,
+        { underline: true }
+      );
+
+      doc.moveDown(0.5);
+
+      const ids = new Set(
+        (section.questions || []).map((id) => id.toString())
+      );
+
+      const questions =
+        paper.questionsSnapshot?.filter((q) =>
+          ids.has(q.questionId.toString())
+        ) || [];
+
+      for (const q of questions) {
+        doc.fontSize(12).text(`${qNo}. ${q.text}`);
+        doc.moveDown(0.3);
+
+        if (q.options?.length) {
+          q.options.forEach((opt, index) => {
+            const label = String.fromCharCode(65 + index);
+            doc.text(`   ${label}) ${opt.text}`);
+          });
+          doc.moveDown(0.3);
+        }
+
+        qNo++;
+        doc.moveDown(0.5);
+      }
+
+      doc.moveDown();
+    }
+
+    doc.end();
+  } catch (error) {
+    console.error("EXPORT ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Export failed",
+      error: error.message,
+    });
+  }
+});
+
+
+router.get("/:id", async (req, res) => {
+  try {
+    const paper = await Paper.findById(req.params.id);
+    res.json({ success: true, paper });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+
 
 export default router;

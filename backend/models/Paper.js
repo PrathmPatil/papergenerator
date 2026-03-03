@@ -31,7 +31,14 @@ const PaperSchema = new mongoose.Schema({
   questionsSnapshot: [SnapshotQuestionSchema],
 
   generatedBy: String,
+
+  // ✅ Soft delete fields (ADD)
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date, default: null },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+
   createdAt: { type: Date, default: Date.now }
 });
+
 
 export default mongoose.model("Paper", PaperSchema);

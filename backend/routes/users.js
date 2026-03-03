@@ -8,7 +8,7 @@ import { verifyToken } from "../middleware/tokenVerification.middleware.js";
 
 router.post("/register",verifyToken, async (req, res) => {
   try {
-    const { name, email, role, password } = req.body;
+    const { name, email, role, phone, institution, password  } = req.body;
 
     const existingUser = await User.findOne({ email });
     // CASE 1: User exists and NOT deleted
@@ -42,6 +42,8 @@ router.post("/register",verifyToken, async (req, res) => {
       name,
       email,
       role,
+      phone,
+      institution,
       password: hashedPassword,
       isDeleted: false,
     });
@@ -240,30 +242,54 @@ router.put("/:id/is-active",verifyToken, async (req, res) => {
   }
 });
 
-router.put("/:id/is-deleted",verifyToken, async (req, res) => {
-  const { id } = req.params;
-  const { isDeleted } = req.body;
+router.put("/:id/is-deleted", verifyToken, async (req, res) => {
   try {
-    const checkUser = await User.findById(id);
-    if (!checkUser) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+    const { id } = req.params;
+    const { isDeleted } = req.body;
+
+    // Validate input
+    if (typeof isDeleted !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "isDeleted must be a boolean value",
+      });
     }
-    const user = await User.findByIdAndUpdate(id, { isDeleted }, { new: true });
+
+    // Prepare update payload
+    const updateData = {
+      isDeleted,
+      deletedAt: isDeleted ? new Date() : null,
+      deletedBy: isDeleted ? req.user?.id : null, // from verifyToken middleware
+    };
+
+    // Update user
+    const user = await User.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
     if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
-    res.status(200).json({
+
+    return res.status(200).json({
       success: true,
-      message: "User is deleted status updated successfully",
+      message: `User ${isDeleted ? "deleted" : "restored"} successfully`,
+      data: user,
     });
+
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 });
+
 
 router.put("/:userId/profile", verifyToken, async (req, res) => {
   try {

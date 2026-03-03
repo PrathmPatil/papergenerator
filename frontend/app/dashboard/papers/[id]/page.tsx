@@ -12,6 +12,10 @@ import { fetchPaperByIdApi } from "@/utils/apis"
 import { baseURL } from "@/hooks/common"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { handleExportPDF } from "@/components/paper-preview"
+import {PaperPreview } from "@/components/paper-preview"
+import { exportPaperPdfApi } from "@/utils/apis"
+import { handlePrintPDF}from "@/components/paper-preview"
+import { config } from "process"
 
 /* ---------------- TYPES ---------------- */
 
@@ -58,6 +62,33 @@ export default function PaperDetailsPage() {
 
   const [paper, setPaper] = useState<Paper | null>(null)
   const [loading, setLoading] = useState(true)
+ 
+
+
+
+  const downloadPDF = async () => {
+  try {
+    const res: any = await exportPaperPdfApi(paperId);
+
+    const blob = res.date; // ✅ your apiClient returns data directly, so blob is here
+
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+
+    const safeName = (paper?.title || "paper").replace(/[^a-z0-9]/gi, "_");
+    a.download = `${safeName}.pdf`;
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("Download failed:", err);
+    alert("Download failed. Check Network/Console.");
+  }
+};
 
   /* ---------------- FETCH PAPER ---------------- */
 
@@ -83,10 +114,14 @@ export default function PaperDetailsPage() {
   /* ---------------- HELPERS ---------------- */
 
   const getQuestionsBySection = (section: Section) => {
-    return paper?.questionsSnapshot.filter(q =>
-      section.questions.includes(q.questionId)
+  const ids = new Set(section.questions.map((id) => id.toString()));
+
+  return (
+    paper?.questionsSnapshot.filter((q) =>
+      ids.has(q.questionId?.toString())
     ) || []
-  }
+  );
+};
 
   /* ---------------- STATES ---------------- */
 
@@ -126,9 +161,17 @@ export default function PaperDetailsPage() {
       {/* ACTIONS */}
       <div className="flex gap-2">
         <Button variant="outline" onClick={()=>router.push(`/dashboard/papers/edit/${paperId}`)}><Edit className="mr-2 h-4 w-4" /> Edit</Button>
-        <Button><Download className="mr-2 h-4 w-4" onClick={()=>handleExportPDF(paper)} /> Download PDF</Button>
-        <Button variant="outline"><Printer className="mr-2 h-4 w-4" onClick={()=>handleExportPDF(paper)} /> Print</Button>
+        <Button onClick={() => handleExportPDF(PaperPreview)}>
+           <Download className="mr-2 h-4 w-4"  /> Download PDF
+        </Button>
+        {/* <Button onClick={() => PaperPreview(paper)}>
+           <Download className="mr-2 h-4 w-4"  /> Paper Priview       
+            </Button> */}
+       <Button variant="outline" onClick={() => handlePrintPDF(config)}>
+          <Printer className="mr-2 h-4 w-4" /> Print
+        </Button>
         <Button variant="outline"><Share2 className="mr-2 h-4 w-4"  /> Share</Button>
+      
       </div>
 
       {/* SUBJECT-WISE QUESTIONS */}

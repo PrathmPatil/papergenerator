@@ -57,7 +57,7 @@ import {
   SUBJECTS,
 } from "@/lib/data";
 import { baseURL, debounce } from "@/hooks/common";
-
+import { deleteQuestionApi } from "@/utils/apis";
 /* ----------------------------------------
    TYPES
 ---------------------------------------- */
@@ -262,11 +262,27 @@ export default function QuestionBankPage() {
     setDeletingId(id);
   };
 
-  const confirmDelete = () => {
-    if (!deletingId) return;
-    setQuestions((prev) => prev.filter((q) => q._id !== deletingId));
-    setDeletingId(null);
-  };
+  const confirmDelete = async () => {
+  if (!deletingId) return;
+
+  try {
+    const res: any = await deleteQuestionApi(deletingId);
+
+    if (res?.success) {
+      // ✅ remove from UI also (fast update)
+      setQuestions((prev) => prev.filter((q) => q._id !== deletingId));
+      setDeletingId(null);
+
+      // ✅ optional: reload from backend (best)
+      // fetchQuestions();  // or whatever your function is named
+    } else {
+      alert(res?.message || "Delete failed");
+    }
+  } catch (error: any) {
+    console.error("Delete failed:", error);
+    alert("Delete failed. Check console/network.");
+  }
+};
 
   const handleExport = (q: IQuestion) => {
     const element = document.createElement("a");

@@ -67,7 +67,7 @@ type ExcelParagraphRow = {
 export const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 
-export function debounce<T extends (...args: unknown[]) => unknown>(
+export function debounce<T extends (...args: any[]) => any>(
   fn: T,
   delay: number = 500
 ): (...args: Parameters<T>) => Promise<ReturnType<T>> {
@@ -364,7 +364,7 @@ export function convertExcelRowsToParagraphQuestions(
 
 export const downloadFile = (
   filePath: string,
-  fileName: string = filePath.split("/").pop()
+  fileName: string = filePath.split("/").pop() ?? "download"
 ): Promise<void> => {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -385,13 +385,10 @@ export const downloadFile = (
         reject(new Error(`Failed to download file at ${filePath}`));
       }
     };
-    xhr.onerror = () => {
-      reject(new Error(`Failed to download file at ${filePath}`));
-    };
+    xhr.onerror = () => reject(new Error(`Failed to download file at ${filePath}`));
     xhr.send();
   });
 };
-
 
 
 export const dateConverterUTC = (dateString: string): string => {

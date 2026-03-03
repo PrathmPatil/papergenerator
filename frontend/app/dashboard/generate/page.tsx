@@ -33,8 +33,9 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { createPaperTemplateApi, fetchQuestionByIdApi, generatePaperApiManual, isTitleExist } from "@/utils/apis";
 import dynamic from "next/dynamic";
 
+
 const PaperPreview = dynamic(
-  () => import("@/components/paper-preview"),
+  () => import("@/components/paper-preview").then((m) => m.PaperPreview),
   { ssr: false }
 );
 
@@ -55,6 +56,8 @@ const STEPS = [
 export default function GeneratePaperPage() {
   const [currentStep, setCurrentStep] = useState(1);
 
+  const [previewConfig, setPreviewConfig] = useState<any>(null);
+  
   // Form State
   const [paperTitle, setPaperTitle] = useState("Unit Test 1");
   const [selectedClass, setSelectedClass] = useState<ClassLevel | "">("");
@@ -84,7 +87,7 @@ export default function GeneratePaperPage() {
   const [template, setTemplate] = useState<any>(null);
 
   const [fetchedQuestions, setFetchedQuestions] = useState<any[]>([]);
-  const [selectedQuestions, setSelectedQuestions] = useState<any[]>([]);
+  const [selectedQuestions, setSelectedQuestions] = useState<Record<string, string[]>>({});
   const [sections, setSections] = useState<Sections[]>([]);
   const [isNameExist, setIsTitleExist] = useState(false);
   const filteredSubjects = SUBJECTS.filter(
@@ -99,7 +102,7 @@ export default function GeneratePaperPage() {
       .filter((s) => s.subjectId !== subjectId)
       .reduce((sum, s) => sum + s.marks, 0);
   };
-
+  
   const getSubjectMarks = (subjectId: string) => {
     return sections.find((s) => s.subjectId === subjectId)?.marks || 0;
   };
@@ -108,7 +111,12 @@ export default function GeneratePaperPage() {
     id: string;
     name: string;
   }
+const totalAllocated = selectedSubjects.reduce(
+    (sum, id) => sum + getSubjectMarks(id),
+    0
+  );
 
+  const remainingMarks = totalMarks - totalAllocated;
   const updateSubjectMarks = (subject: Subject, value: number) => {
     setSections((prev) => {
       const usedMarks = prev
@@ -143,8 +151,8 @@ export default function GeneratePaperPage() {
     if (currentStep === 3) {
       const payload = {
         title: paperTitle,
-        totalMarks,
-        durationMinutes: duration,
+        totalMarks: Number(totalMarks),
+        durationMinutes: Number(duration),
         sections: sections.map((s) => ({
           id: s.id,
           name: s.name,
@@ -296,34 +304,71 @@ export default function GeneratePaperPage() {
     }
   };
 
-  const handleSave = async () => {
-    try {
-      console.log("Raw selectedQuestions:", selectedQuestions);
-      console.log("Template:", template);
+  // ✅ Put this INSIDE GeneratePaperPage component (not outside)
+const handleSave = async () => {
+  try {
+    if (!template?._id) {
+      alert("Template not found!");
+      return;
+    }
 
-      // ✅ Step 1: Build section-wise payload
-      const sectionPayload = template.sections.map((section: any) => ({
-        sectionId: section.id,
-        questions: selectedQuestions[section.id] || [], // 👈 EMPTY ARRAY IF NOT SELECTED
-      }));
+    // ✅ Build section-wise payload (IDs)
+    const sectionPayload = template.sections.map((section: any) => ({
+      sectionId: section.id,
+      questions: selectedQuestions?.[section.id] || [],
+    }));
 
-      // ✅ Step 2: Final payload
-      const payload = {
-        templateId: template._id,
-        selectedQuestions: sectionPayload,
+    const payload = {
+      templateId: template._id,
+      selectedQuestions: sectionPayload,
+    };
+
+    // ✅ API call
+    const res = await generatePaperApiManual(payload);
+
+    // ✅ If backend returns paper with questionsSnapshot, use it for preview
+    if (res?.success && res?.paper) {
+      // Build preview config that PaperPreview expects
+      const preview = {
+        title: res.paper.title,
+        code: `CODE-${Date.now()}`,
+        classLevel: res.paper.classId,
+        durationMinutes: res.paper.durationMinutes,
+        totalMarks: res.paper.totalMarks,
+        examDate: new Date(res.paper.createdAt).toLocaleDateString(),
+        negativeMarking: true,
+
+        // IMPORTANT: PaperPreview expects section.questions to be REAL objects (q.text, q.options...)
+        sections: res.paper.sections.map((sec: any) => {
+          const qs = (res.paper.questionsSnapshot || []).filter((q: any) =>
+            sec.questions.includes(q.questionId)
+          );
+
+          return {
+            id: sec.id,
+            name: sec.name,
+            marks: sec.marks,
+            questionCount: qs.length,
+            positiveMarks: qs[0]?.marks ?? 1,
+            negativeMarks: qs[0]?.negativeMarks ?? 0,
+            instructions: "",
+            questions: qs, // ✅ real question objects for preview
+          };
+        }),
       };
 
-      console.log("Final Save Payload:", payload);
-
-      // ✅ Step 3: API call
-      await generatePaperApiManual(payload);
-
-      alert("Paper generated successfully!");
-    } catch (error) {
-      console.error("Error while saving paper:", error);
-      alert("Failed to generate paper");
+      setPreviewConfig(preview);
+      setCurrentStep(5);
+      
+      return;
     }
-  };
+
+    alert("Paper generated, but preview data missing.");
+  } catch (error) {
+    console.error(error);
+    alert("Failed to generate paper");
+  }
+};
 
 
   const selectedSubjectNames = useMemo(() => {
@@ -616,39 +661,92 @@ export default function GeneratePaperPage() {
                     />
                   </div>
                 </div>
+                 
+             {/* ===== Remaining Marks Display ===== */}
+             
+                <div
+                  className={`mb-4 p-3 border rounded-md flex justify-between items-center ${
+                    remainingMarks < 0
+                      ? "bg-red-50 border-red-200"
+                      : remainingMarks === 0
+                      ? "bg-green-50 border-green-200"
+                      : "bg-yellow-50 border-yellow-200"
+                  }`}
+                >
+                  <span className="font-medium">Remaining Marks</span>
 
+                  <span
+                    className={`font-semibold ${
+                      remainingMarks < 0
+                        ? "text-red-600"
+                        : remainingMarks === 0
+                        ? "text-green-600"
+                        : "text-yellow-600"
+                    }`}
+                  >
+                    {remainingMarks}
+                  </span>
+                </div>
+
+                {/* ===== SUBJECT GRID ===== */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {selectedSubjects.length > 0 ? (
                     selectedSubjects.map((subjectId) => {
                       const subject = SUBJECTS.find((s) => s.id === subjectId);
-
                       if (!subject) return null;
 
-                      const usedMarks = getUsedMarksExcept(subject.id);
-                      const remaining = totalMarks - usedMarks;
+                      // marks used by other subjects
+                      const usedMarks = selectedSubjects
+                        .filter((id) => id !== subject.id)
+                        .reduce((sum, id) => sum + getSubjectMarks(id), 0);
+
                       const currentMarks = getSubjectMarks(subject.id);
+
+                      // max this subject can take without exceeding total
+                      const maxAllowed = Math.max(0, totalMarks - usedMarks);
+
+                      // keep current safe
+                      const safeCurrent = Math.max(0, Math.min(currentMarks, maxAllowed));
+
+                      const percent =
+                        totalMarks === 0
+                          ? 0
+                          : Math.min(100, Math.max(0, (safeCurrent / totalMarks) * 100));
 
                       return (
                         <div
                           key={subject.id}
-                          className="flex flex-col gap-3 border p-3 rounded-md"
+                          className="flex flex-col gap-3 border p-4 rounded-md"
                         >
                           <div className="flex justify-between items-center">
                             <span className="font-medium">{subject.name}</span>
                             <span className="text-sm text-muted-foreground">
-                              {currentMarks} / {totalMarks}
+                              {safeCurrent} / {totalMarks}
                             </span>
                           </div>
 
-                          <Slider
-                            value={[currentMarks]}
+                          <input
+                            type="number"
                             min={0}
-                            max={remaining + currentMarks}
+                            max={maxAllowed}
                             step={5}
-                            onValueChange={([val]) =>
-                              updateSubjectMarks(subject, val)
-                            }
+                            value={safeCurrent}
+                            className="w-28 border rounded px-2 py-1"
+                            onChange={(e) => {
+                              let val = Number(e.target.value);
+                              if (!Number.isFinite(val)) val = 0;
+
+                              const safeVal = Math.max(0, Math.min(val, maxAllowed));
+                              updateSubjectMarks(subject, safeVal);
+                            }}
                           />
+
+                          <div className="w-full bg-gray-200 h-2 rounded">
+                            <div
+                              className="bg-primary h-2 rounded transition-all duration-300"
+                              style={{ width: `${percent}%` }}
+                            />
+                          </div>
                         </div>
                       );
                     })
@@ -656,20 +754,19 @@ export default function GeneratePaperPage() {
                     <span>No subjects selected</span>
                   )}
                 </div>
-              </div>
+                </div>
             )}
 
-            {currentStep === 4 && (
-              <div className="space-y-8">
-                <PaperGenerationTemplate
-                  data={template}
-                  paperGenerateFunction={setSelectedQuestions}
-                />
-              </div>
-            )}
+            {currentStep === 4 && template?.sections?.length && (
+              <PaperGenerationTemplate
+                data={template}
+                paperGenerateFunction={setSelectedQuestions}
+                selectedQuestionsEdit={selectedQuestions}
+              />
+            ) }
 
-            {currentStep === 5 && generatedPaper && (
-              <PaperPreview config={generatedPaper.config} />
+            {currentStep === 5 && previewConfig && (
+              <PaperPreview config={previewConfig} />
             )}
           </CardContent>
           <CardFooter className="flex justify-between border-t pt-6">
@@ -686,7 +783,7 @@ export default function GeneratePaperPage() {
                   <Printer className="mr-2 h-4 w-4" /> Print
                 </Button>
                 <Button onClick={handleSave}>
-                  <Save className="mr-2 h-4 w-4" /> Save & Export
+                  <Save className="mr-2 h-4 w-4" />Save Paper
                 </Button>
               </div>
             ) : (

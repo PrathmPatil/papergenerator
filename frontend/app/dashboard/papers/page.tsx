@@ -46,7 +46,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import { fetchAllPapersApi } from "@/utils/apis";
+import { fetchAllPapersApi, deletePaperApi } from "@/utils/apis";
+
 import { CLASSES, getClassNameById } from "@/lib/data";
 import { debounce } from "@/hooks/common";
 
@@ -124,11 +125,21 @@ export default function PaperBankPage() {
     setViewModalOpen(true);
   };
 
-  const confirmDelete = () => {
-    if (!deletingId) return;
+  const confirmDelete = async () => {
+  if (!deletingId) return;
+
+  try {
+    await deletePaperApi(deletingId); // ✅ backend soft delete
+
+    // ✅ remove from UI after success
     setPapers((prev) => prev.filter((p) => p._id !== deletingId));
     setDeletingId(null);
-  };
+  } catch (e) {
+    console.error(e);
+    alert("Failed to delete paper");
+  }
+};
+
 
   const clearFilters = () => {
     setSearchTerm("");
