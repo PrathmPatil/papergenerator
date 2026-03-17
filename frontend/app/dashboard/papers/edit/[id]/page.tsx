@@ -33,7 +33,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { ClassLevel } from "@/lib/types";
-
+import {handlePrintPDF} from "@/components/paper-preview";
 /* ---------- SAME STEPS ---------- */
 const STEPS = [
   { id: 1, title: "Basic Details" },
@@ -86,7 +86,8 @@ export default function EditPaperPage() {
   const [loading, setLoading] = useState(true);
   const [sections, setSections] = useState<Section[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]); // ✅ ADD THIS
+  const [selectedQuestions, setSelectedQuestions] = useState<Record<string, string[]>>({});
   const [totalMarks, setTotalMarks] = useState(0);
   const [duration, setDuration] = useState(0);
   const [difficultyMix, setDifficultyMix] = useState({
@@ -107,7 +108,7 @@ export default function EditPaperPage() {
   const [generatedPaper, setGeneratedPaper] = useState<any>(null);
   const [selectedClass, setSelectedClass] = useState<ClassLevel | "">("");
   const [template, setTemplate] = useState<any>(null);
-  const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
+ 
   const filteredSubjects = useMemo(
     () =>
       SUBJECTS.filter(
@@ -115,11 +116,9 @@ export default function EditPaperPage() {
       ),
     [selectedClass]
   );
-
-  const filteredTopics = useMemo(
-    () => SUBJECTS.find((s) => s.id === selectedSubjects[0])?.topics || [],
-    [selectedSubjects]
-  );
+ 
+    
+   
 
   const handleNext = () => {
     console.log(currentStep)
@@ -159,6 +158,7 @@ export default function EditPaperPage() {
           setSelectedSubjects(sections.map((s) => s.subjectId));
           setTotalMarks(paper.totalMarks);
           setDuration(paper.durationMinutes);
+          console.log(paper)
           setSelectedQuestions(paper.sections.flatMap((s) => s.questions));
           setDifficultyMix({
             easy:template.difficulty && template.difficulty.split(",").some((s) => s === "easy"),
@@ -208,42 +208,35 @@ export default function EditPaperPage() {
   };
 
   const getSubjectMarks = (subjectId: string) => {
-    return sections.find((s) => s.subjectId === subjectId)?.marks || 0;
-  };
+      const sec = sections.find((s: any) => String(s.subjectId) === String(subjectId));
+      return Number(sec?.marks) || 0;
+    };
 
   interface Subject {
     id: string;
     name: string;
   }
 
-  const updateSubjectMarks = (subject: Subject, value: number) => {
-    setSections((prev) => {
-      const usedMarks = prev
-        .filter((s) => s.subjectId !== subject.id)
-        .reduce((sum, s) => sum + s.marks, 0);
+  // ✅ update marks for a subject inside sections
+    const updateSubjectMarks = (subject: any, marks: number) => {
+      setSections((prev) =>
+        prev.map((sec: any) =>
+          String(sec.subjectId) === String(subject.id)
+            ? { ...sec, marks }
+            : sec
+        )
+      );
+    };
+  const totalAllocated = selectedSubjects.reduce(
+      (sum, id) => sum + getSubjectMarks(id),
+      0
+    );
 
-      const remaining = totalMarks - usedMarks;
-      const finalMarks = Math.min(value, remaining);
-
-      const exists = prev.find((s) => s.subjectId === subject.id);
-
-      if (exists) {
-        return prev.map((s) =>
-          s.subjectId === subject.id ? { ...s, marks: finalMarks } : s
-        );
-      }
-
-      return [
-        ...prev,
-        {
-          id: `sec_${subject.id}`,
-          name: subject.name,
-          subjectId: subject.id,
-          marks: finalMarks,
-        },
-      ];
-    });
-  };
+const remainingMarks = totalMarks - totalAllocated;
+  const filteredTopics = useMemo(
+    () => SUBJECTS.find((s) => s.id === selectedSubjects[0])?.topics || [],
+    [selectedSubjects]
+  );
 
   const handleSave = async () => {
     try {
@@ -550,41 +543,82 @@ export default function EditPaperPage() {
                   </div>
                 </div>
 
+                {/* ===== Remaining Marks Display ===== */}
+                <div
+                  className={`mb-4 p-3 border rounded-md flex justify-between items-center ${
+                    remainingMarks < 0
+                      ? "bg-red-50 border-red-200"
+                      : remainingMarks === 0
+                      ? "bg-green-50 border-green-200"
+                      : "bg-yellow-50 border-yellow-200"
+                  }`}
+                >
+                  <span className="font-medium">Remaining Marks</span>
+                  <span
+                    className={`font-semibold ${
+                      remainingMarks < 0
+                        ? "text-red-600"
+                        : remainingMarks === 0
+                        ? "text-green-600"
+                        : "text-yellow-600"
+                    }`}
+                  >
+                    {remainingMarks}
+                  </span>
+                </div>
+
+                {/* ===== SUBJECT GRID ===== */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {selectedSubjects.length > 0 ? (
                     selectedSubjects.map((subjectId) => {
                       const subject = SUBJECTS.find((s) => s.id === subjectId);
-
                       if (!subject) return null;
 
-                      const usedMarks = getUsedMarksExcept(subject.id);
-                      const remaining = totalMarks - usedMarks;
+                      const usedMarks = selectedSubjects
+                        .filter((id) => id !== subject.id)
+                        .reduce((sum, id) => sum + getSubjectMarks(id), 0);
+
                       const currentMarks = getSubjectMarks(subject.id);
-                      console.log("Remaining marks:", remaining);
-                      console.log("Current marks:", currentMarks);
-                      console.log("Total marks:", totalMarks);
-                      console.log("Used marks:", usedMarks);
+                      const maxAllowed = Math.max(0, totalMarks - usedMarks);
+
+                      const safeCurrent = Math.max(0, Math.min(currentMarks, maxAllowed));
+
+                      const percent =
+                        totalMarks === 0
+                          ? 0
+                          : Math.min(100, Math.max(0, (safeCurrent / totalMarks) * 100));
+
                       return (
-                        <div
-                          key={subject.id}
-                          className="flex flex-col gap-3 border p-3 rounded-md"
-                        >
+                        <div key={subject.id} className="flex flex-col gap-3 border p-4 rounded-md">
                           <div className="flex justify-between items-center">
                             <span className="font-medium">{subject.name}</span>
                             <span className="text-sm text-muted-foreground">
-                              {currentMarks} / {totalMarks}
+                              {safeCurrent} / {totalMarks}
                             </span>
                           </div>
 
-                          <Slider
-                            value={[currentMarks]}
+                          <input
+                            type="number"
                             min={0}
-                            max={remaining + currentMarks}
+                            max={maxAllowed}
                             step={5}
-                            onValueChange={([val]) =>
-                              updateSubjectMarks(subject, val)
-                            }
+                            value={safeCurrent}
+                            className="w-28 border rounded px-2 py-1"
+                            onChange={(e) => {
+                              let val = Number(e.target.value);
+                              if (!Number.isFinite(val)) val = 0;
+
+                              const safeVal = Math.max(0, Math.min(val, maxAllowed));
+                              updateSubjectMarks(subject, safeVal);
+                            }}
                           />
+
+                          <div className="w-full bg-gray-200 h-2 rounded">
+                            <div
+                              className="bg-primary h-2 rounded transition-all duration-300"
+                              style={{ width: `${percent}%` }}
+                            />
+                          </div>
                         </div>
                       );
                     })
@@ -620,11 +654,14 @@ export default function EditPaperPage() {
               Back
             </Button>
 
-            {currentStep === 4 ? (
+            {currentStep === 5 ? (
               <div className="flex gap-2">
-                <Button variant="outline">
-                  <Printer className="mr-2 h-4 w-4" />
-                  Print
+               <Button
+                  variant="outline"
+                  disabled={!paper}
+                  onClick={() => paper && handlePrintPDF(config)}
+                                >
+                  <Printer className="mr-2 h-4 w-4" /> Print
                 </Button>
                 <Button onClick={handleSave}>
                   <Save className="mr-2 h-4 w-4" />

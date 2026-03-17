@@ -58,7 +58,10 @@ const QuestionSchema = new mongoose.Schema({
   // OCR Support (optional)
   ocrText: String,
   ocrConfidence: Number,
-  needsReview: { type: Boolean, default: false }
+  needsReview: { type: Boolean, default: false },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date, default: null },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
 });
 
 export default mongoose.model("Question", QuestionSchema);

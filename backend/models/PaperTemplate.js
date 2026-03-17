@@ -16,6 +16,12 @@ const PaperTemplateSchema = new mongoose.Schema({
   difficulty: String,
   type: String,
   sections: [SectionSchema],
+
+  // ✅ Soft delete fields (ADD)
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date, default: null },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+
   createdAt: { type: Date, default: Date.now }
 });
 

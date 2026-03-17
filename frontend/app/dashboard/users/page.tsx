@@ -42,6 +42,8 @@ interface User {
   name: string;
   email: string;
   role: "teacher" | "student";
+  phone: string;
+  institution: string;
   isActive: true | false;
   isDeleted: true | false;
   createdAt: string;
@@ -60,6 +62,8 @@ export default function UserManagementPage() {
     _id: undefined,
     name: "",
     email: "",
+    phone: "",
+    institute: "",
     role: "student" as "teacher" | "student",
   });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -129,6 +133,8 @@ export default function UserManagementPage() {
     const user = {
       name: newUser.name,
       email: newUser.email,
+      phone: newUser.phone,
+      institute: newUser.institute,
       role: newUser.role,
       password: newUser.role === "teacher" ? "Teacher@123" : "Student@123",
     };
@@ -142,16 +148,17 @@ export default function UserManagementPage() {
           variant: "destructive",
         });
         return;
-      } else{
+      } else {
         fetchUsers();
         toast({
           title: "Success",
-          description: `${
-            user.role === "teacher" ? "Teacher" : "Student"
-          } added successfully`,
+          description: `${user.role === "teacher" ? "Teacher" : "Student"
+            } added successfully`,
         });
+        setIsDialogOpen(false);
+        setNewUser({ _id: undefined, name: "", email: "", phone: "", institute: "", role: "student" });
+
       }
-      console.log(res);
       // localStorage.setItem("users", JSON.stringify([...users, user]));
     } catch (error) {
       toast({
@@ -161,33 +168,33 @@ export default function UserManagementPage() {
       });
     }
     // setUsers([...users, user])
-    setNewUser({ _id: undefined, name: "", email: "", role: "student" });
-    setIsDialogOpen(false);
-    toast({
-      title: "Success",
-      description: `${
-        user.role === "teacher" ? "Teacher" : "Student"
-      } added successfully`,
-    });
+    // setNewUser({ _id: undefined, name: "", email: "",phone: "", institute: "", role: "student" });
+    // setIsDialogOpen(false);
+    // toast({
+    //   title: "Success",
+    //   description: `${
+    //     user.role === "teacher" ? "Teacher" : "Student"
+    //   } added successfully`,
+    // });
   };
   // handleUpdateUser
 
   const handleUpdateUser = async (id: string) => {
     // setUsers(users.filter((u) => u.id !== id))
     try {
-      const payload = { ...newUser, _id: id }; 
+      const payload = { ...newUser, _id: id };
       console.log(payload)
-      const res = await updateUserApi(id,payload);
+      const res = await updateUserApi(id, payload);
       console.log(res)
-      const {success, message} = res;
-      if(success){
+      const { success, message } = res;
+      if (success) {
         toast({
           title: "Success",
           description: message,
         });
-        setUsers(prev => prev.map(u => u._id === id ? {...u, ...payload} : u))
+        setUsers(prev => prev.map(u => u._id === id ? { ...u, ...payload } : u))
         clearForm();
-      }else {
+      } else {
         toast({
           title: "Error",
           description: message,
@@ -218,7 +225,7 @@ export default function UserManagementPage() {
           description: message,
         });
         setUsers(users.filter((u) => u._id !== id));
-      }else {
+      } else {
         toast({
           title: "Error",
           description: message,
@@ -256,7 +263,7 @@ export default function UserManagementPage() {
           title: "Success",
           description: "User isActive updated",
         });
-      }else {
+      } else {
         toast({
           title: "Error",
           description: data.message,
@@ -271,7 +278,7 @@ export default function UserManagementPage() {
   };
 
   const clearForm = () => {
-    setNewUser({ _id: undefined, name: "", email: "", role: "student" });
+    setNewUser({ _id: undefined, name: "", email: "", phone: "", institute: "", role: "student" });
     setIsDialogOpen(false);
     setIsEdit(false);
   }
@@ -289,14 +296,14 @@ export default function UserManagementPage() {
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
-             {!!isEdit ? "Edit User" : "Add New"} User
+              {!!isEdit ? "Edit User" : "Add New"} User
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{!!isEdit ? "Edit User" : "Add New"} User</DialogTitle>
               <DialogDescription>
-               {!!isEdit ? "Update" : "Create"} a new teacher or student account
+                {!!isEdit ? "Update" : "Create"} a new teacher or student account
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -323,6 +330,26 @@ export default function UserManagementPage() {
                 />
               </div>
               <div>
+                <label className="text-sm font-medium">Phone</label>
+                <Input
+                  placeholder="+91 XXXXXXXXXX"
+                  value={newUser.phone}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, phone: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Institute</label>
+                <Input
+                  placeholder="Enter Institute name"
+                  value={newUser.institute}
+                  onChange={(e) =>
+                    setNewUser({ ...newUser, institute: e.target.value })
+                  }
+                />
+              </div>
+              <div>
                 <label className="text-sm font-medium">User Type</label>
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2"
@@ -342,11 +369,11 @@ export default function UserManagementPage() {
               <div className="flex gap-3 pt-4">
                 <Button
                   variant="outline"
-                  onClick={() => {clearForm()}}
+                  onClick={() => { clearForm() }}
                 >
                   Cancel
                 </Button>
-                <Button onClick={() => {!!isEdit ? handleUpdateUser(newUser._id) : handleAddUser()}}>{!!isEdit ? "Update" : "Add"} User</Button>
+                <Button onClick={() => { !!isEdit ? handleUpdateUser(newUser?._id) : handleAddUser() }}>{!!isEdit ? "Update" : "Add"} User</Button>
               </div>
             </div>
           </DialogContent>
@@ -524,7 +551,7 @@ export default function UserManagementPage() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={()=>{setIsEdit(true); setIsDialogOpen(true); setNewUser(u) }}>
+                                  <DropdownMenuItem onClick={() => { setIsEdit(true); setIsDialogOpen(true); setNewUser(u) }}>
                                     <Edit2 className="mr-2 h-4 w-4" />
                                     Edit User
                                   </DropdownMenuItem>
@@ -534,13 +561,12 @@ export default function UserManagementPage() {
                                     }
                                   >
                                     <span
-                                      className={`mr-2 h-4 w-4 ${
-                                        u.isActive 
+                                      className={`mr-2 h-4 w-4 ${u.isActive
                                           ? "bg-red-500"
                                           : "bg-green-500"
-                                      } rounded-full`}
+                                        } rounded-full`}
                                     ></span>
-                                    {u.isActive 
+                                    {u.isActive
                                       ? "Deactivate"
                                       : "Activate"}
                                   </DropdownMenuItem>
