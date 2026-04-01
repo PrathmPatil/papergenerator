@@ -51,8 +51,8 @@ app.get("/api/hello", (req, res) => {
 
 mongoose
   .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
+    // useNewUrlParser: true,
+    // useUnifiedTopology: true,
   })
   .then(async () =>{ console.log("MongoDB connected"); await seedMasterUser(); })
   .catch((err) => console.error(err));
