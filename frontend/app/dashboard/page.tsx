@@ -49,10 +49,12 @@ export default function Dashboard() {
         const query = { isRecent: true };
 
         const res = await fetchAllPapersApi(query);
+
         const { success, papers, message, count } = res;
+        console.log(res)
 
         if (success) {
-          setPapers(papers);
+          setPapers(papers || []);
           setCount(count);
           toast({
             title: "Success",
@@ -111,13 +113,13 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle>Recent Papers</CardTitle>
             <CardDescription>
-              You have generated {RECENT_PAPERS.length} papers this week.
+              You have generated {Number(papers.length || 0)} papers this week.
             </CardDescription>
           </CardHeader>
 
           <CardContent>
             <div className="space-y-8">
-              {papers.map((paper) => (
+              {papers.length <= 0 ? <p>No recent papers found.</p>: papers.map((paper) => (
                 <div key={paper._id} className="flex items-center">
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
                     <FileText className="h-5 w-5 text-primary" />

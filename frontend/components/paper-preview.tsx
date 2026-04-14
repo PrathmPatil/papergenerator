@@ -1,250 +1,188 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, Eye, FileText } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { FileText, Eye, Printer } from "lucide-react";
 import type { PaperConfig } from "@/lib/types";
 
+/* ============================
+   MAIN COMPONENT
+============================ */
+export function PaperPreview({ config }: { config: PaperConfig }) {
+  const cell = {
+    border: "1px solid black",
+    padding: "5px",
+  };
 
-import jsPDF from "jspdf";
-import { Printer } from "lucide-react"
+  const cellCenter = {
+    ...cell,
+    textAlign: "center" as const,
+  };
 
-interface PaperPreviewProps {
-  config: PaperConfig;
-}
-
-
-
-export function PaperPreview({ config }: PaperPreviewProps) {
-  console.log(config);
   return (
     <div className="space-y-4">
-      {/* PDF Print Preview */}
+      {/* ============================
+          PAPER
+      ============================ */}
       <div
         id="paper-preview"
-        className="bg-white text-black shadow-lg rounded border p-8 space-y-6 font-serif"
-        style={{ minHeight: "400px" }}
-        
+        className="bg-white text-black font-serif"
+        style={{
+          width: "100%",
+          maxWidth: "210mm",
+          minHeight: "297mm",
+          margin: "0 auto",
+          padding: "15mm 18mm",
+          lineHeight: "1.4",
+          fontSize: "13px",
+        }}
       >
-        {/* Header */}
-        <div className="border-b border-black pb-4 text-center">
-          <h1 className="text-lg font-bold uppercase tracking-wide">
-            {config.title}
+        {/* HEADER */}
+        <div style={{ textAlign: "center", borderBottom: "1px solid black", paddingBottom: "6px" }}>
+          <h1 style={{ fontSize: "18px", fontWeight: "bold" }}>
+            INNOVATIVE SCHOLARS’ ACHIEVEMENT TEST [ INNOSAT ]
           </h1>
-          {config.code && (
-            <p className="text-xs mt-1 font-mono">CODE: {config.code}</p>
-          )}
-          <div className="flex justify-between text-xs mt-3 font-mono">
-            <span>Class: {config.classLevel}</span>
-            <span>Time: {config.durationMinutes} min</span>
-            <span>Max. Marks: {config.totalMarks}</span>
+          <p style={{ fontSize: "12px", marginTop: "4px" }}>
+            OCTOBER - 2025 CODE : {config.code}
+          </p>
+        </div>
+
+        {/* STUDENT INFO */}
+        <div style={{ marginTop: "10px", fontSize: "12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span>Name of the student : __________________________</span>
+            <span>Time : {config.durationMinutes} min</span>
           </div>
-          {config.examDate && (
-            <p className="text-xs mt-2">
-              Date: {config.examDate}{" "}
-              {config.examTime && `| Time: ${config.examTime}`}
-            </p>
-          )}
+
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "5px" }}>
+            <span>Class : {config.classLevel}</span>
+            <span>Roll No.: ______</span>
+            <span>Date : ______</span>
+            <span>Sign. of Invigilator : ______</span>
+          </div>
         </div>
 
-        {/* Instructions */}
-        <div>
-          <h3 className="font-bold text-xs mb-2 uppercase">
-            INSTRUCTIONS FOR STUDENTS:
-          </h3>
-          <ol className="text-xs space-y-1 ml-4 list-decimal">
-            <li>All the questions are compulsory.</li>
-            <li>Read the instructions carefully given for each question.</li>
-            <li>
-              Read the four options carefully and write the correct one in the
-              bracket.
-            </li>
-            <li>Use the space given on the last page for rough work.</li>
-            {config.negativeMarking && (
-              <li>
-                Negative Marking: {config.sections[0]?.negativeMarks || 0}{" "}
-                mark(s) for wrong answer.
-              </li>
-            )}
-          </ol>
-        </div>
+        {/* ============================
+            DYNAMIC TABLE
+        ============================ */}
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            marginTop: "12px",
+            fontSize: "12px",
+          }}
+        >
+          <thead>
+            <tr>
+              <th style={cell}>Sections</th>
 
-        {/* Marks Distribution Table */}
-        <div>
-          <h3 className="font-bold text-xs mb-2">MARKS DISTRIBUTION</h3>
-          <table className="w-full text-xs border-collapse border border-black">
-            <thead>
-              <tr className="bg-gray-200">
-                <th className="border border-black px-2 py-1 text-left">
-                  Section
+              {config.sections.map((section, index) => (
+                <th key={section.id} style={cell}>
+                  {section.name} [{String.fromCharCode(65 + index)}]
                 </th>
-                <th className="border border-black px-2 py-1 text-center">
-                  Total Marks
-                </th>
-                <th className="border border-black px-2 py-1 text-center">
-                  Questions
-                </th>
-                <th className="border border-black px-2 py-1 text-center">
-                  Positive Marks
-                </th>
-                {config.negativeMarking && (
-                  <th className="border border-black px-2 py-1 text-center">
-                    Negative Marks
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {config.sections.map((section) => (
-                <tr key={section.id}>
-                  <td className="border border-black px-2 py-1">
-                    {section.name}
-                  </td>
-                  <td className="border border-black px-2 py-1 text-center">
-                    {section.marks}
-                  </td>
-                  <td className="border border-black px-2 py-1 text-center">
-                    {section.questionCount}
-                  </td>
-                  <td className="border border-black px-2 py-1 text-center">
-                    {section.positiveMarks}
-                  </td>
-                  {config.negativeMarking && (
-                    <td className="border border-black px-2 py-1 text-center">
-                      {section.negativeMarks}
-                    </td>
-                  )}
-                </tr>
               ))}
-              <tr className="font-bold bg-gray-100">
-                <td className="border border-black px-2 py-1">Total</td>
-                <td className="border border-black px-2 py-1 text-center">
-                  {config.totalMarks}
+
+              <th style={cell}>Total</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr>
+              <td style={cell}>Total Marks</td>
+
+              {config.sections.map((s) => (
+                <td key={s.id} style={cellCenter}>
+                  {s.marks}
                 </td>
-                <td className="border border-black px-2 py-1 text-center">
-                  {config.sections.reduce((sum: number, s: any) => sum + (Number(s.questionCount) || 0),
-                          0
-                        )}
-                </td>
-                <td className="border border-black px-2 py-1 text-center">
-                  {config.sections.reduce((sum: number, s: any) => sum + (Number(s.positiveMarks) || 0),
-                          0
-                        )}
-                </td>
-                {config.negativeMarking && (
-                  <td className="border border-black px-2 py-1 text-center">
-                    {config.sections.reduce((sum: number, s: any) => sum + (Number(s.negativeMarks) || 0),
-                          0
-                        )}
-                  </td>
-                )}
-              </tr>
-            </tbody>
-          </table>
-        </div>
+              ))}
 
-        {/* Sections & Questions */}
-        {config.sections.map((section, sectionIndex) => (
-          <div key={section.id} className="space-y-3">
-            <h3 className="font-bold text-xs uppercase">
-              Section {sectionIndex + 1}: {section.name}
-            </h3>
+              <td style={cellCenter}>{config.totalMarks}</td>
+            </tr>
 
-            {section.instructions && (
-              <p className="text-xs italic">{section.instructions}</p>
-            )}
+            <tr>
+              <td style={cell}>Marks obtained</td>
 
-            <div className="space-y-3 ml-2">
-              {section.questions && section.questions.length > 0 ? (
-                section.questions.map((q: any, qIndex: number) => (
-                  <div key={q.questionId} className="text-xs avoid-break">
-                    {/* Question text */}
-                    <p className="font-bold">
-                      {qIndex + 1}. {q.text}
-                    </p>
+              {config.sections.map((s) => (
+                <td key={s.id} style={cell}></td>
+              ))}
 
-                    {/* Question image (if any) */}
-                    {q.media && q.media.length > 0 && (
-                      <div className="my-2">
-                        <img
-                          src={q.media[0].url}
-                          alt="question"
-                          className="max-h-40 border"
-                        />
-                      </div>
-                    )}
+              <td style={cell}></td>
+            </tr>
+          </tbody>
+        </table>
 
-                    {/* Options */}
-                    {q.options && q.options.length > 0 && (
-                      <div className="ml-4 text-gray-700 flex flex-wrap">
-                        {q.options.map((opt: any) => (
-                          <p key={opt.id} className="w-1/2 mb-2">
-                            ({opt.id}) {opt.text}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-gray-500 italic">
-                  No questions in this section.
+        {/* ============================
+            SECTIONS
+        ============================ */}
+        {config.sections.map((section, sIndex) => (
+          <div key={section.id} style={{ marginTop: "18px" }}>
+            <h2
+              style={{
+                fontSize: "14px",
+                fontWeight: "bold",
+                marginBottom: "6px",
+              }}
+            >
+              SECTION : {section.name.toUpperCase()}
+            </h2>
+
+            {section.questions.map((q, qIndex) => (
+              <div key={q.questionId} style={{ marginTop: "8px" }}>
+                <p style={{ fontSize: "13px" }}>
+                  {qIndex + 1}. {q.text}
                 </p>
-              )}
-            </div>
-            <div className="print-footer"></div>
+
+                {/* ✅ 2×2 OPTIONS */}
+                <div
+                  className="options"
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    marginLeft: "15px",
+                    marginTop: "4px",
+                  }}
+                >
+                  {q.options.map((opt) => (
+                    <p
+                      key={opt.id}
+                      style={{
+                        width: "50%",
+                        fontSize: "13px",
+                      }}
+                    >
+                      {opt.id}) {opt.text}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-          
         ))}
       </div>
 
-      {/* Export Options */}
+      {/* ============================
+          BUTTONS
+      ============================ */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Export Options</CardTitle>
+          <CardTitle>Export Options</CardTitle>
         </CardHeader>
 
         <CardContent className="flex gap-2 flex-wrap">
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-2 bg-transparent"
-            onClick={()=>{handleExportPDF(config)}}
-          >
-            <FileText className="h-4 w-4" />
-            Export as PDF
+          <Button onClick={() => exportAsPDF(config)}>
+            <FileText className="mr-2 h-4 w-4" />
+            Export PDF
           </Button>
 
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-2 bg-transparent"
-            onClick={()=>handleExportWord(config)}
-          >
-            <FileText className="h-4 w-4" />
-            Export as Word
+          <Button onClick={printPaper}>
+            <Printer className="mr-2 h-4 w-4" />
+            Print
           </Button>
 
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-2 bg-transparent"
-            onClick={()=>handleFullPreview(config)}
-          >
-            <Eye className="h-4 w-4" />
-            Full Preview
-          </Button>
-          <Button variant="outline" onClick={() => handlePrintPDF(config)}>
-            <Printer className="mr-2 h-4 w-4" /> Print
-          </Button>
-                              <Button
-            size="sm"
-            variant="outline"
-            className="gap-2 bg-transparent"
-            onClick={()=>handleDownloadAnswerKey(config)}
-          >
-            <Download className="h-4 w-4" />
-            Download Answer Key
+          <Button onClick={() => handleFullPreview(config)}>
+            <Eye className="mr-2 h-4 w-4" />
+            Preview
           </Button>
         </CardContent>
       </Card>
@@ -253,275 +191,275 @@ export function PaperPreview({ config }: PaperPreviewProps) {
 }
 
 /* ============================
-   EXPORT AS PDF
-============================ */
-export const handleExportPDF = async (config: any) => {
-  try {
-    console.log("✅ PDF EXPORT iframe v3");
-
-    const preview = document.getElementById("paper-preview") as HTMLElement | null;
-    if (!preview) return alert("paper-preview element not found");
-
-    if ((document as any).fonts?.ready) {
-      await (document as any).fonts.ready;
-    }
-
-    const html2canvas = (await import("html2canvas")).default;
-    const { jsPDF } = await import("jspdf");
-
-    // ✅ Make a clean iframe (no globals.css, no shadcn theme)
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.left = "-99999px";
-    iframe.style.top = "0";
-    iframe.style.width = "210mm";
-    iframe.style.height = "1px";
-    iframe.style.border = "0";
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentDocument!;
-    doc.open();
-    doc.write(`
-      <!doctype html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <style>
-            /* ✅ SAFE CSS ONLY (NO okLCH/lab) */
-            @page { size: A4; margin: 12mm; }
-            * { box-sizing: border-box; }
-
-            body {
-              margin: 0;
-              padding: 0;
-              background: #ffffff;
-              color: #000000;
-              font-family: serif;
-            }
-
-            /* Match your preview paper size */
-            #paper-preview {
-              width: 210mm;
-              background: #ffffff;
-              color: #000000;
-              padding: 12mm;
-              margin: 0 auto;
-            }
-
-            /* stop word breaking */
-            #paper-preview, #paper-preview * {
-              word-break: normal !important;
-              overflow-wrap: normal !important;
-              hyphens: none !important;
-              box-shadow: none !important;
-              outline: none !important;
-              text-shadow: none !important;
-              background-image: none !important;
-            }
-
-            /* table fixes */
-            table { width: 100%; border-collapse: collapse; }
-            th, td { border: 1px solid #000; padding: 6px; font-size: 12px; }
-            th { background: #e5e7eb; } /* light gray header */
-            img { max-width: 100%; height: auto; }
-          </style>
-        </head>
-        <body>
-          ${preview.outerHTML.replace('id="paper-preview"', 'id="paper-preview"')}
-        </body>
-      </html>
-    `);
-    doc.close();
-
-    // Wait a bit for layout
-    await new Promise((r) => setTimeout(r, 200));
-
-    const target = doc.getElementById("paper-preview") as HTMLElement | null;
-    if (!target) {
-      iframe.remove();
-      return alert("Preview not found inside iframe");
-    }
-
-    // ✅ Render from iframe (lab-free)
-    const canvas = await html2canvas(target, {
-      scale: 2,
-      backgroundColor: "#ffffff",
-      useCORS: true,
-      allowTaint: true,
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: target.scrollWidth,
-      windowHeight: target.scrollHeight,
-    });
-
-    iframe.remove();
-
-    const imgData = canvas.toDataURL("image/jpeg", 0.98);
-
-    const pdf = new jsPDF("p", "mm", "a4");
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-
-    const imgWidth = pageWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-    let heightLeft = imgHeight;
-    let position = 0;
-
-    pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
-
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight;
-      pdf.addPage();
-      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-    }
-
-    const safeFileName = (config?.title || "paper")
-      .replace(/[\\/:*?"<>|]/g, "-")
-      .trim();
-
-    pdf.save(`${safeFileName}.pdf`);
-  } catch (err: any) {
-    console.error("PDF Export failed:", err);
-    alert(`PDF Export failed: ${err?.message || err}`);
-  }
-};
-/* ============================
-   EXPORT AS PDF FOR PRINT
-============================ */
-
-export const handlePrintPDF = () => {
-  const preview = document.getElementById("paper-preview");
-  if (!preview) {
-    alert("paper-preview element not found");
-    return;
-  }
-
-  const printWindow = window.open("", "_blank", "width=900,height=650");
-  if (!printWindow) return;
-
-  // ✅ Copy all stylesheets + <style> tags from current page
-  const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
-    .map((node) => node.outerHTML)
-    .join("\n");
-
-  printWindow.document.open();
-  printWindow.document.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <title>Print</title>
-        ${styles}
-        <style>
-          @page { size: A4; margin: 12mm; }
-          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          body { background: white; margin: 0; padding: 0; }
-          /* remove shadows in print (optional) */
-          #paper-preview { box-shadow: none !important; }
-        </style>
-      </head>
-      <body>
-        ${preview.outerHTML}
-        <script>
-          window.onload = () => {
-            setTimeout(() => window.print(), 500);
-            window.onafterprint = () => window.close();
-          };
-        </script>
-      </body>
-    </html>
-  `);
-  printWindow.document.close();
-};
-/* ============================
-   EXPORT AS WORD (.docx)
-============================ */
-export const handleExportWord = (config: PaperConfig) => {
-  const element = document.getElementById("paper-preview")
-  if (!element) return
-
-  const html = `
-    <html>
-      <head>
-        <meta charset="utf-8" />
-      </head>
-      <body>
-        ${element.innerHTML}
-      </body>
-    </html>
-  `
-
-  const blob = new Blob([html], {
-    type: "application/msword",
-  })
-
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = `${config.title}.doc`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-/* ============================
-   FULL PREVIEW (PRINT VIEW)
+   PREVIEW
 ============================ */
 export const handleFullPreview = (config: PaperConfig) => {
-  const element = document.getElementById("paper-preview")
-  if (!element) return
+  const el = document.getElementById("paper-preview");
+  if (!el) return;
 
-  const win = window.open("", "_blank")
-  if (!win) return
+  const win = window.open("", "_blank");
+  if (!win) return;
 
   win.document.write(`
     <html>
       <head>
-        <title>${config.title}</title>
         <style>
-          body { font-family: serif; padding: 20px; }
+          body { padding: 20px; font-family: serif; }
+          .options { display:flex; flex-wrap:wrap; }
+          .options p { width:50%; }
         </style>
       </head>
-      <body>
-        ${element.innerHTML}
-      </body>
+      <body>${el.outerHTML}</body>
     </html>
-  `)
+  `);
 
-  win.document.close()
-  win.focus()
-}
+  win.document.close();
+};
 
 /* ============================
-   DOWNLOAD ANSWER KEY (TXT)
+   PRINT (PRODUCTION)
 ============================ */
-export const handleDownloadAnswerKey = (config: PaperConfig) => {
-  let content = `ANSWER KEY\n\n${config.title}\n\n`
+// export const printPaper = () => {
+//   const preview = document.getElementById("paper-preview");
+//   if (!preview) return;
 
-  config.sections.forEach((section, sIndex) => {
-    content += `SECTION ${sIndex + 1}: ${section.name}\n`
+//   const win = window.open("", "_blank");
+//   if (!win) return;
 
-    section.questions.forEach((q: any, qIndex: number) => {
-      const correctOption =
-        q.options?.find((o: any) => o.isCorrect)?.id || "N/A"
+//   win.document.write(`
+//     <html>
+//       <head>
+//         <style>
+//           body { padding:20px; font-family:serif; }
+//           .options { display:flex; flex-wrap:wrap; }
+//           .options p { width:50%; }
+//         </style>
+//       </head>
+//       <body>
+//         ${preview.outerHTML}
+//         <script>
+//           window.onload = () => window.print();
+//         </script>
+//       </body>
+//     </html>
+//   `);
 
-      content += `${qIndex + 1}. ${correctOption}\n`
-    })
+//   win.document.close();
+// };
 
-    content += `\n`
-  })
+/* ============================
+   PDF EXPORT (FINAL)
+============================ */
+export const exportAsPDF = async (config: any) => {
+  try {
+    const preview = document.getElementById("paper-preview");
+    if (!preview) return;
 
-  const blob = new Blob([content], { type: "text/plain" })
-  const url = URL.createObjectURL(blob)
+    const html2canvas = (await import("html2canvas")).default;
+    const { jsPDF } = await import("jspdf");
 
-  const a = document.createElement("a")
-  a.href = url
-  a.download = `${config.title}_answer_key.txt`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
+    /* ============================
+       CLEAN HTML (NO TAILWIND)
+    ============================ */
+    const cleanHTML = `
+      <div style="
+        width: 210mm;
+        min-height: 297mm;
+        padding: 15mm 18mm;
+        font-family: 'Times New Roman', serif;
+        background: #ffffff;
+        color: #000000;
+        font-size: 13px;
+        line-height: 1.4;
+      ">
+        ${preview.innerHTML}
+      </div>
+    `;
+
+    /* ============================
+       CREATE HIDDEN IFRAME
+    ============================ */
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.left = "-99999px";
+    iframe.style.top = "0";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument!;
+    doc.open();
+
+    doc.write(`
+      <html>
+        <body style="margin:0;">
+          ${cleanHTML}
+
+          <style>
+            /* FORCE SAFE COLORS */
+            * {
+              background: #ffffff !important;
+              color: #000000 !important;
+              box-shadow: none !important;
+              text-shadow: none !important;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+
+            th, td {
+              border: 1px solid #000;
+              padding: 5px;
+              font-size: 12px;
+            }
+
+            .flex {
+              display: flex;
+              justify-content: space-between;
+            }
+
+            /* ✅ OPTIONS 2x2 (SAFE FLEX) */
+            .options {
+              display: flex;
+              flex-wrap: wrap;
+              margin-left: 15px;
+              margin-top: 4px;
+            }
+
+            .options p {
+              width: 50%;
+              margin-bottom: 4px;
+            }
+
+            h1 { text-align: center; font-size: 18px; }
+            h2 { font-size: 14px; margin-top: 18px; }
+
+            p {
+              margin: 3px 0;
+              line-height: 1.4;
+            }
+          </style>
+        </body>
+      </html>
+    `);
+
+    doc.close();
+
+    await new Promise((r) => setTimeout(r, 300));
+
+    /* ============================
+       RENDER CANVAS
+    ============================ */
+    const canvas = await html2canvas(doc.body, {
+      scale: 3,
+      backgroundColor: "#ffffff",
+    });
+
+    iframe.remove(); // ✅ NO UI BREAK
+
+    /* ============================
+       PDF GENERATION
+    ============================ */
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    const imgWidth = 210;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+    let pageNumber = 1;
+
+    const imgData = canvas.toDataURL("image/png");
+
+    while (heightLeft > 0) {
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+
+      /* FOOTER */
+      pdf.setFontSize(10);
+      pdf.text(
+        `Page ${pageNumber} / INNOSAT / CODE ${config.code}`,
+        105,
+        290,
+        { align: "center" }
+      );
+
+      heightLeft -= 297;
+
+      if (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pageNumber++;
+      }
+    }
+
+    pdf.save(`${config.title}.pdf`);
+  } catch (err) {
+    console.error("FINAL PDF ERROR:", err);
+  }
+};
+
+export const printPaper = async (config: any) => {
+  try {
+    if (!config) return;
+
+    const preview = document.getElementById("paper-preview");
+    if (!preview) return;
+
+    const html2canvas = (await import("html2canvas")).default;
+    const { jsPDF } = await import("jspdf");
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.left = "-99999px";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentDocument!;
+    doc.open();
+
+    doc.write(`
+      <html>
+        <body style="padding:15mm 18mm;font-family:serif;background:#fff;line-height:1.4;">
+          ${preview.innerHTML}
+          <style>
+            *{background:#fff!important;color:#000!important;}
+            table{width:100%;border-collapse:collapse;}
+            th,td{border:1px solid #000;padding:5px;}
+            .options{display:flex;flex-wrap:wrap;}
+            .options p{width:50%;}
+          </style>
+        </body>
+      </html>
+    `);
+
+    doc.close();
+    await new Promise((r) => setTimeout(r, 300));
+
+    const canvas = await html2canvas(doc.body, {
+      scale: 3,
+      backgroundColor: "#ffffff",
+    });
+
+    iframe.remove();
+
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    const imgData = canvas.toDataURL("image/png");
+
+    const imgWidth = 210;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+    pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+
+    pdf.setFontSize(10);
+    pdf.text(
+      `INNOSAT / CODE ${config?.code || ""}`,
+      105,
+      290,
+      { align: "center" }
+    );
+
+    pdf.save(`${config?.title || "paper"}_print.pdf`);
+  } catch (err) {
+    console.error("Print-like PDF error:", err);
+  }
+};

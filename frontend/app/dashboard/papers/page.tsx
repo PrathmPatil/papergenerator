@@ -101,6 +101,7 @@ export default function PaperBankPage() {
 
     try {
       const res = await fetchAllPapersApi(payload);
+      console.log(res);
       setPapers(res?.success ? res.papers : []);
     } catch (e) {
       console.error(e);
@@ -231,7 +232,7 @@ export default function PaperBankPage() {
               </TableHeader>
 
               <TableBody>
-                {papers.map((paper) => (
+                {papers.length > 0 ? papers?.map((paper) => (
                   <TableRow key={paper._id}>
                     <TableCell className="font-medium">{paper.title}</TableCell>
                     <TableCell>{getClassNameById(paper.classId)}</TableCell>
@@ -269,7 +270,13 @@ export default function PaperBankPage() {
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                )) : (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-4">
+                      No papers found
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
 
               <TableFooter />

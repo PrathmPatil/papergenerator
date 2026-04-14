@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 import { cn, mapPaperToPreviewConfig } from "@/lib/utils";
 import PaperGenerationTemplate from "@/components/paper-generation-template";
-import { PaperPreview } from "@/components/paper-preview";
+import { PaperPreview, printPaper } from "@/components/paper-preview";
 import { useParams, useRouter } from "next/navigation";
 import { fetchPaperByIdApi, generatePaperApiManual, getEditPaperApi } from "@/utils/apis";
 import { Label } from "@/components/ui/label";
@@ -33,7 +33,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { ClassLevel } from "@/lib/types";
-import {handlePrintPDF} from "@/components/paper-preview";
+
 /* ---------- SAME STEPS ---------- */
 const STEPS = [
   { id: 1, title: "Basic Details" },
@@ -64,6 +64,7 @@ interface Section {
   name: string;
   marks: number;
   questions: string[];
+  subjectId?: string;
 }
 
 interface Paper {
@@ -75,6 +76,7 @@ interface Paper {
   sections: Section[];
   questionsSnapshot: QuestionSnapshot[];
   createdAt: string;
+  templateId?: string;
 }
 
 export default function EditPaperPage() {
@@ -86,7 +88,7 @@ export default function EditPaperPage() {
   const [loading, setLoading] = useState(true);
   const [sections, setSections] = useState<Section[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]); // ✅ ADD THIS
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [selectedQuestions, setSelectedQuestions] = useState<Record<string, string[]>>({});
   const [totalMarks, setTotalMarks] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -116,10 +118,16 @@ export default function EditPaperPage() {
       ),
     [selectedClass]
   );
- 
-    
-   
 
+  // Add toggleTopic function if it's missing
+  const toggleTopic = (topicId: string) => {
+    setSelectedTopics(prev => 
+      prev.includes(topicId) 
+        ? prev.filter(id => id !== topicId)
+        : [...prev, topicId]
+    );
+  };
+  
   const handleNext = () => {
     console.log(currentStep)
     if (currentStep === 4){
@@ -142,48 +150,44 @@ export default function EditPaperPage() {
           const { paper, template, sections } = data;
           setTemplate({
             classId: paper.classId,
-
             subjectId: sections.map((s: any) => s.subjectId).join(","),
-
             type: template.type && template.type,
-
             difficulty: template.difficulty,
-
             sections: sections,
           });
           setSections(sections);
           setPaper(paper);
           setPaperTitle(paper.title);
           setSelectedClass(paper.classId);
-          setSelectedSubjects(sections.map((s) => s.subjectId));
+          setSelectedSubjects(sections.map((s: any) => s.subjectId));
           setTotalMarks(paper.totalMarks);
           setDuration(paper.durationMinutes);
           console.log(paper)
           setSelectedQuestions(paper.sections.flatMap((s) => s.questions));
           setDifficultyMix({
-            easy:template.difficulty && template.difficulty.split(",").some((s) => s === "easy"),
-            medium: template.difficulty && template.difficulty.split(",").some((s) => s === "medium"),
-            hard: template.difficulty && template.difficulty.split(",").some((s) => s === "hard"),
+            easy: template.difficulty && template.difficulty.split(",").some((s: string) => s === "easy"),
+            medium: template.difficulty && template.difficulty.split(",").some((s: string) => s === "medium"),
+            hard: template.difficulty && template.difficulty.split(",").some((s: string) => s === "hard"),
           });
           setQuestionTypes({
             mcq_text: template.type && template.type
               .split(",")
-              .some((s) => s === "mcq_text"),
+              .some((s: string) => s === "mcq_text"),
             mcq_image: template.type && template.type
               .split(",")
-              .some((s) => s === "mcq_image"),
+              .some((s: string) => s === "mcq_image"),
             true_false: template.type && template.type
               .split(",")
-              .some((s) => s === "true_false"),
+              .some((s: string) => s === "true_false"),
             short_answer: template.type && template.type
               .split(",")
-              .some((s) => s === "short_answer"),
+              .some((s: string) => s === "short_answer"),
             paragraph: template.type && template.type
               .split(",")
-              .some((s) => s === "paragraph"),
+              .some((s: string) => s === "paragraph"),
             long_answer: template.type && template.type
               .split(",")
-              .some((s) => s === "long_answer"),
+              .some((s: string) => s === "long_answer"),
           });
         } else {
           console.error("Failed to fetch paper");
@@ -217,7 +221,7 @@ export default function EditPaperPage() {
     name: string;
   }
 
-  // ✅ update marks for a subject inside sections
+  // update marks for a subject inside sections
     const updateSubjectMarks = (subject: any, marks: number) => {
       setSections((prev) =>
         prev.map((sec: any) =>
@@ -243,22 +247,22 @@ const remainingMarks = totalMarks - totalAllocated;
       console.log("Raw selectedQuestions:", selectedQuestions);
       console.log("Template:", template);
 
-      // ✅ Step 1: Build section-wise payload
+      // Step 1: Build section-wise payload
       const sectionPayload = template.sections.map((section: any) => ({
         sectionId: section.id,
-        questions: selectedQuestions[section.id] || [], // 👈 EMPTY ARRAY IF NOT SELECTED
+        questions: selectedQuestions[section.id] || [],
       }));
 
-      // ✅ Step 2: Final payload
+      // Step 2: Final payload
       const payload = {
-        templateId: paper.templateId,
+        templateId: paper?.templateId,
         selectedQuestions: sectionPayload,
-        paperId: paper._id,
+        paperId: paper?._id,
       };
 
       console.log("Final Save Payload:", payload);
 
-      // ✅ Step 3: API call
+      // Step 3: API call
      const res= await generatePaperApiManual(payload);
      if(!res.success){return alert(res.error)}
      else { setGeneratedPaper(res.paper) }
@@ -268,6 +272,20 @@ const remainingMarks = totalMarks - totalAllocated;
       console.error("Error while saving paper:", error);
       alert("Failed to generate paper");
     }
+  }
+
+  // Handle print function - this will print the generated paper if it exists
+  const handlePrint = () => {
+    if (generatedPaper) {
+      // If we have a generated paper, we need to temporarily render it and print
+      printPaper();
+    } else {
+      alert("Please generate the paper first before printing.");
+    }
+  };
+
+  if (loading) {
+    return <div className="p-6 text-center">Loading paper...</div>;
   }
 
   return (
@@ -378,6 +396,7 @@ const remainingMarks = totalMarks - totalAllocated;
                     <Input
                       type="number"
                       value={totalMarks}
+                      min={0}
                       onChange={(e) => setTotalMarks(Number(e.target.value))}
                     />
                   </div>
@@ -386,6 +405,7 @@ const remainingMarks = totalMarks - totalAllocated;
                     <Input
                       type="number"
                       value={duration}
+                      min={0}
                       onChange={(e) => setDuration(Number(e.target.value))}
                     />
                   </div>
@@ -656,11 +676,11 @@ const remainingMarks = totalMarks - totalAllocated;
 
             {currentStep === 5 ? (
               <div className="flex gap-2">
-               <Button
+                <Button
                   variant="outline"
-                  disabled={!paper}
-                  onClick={() => paper && handlePrintPDF(config)}
-                                >
+                  disabled={!generatedPaper}
+                  onClick={handlePrint}
+                >
                   <Printer className="mr-2 h-4 w-4" /> Print
                 </Button>
                 <Button onClick={handleSave}>
@@ -685,15 +705,15 @@ const remainingMarks = totalMarks - totalAllocated;
           <CardContent className="space-y-4 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Title</span>
-              <span>Unit Test 1</span>
+              <span>{paperTitle || "Unit Test 1"}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Class</span>
-              <span>Class 3</span>
+              <span>{selectedClass || "Not selected"}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Total Marks</span>
-              <span>50</span>
+              <span>{totalMarks || 0}</span>
             </div>
 
             <div className="pt-4 border-t text-xs text-muted-foreground">

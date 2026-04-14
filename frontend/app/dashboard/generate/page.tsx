@@ -497,6 +497,7 @@ const handleSave = async () => {
                     <Input
                       type="number"
                       value={totalMarks}
+                      min={0}
                       onChange={(e) => setTotalMarks(Number(e.target.value))}
                     />
                   </div>
@@ -505,6 +506,7 @@ const handleSave = async () => {
                     <Input
                       type="number"
                       value={duration}
+                      min={0}
                       onChange={(e) => setDuration(Number(e.target.value))}
                     />
                   </div>

@@ -70,7 +70,7 @@ export default function LoginPage() {
       const res = await loginUserApi({ email, password })
       console.log(res)
       const { data, success } = res
-      if (!success) {
+      if (success !== true) {
         toast({
           title: "Login Failed",
           description: res.message,

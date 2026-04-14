@@ -11,11 +11,8 @@ import { Badge } from "@/components/ui/badge"
 import { fetchPaperByIdApi } from "@/utils/apis"
 import { baseURL } from "@/hooks/common"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { handleExportPDF } from "@/components/paper-preview"
-import {PaperPreview } from "@/components/paper-preview"
+import { PaperPreview, exportAsPDF, printPaper } from "@/components/paper-preview"
 import { exportPaperPdfApi } from "@/utils/apis"
-import { handlePrintPDF}from "@/components/paper-preview"
-import { config } from "process"
 
 /* ---------------- TYPES ---------------- */
 
@@ -53,42 +50,78 @@ interface Paper {
   createdAt: string
 }
 
+// Convert paper data to PaperConfig format for PaperPreview
+const convertToPaperConfig = (paper: Paper) => {
+  return {
+    id: paper._id,
+    title: paper.title,
+    code: paper._id.slice(-6), // Generate a code from ID
+    classLevel: paper.classId,
+    durationMinutes: paper.durationMinutes,
+    totalMarks: paper.totalMarks,
+    sections: paper.sections.map((section, index) => ({
+      id: section.id,
+      name: section.name,
+      marks: section.marks,
+      questions: paper.questionsSnapshot
+        .filter(q => section.questions.includes(q.questionId))
+        .map((q, qIndex) => ({
+          questionId: q.questionId,
+          text: q.text,
+          marks: q.marks,
+          negativeMarks: q.negativeMarks,
+          options: q.options || [],
+          media: q.media || []
+        }))
+    }))
+  }
+}
+
 /* ---------------- COMPONENT ---------------- */
 
 export default function PaperDetailsPage() {
   const router = useRouter()
-  const params = useParams()   // ✅ FIXED
+  const params = useParams()
   const paperId = params?.id as string
 
   const [paper, setPaper] = useState<Paper | null>(null)
   const [loading, setLoading] = useState(true)
- 
-
-
 
   const downloadPDF = async () => {
-  try {
-    const res: any = await exportPaperPdfApi(paperId);
+    try {
+      const res: any = await exportPaperPdfApi(paperId);
 
-    const blob = res.date; // ✅ your apiClient returns data directly, so blob is here
+      const blob = res.date; // your apiClient returns data directly, so blob is here
 
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
 
-    const safeName = (paper?.title || "paper").replace(/[^a-z0-9]/gi, "_");
-    a.download = `${safeName}.pdf`;
+      const safeName = (paper?.title || "paper").replace(/[^a-z0-9]/gi, "_");
+      a.download = `${safeName}.pdf`;
 
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
 
-    window.URL.revokeObjectURL(url);
-  } catch (err) {
-    console.error("Download failed:", err);
-    alert("Download failed. Check Network/Console.");
-  }
-};
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Download failed:", err);
+      alert("Download failed. Check Network/Console.");
+    }
+  };
+
+  // Handle PDF export using the PaperPreview component's function
+  const handleExportPDF = async () => {
+    if (!paper) return;
+    const paperConfig = convertToPaperConfig(paper);
+    await exportAsPDF(paperConfig);
+  };
+
+  // Handle Print using the PaperPreview component's function
+  const handlePrint = () => {
+    printPaper();
+  };
 
   /* ---------------- FETCH PAPER ---------------- */
 
@@ -114,14 +147,14 @@ export default function PaperDetailsPage() {
   /* ---------------- HELPERS ---------------- */
 
   const getQuestionsBySection = (section: Section) => {
-  const ids = new Set(section.questions.map((id) => id.toString()));
+    const ids = new Set(section.questions.map((id) => id.toString()));
 
-  return (
-    paper?.questionsSnapshot.filter((q) =>
-      ids.has(q.questionId?.toString())
-    ) || []
-  );
-};
+    return (
+      paper?.questionsSnapshot.filter((q) =>
+        ids.has(q.questionId?.toString())
+      ) || []
+    );
+  };
 
   /* ---------------- STATES ---------------- */
 
@@ -160,19 +193,27 @@ export default function PaperDetailsPage() {
 
       {/* ACTIONS */}
       <div className="flex gap-2">
-        <Button variant="outline" onClick={()=>router.push(`/dashboard/papers/edit/${paperId}`)}><Edit className="mr-2 h-4 w-4" /> Edit</Button>
-        <Button onClick={() => handleExportPDF(PaperPreview)}>
-           <Download className="mr-2 h-4 w-4"  /> Download PDF
+        <Button variant="outline" onClick={() => router.push(`/dashboard/papers/edit/${paperId}`)}>
+          <Edit className="mr-2 h-4 w-4" /> Edit
         </Button>
-        {/* <Button onClick={() => PaperPreview(paper)}>
-           <Download className="mr-2 h-4 w-4"  /> Paper Priview       
-            </Button> */}
-       <Button variant="outline" onClick={() => handlePrintPDF(config)}>
+        
+        <Button onClick={handleExportPDF}>
+          <Download className="mr-2 h-4 w-4" /> Download PDF
+        </Button>
+        
+        <Button variant="outline" onClick={handlePrint}>
           <Printer className="mr-2 h-4 w-4" /> Print
         </Button>
-        <Button variant="outline"><Share2 className="mr-2 h-4 w-4"  /> Share</Button>
-      
+        
+        <Button variant="outline">
+          <Share2 className="mr-2 h-4 w-4" /> Share
+        </Button>
       </div>
+
+      {/* PAPER PREVIEW COMPONENT */}
+      {paper && (
+        <PaperPreview config={convertToPaperConfig(paper)} />
+      )}
 
       {/* SUBJECT-WISE QUESTIONS */}
       <Card>
@@ -202,7 +243,7 @@ export default function PaperDetailsPage() {
                     </div>
                   </AccordionTrigger>
 
-                  <AccordionContent className="space-y-4 pt-4 ">
+                  <AccordionContent className="space-y-4 pt-4">
 
                     {sectionQuestions.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
@@ -210,48 +251,48 @@ export default function PaperDetailsPage() {
                       </p>
                     ) : (
                       <div className="space-y-2">
-                      {sectionQuestions.map((q, index) => (
-                        <div
-                          key={q.questionId}
-                          className="border rounded-md p-4 bg-muted/30"
-                        >
-                          {/* QUESTION HEADER */}
-                          <div className="flex justify-between items-start">
-                            <p className="font-medium">
-                              Q{index + 1}. {q.text}
-                            </p>
-                            <Badge variant="outline">
-                              {q.marks} Mark{q.marks > 1 ? "s" : ""}
-                            </Badge>
+                        {sectionQuestions.map((q, index) => (
+                          <div
+                            key={q.questionId}
+                            className="border rounded-md p-4 bg-muted/30"
+                          >
+                            {/* QUESTION HEADER */}
+                            <div className="flex justify-between items-start">
+                              <p className="font-medium">
+                                Q{index + 1}. {q.text}
+                              </p>
+                              <Badge variant="outline">
+                                {q.marks} Mark{q.marks > 1 ? "s" : ""}
+                              </Badge>
+                            </div>
+
+                            {/* IMAGE */}
+                            {q.media?.length > 0 && (
+                              <div className="mt-3 flex gap-3">
+                                {q.media.map((img, idx) => (
+                                  <img
+                                    key={idx}
+                                    src={baseURL + img.url}
+                                    alt="question"
+                                    className="max-h-32 rounded border"
+                                  />
+                                ))}
+                              </div>
+                            )}
+
+                            {/* OPTIONS */}
+                            {q.options?.length > 0 && (
+                              <div className="mt-3 ml-4 space-y-2 grid grid-cols-4">
+                                {q.options.map((opt) => (
+                                  <div key={opt.id} className="text-sm flex gap-2">
+                                    <span className="font-semibold">({opt.id})</span>
+                                    <span>{opt.text}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
-
-                          {/* IMAGE */}
-                          {q.media?.length > 0 && (
-                            <div className="mt-3 flex gap-3">
-                              {q.media.map((img, idx) => (
-                                <img
-                                  key={idx}
-                                  src={baseURL + img.url}
-                                  alt="question"
-                                  className="max-h-32 rounded border"
-                                />
-                              ))}
-                            </div>
-                          )}
-
-                          {/* OPTIONS */}
-                          {q.options?.length > 0 && (
-                            <div className="mt-3 ml-4 space-y-2 grid grid-cols-4">
-                              {q.options.map((opt) => (
-                                <div key={opt.id} className="text-sm flex gap-2">
-                                  <span className="font-semibold">({opt.id})</span>
-                                  <span>{opt.text}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                        ))}
                       </div>
                     )}
 

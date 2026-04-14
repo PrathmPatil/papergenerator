@@ -36,9 +36,10 @@ import {
   updateUserApi,
 } from "@/utils/apis";
 import { dateConverter, dateConverterUTC } from "@/hooks/common";
+import Joi from "joi";
 
 interface User {
-  _id: string;
+  _id?: string;
   name: string;
   email: string;
   role: "teacher" | "student";
@@ -50,16 +51,46 @@ interface User {
   class?: string;
 }
 
+const userSchema = Joi.object({
+  name: Joi.string()
+    .pattern(/^[A-Za-z\s]+$/)
+    .min(3)
+    .max(50)
+    .required()
+    .messages({
+      "string.empty": "Name is required",
+      "string.min": "Name must be at least 3 characters",
+      "string.pattern.base": "Name can only contain letters and spaces",
+      "string.max": "Name must be less than 50 characters",
+    }),
+  email: Joi.string().email({ tlds: false }).required().messages({
+    "string.empty": "Email is required",
+    "string.email": "Invalid email format",
+  }),
+  phone: Joi.string()
+    .pattern(/^[6-9]\d{9}$/)
+    .required()
+    .messages({
+      "string.empty": "Phone is required",
+      "string.pattern.base": "Enter valid 10-digit phone number",
+    }),
+  institute: Joi.string().min(2).required().messages({
+    "string.empty": "Institute is required",
+  }),
+  role: Joi.string().valid("teacher", "student").required().messages({
+    "string.empty": "Role is required",
+    "any.only": "Role must be either teacher or student",
+  }),
+});
 export default function UserManagementPage() {
   const { user } = useUser();
   const { toast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState<"all" | "teacher" | "student">(
-    "all"
+    "all",
   );
   const [newUser, setNewUser] = useState({
-    _id: undefined,
     name: "",
     email: "",
     phone: "",
@@ -70,9 +101,28 @@ export default function UserManagementPage() {
   const [loading, setLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
+  const [errors, setErrors] = useState<any>({});
+
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  const validateForm = () => {
+    const { error } = userSchema.validate(newUser, { abortEarly: false });
+    console.log(error);
+    if (!error) {
+      setErrors({});
+      return true;
+    }
+
+    const errorObj: any = {};
+    error.details.forEach((err) => {
+      errorObj[err.path[0]] = err.message;
+    });
+
+    setErrors(errorObj);
+    return false;
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -121,14 +171,8 @@ export default function UserManagementPage() {
   });
 
   const handleAddUser = async () => {
-    if (!newUser.name || !newUser.email) {
-      toast({
-        title: "Error",
-        description: "Please fill in all fields",
-        variant: "destructive",
-      });
-      return;
-    }
+    console.log(validateForm());
+    if (!validateForm()) return;
 
     const user = {
       name: newUser.name,
@@ -138,26 +182,37 @@ export default function UserManagementPage() {
       role: newUser.role,
       password: newUser.role === "teacher" ? "Teacher@123" : "Student@123",
     };
+
     try {
       const res = await registerUserApi(user);
-      const { data, success } = res;
-      if (!success) {
+      const { data, success, message } = res;
+      console.log(res, data, success, message);
+      if (success !== true) {
         toast({
-          title: "Error",
+          title: message,
           description: "Failed to add user",
           variant: "destructive",
+
         });
         return;
       } else {
         fetchUsers();
         toast({
           title: "Success",
-          description: `${user.role === "teacher" ? "Teacher" : "Student"
-            } added successfully`,
+          description: `${
+            user.role === "teacher" ? "Teacher" : "Student"
+          } added successfully`,
+          variant: "default",
         });
         setIsDialogOpen(false);
-        setNewUser({ _id: undefined, name: "", email: "", phone: "", institute: "", role: "student" });
-
+        setNewUser({
+          _id: undefined,
+          name: "",
+          email: "",
+          phone: "",
+          institute: "",
+          role: "student",
+        });
       }
       // localStorage.setItem("users", JSON.stringify([...users, user]));
     } catch (error) {
@@ -181,18 +236,29 @@ export default function UserManagementPage() {
 
   const handleUpdateUser = async (id: string) => {
     // setUsers(users.filter((u) => u.id !== id))
+    if (!id) {
+      toast({
+        title: "Error",
+        description: "User ID is missing",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!validateForm()) return;
     try {
       const payload = { ...newUser, _id: id };
-      console.log(payload)
+      console.log(payload);
       const res = await updateUserApi(id, payload);
-      console.log(res)
+      console.log(res);
       const { success, message } = res;
       if (success) {
         toast({
           title: "Success",
           description: message,
         });
-        setUsers(prev => prev.map(u => u._id === id ? { ...u, ...payload } : u))
+        setUsers((prev) =>
+          prev.map((u) => (u._id === id ? { ...u, ...payload } : u)),
+        );
         clearForm();
       } else {
         toast({
@@ -239,25 +305,22 @@ export default function UserManagementPage() {
         variant: "destructive",
       });
     }
-
   };
 
   const handleToggleStatus = async (id: string, isActive: boolean) => {
     setStatusLoading(true);
-    console.log(id, isActive)
+    console.log(id, isActive);
     try {
       const res = await toggleUserStatusApi(id, {
         isActive: isActive,
       });
       const { data, success } = res;
       if (success) {
-        console.log(users)
+        console.log(users);
         setUsers(
           users.map((u) =>
-            u._id === id
-              ? { ...u, isActive: isActive ?? false }
-              : u
-          )
+            u._id === id ? { ...u, isActive: isActive ?? false } : u,
+          ),
         );
         toast({
           title: "Success",
@@ -278,10 +341,17 @@ export default function UserManagementPage() {
   };
 
   const clearForm = () => {
-    setNewUser({ _id: undefined, name: "", email: "", phone: "", institute: "", role: "student" });
+    setNewUser({
+      _id: undefined,
+      name: "",
+      email: "",
+      phone: "",
+      institute: "",
+      role: "student",
+    });
     setIsDialogOpen(false);
     setIsEdit(false);
-  }
+  };
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -301,9 +371,12 @@ export default function UserManagementPage() {
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{!!isEdit ? "Edit User" : "Add New"} User</DialogTitle>
+              <DialogTitle>
+                {!!isEdit ? "Edit User" : "Add New"} User
+              </DialogTitle>
               <DialogDescription>
-                {!!isEdit ? "Update" : "Create"} a new teacher or student account
+                {!!isEdit ? "Update" : "Create"} a new teacher or student
+                account
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -312,10 +385,14 @@ export default function UserManagementPage() {
                 <Input
                   placeholder="Enter full name"
                   value={newUser.name}
-                  onChange={(e) =>
-                    setNewUser({ ...newUser, name: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setNewUser({ ...newUser, name: e.target.value });
+                    setErrors({ ...errors, name: "" });
+                  }}
                 />
+                {errors.name && (
+                  <p className="text-red-500 text-xs mt-1">{errors.name}</p>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium">Email</label>
@@ -323,43 +400,58 @@ export default function UserManagementPage() {
                   type="email"
                   placeholder="Enter email address"
                   value={newUser.email}
-                  onChange={(e) =>
-                    setNewUser({ ...newUser, email: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setErrors({ ...errors, email: "" });
+                    setNewUser({ ...newUser, email: e.target.value });
+                  }}
                   disabled={!!isEdit}
                 />
+                {errors.email && (
+                  <p className="text-red-500 text-xs mt-1">{errors.email}</p>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium">Phone</label>
                 <Input
                   placeholder="+91 XXXXXXXXXX"
                   value={newUser.phone}
-                  onChange={(e) =>
-                    setNewUser({ ...newUser, phone: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setNewUser({ ...newUser, phone: e.target.value });
+                    setErrors({ ...errors, phone: "" });
+                  }}
                 />
+                {errors.phone && (
+                  <p className="text-red-500 text-xs mt-1">{errors.phone}</p>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium">Institute</label>
                 <Input
                   placeholder="Enter Institute name"
                   value={newUser.institute}
-                  onChange={(e) =>
-                    setNewUser({ ...newUser, institute: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setNewUser({ ...newUser, institute: e.target.value });
+                    setErrors({ ...errors, institute: "" });
+                  }}
                 />
+                {errors.institute && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {errors.institute}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium">User Type</label>
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2"
                   value={newUser.role}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setNewUser({
                       ...newUser,
                       role: e.target.value as "teacher" | "student",
-                    })
-                  }
+                    });
+                    setErrors({ ...errors, role: "" });
+                  }}
                   disabled={!!isEdit}
                 >
                   <option value="teacher">Teacher</option>
@@ -369,11 +461,19 @@ export default function UserManagementPage() {
               <div className="flex gap-3 pt-4">
                 <Button
                   variant="outline"
-                  onClick={() => { clearForm() }}
+                  onClick={() => {
+                    clearForm();
+                  }}
                 >
                   Cancel
                 </Button>
-                <Button onClick={() => { !!isEdit ? handleUpdateUser(newUser?._id) : handleAddUser() }}>{!!isEdit ? "Update" : "Add"} User</Button>
+                <Button
+                  onClick={() => {
+                    !!isEdit ? handleUpdateUser(newUser?._id as string) : handleAddUser();
+                  }}
+                >
+                  {!!isEdit ? "Update" : "Add"} User
+                </Button>
               </div>
             </div>
           </DialogContent>
@@ -465,7 +565,9 @@ export default function UserManagementPage() {
                     placeholder="Search by name or email..."
                     className="pl-10"
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                    }}
                   />
                 </div>
                 <select
@@ -473,7 +575,7 @@ export default function UserManagementPage() {
                   value={filterRole}
                   onChange={(e) =>
                     setFilterRole(
-                      e.target.value as "all" | "teacher" | "student"
+                      e.target.value as "all" | "teacher" | "student",
                     )
                   }
                 >
@@ -536,7 +638,9 @@ export default function UserManagementPage() {
                               </Badge>
                             </td>
                             <td className="py-3 px-4">
-                              <Badge variant={u.isActive ? "default" : "outline"}>
+                              <Badge
+                                variant={u.isActive ? "default" : "outline"}
+                              >
                                 {u.isActive ? "Active" : "Inactive"}
                               </Badge>
                             </td>
@@ -551,7 +655,13 @@ export default function UserManagementPage() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={() => { setIsEdit(true); setIsDialogOpen(true); setNewUser(u) }}>
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setIsEdit(true);
+                                      setIsDialogOpen(true);
+                                      setNewUser(u);
+                                    }}
+                                  >
                                     <Edit2 className="mr-2 h-4 w-4" />
                                     Edit User
                                   </DropdownMenuItem>
@@ -561,14 +671,13 @@ export default function UserManagementPage() {
                                     }
                                   >
                                     <span
-                                      className={`mr-2 h-4 w-4 ${u.isActive
+                                      className={`mr-2 h-4 w-4 ${
+                                        u.isActive
                                           ? "bg-red-500"
                                           : "bg-green-500"
-                                        } rounded-full`}
+                                      } rounded-full`}
                                     ></span>
-                                    {u.isActive
-                                      ? "Deactivate"
-                                      : "Activate"}
+                                    {u.isActive ? "Deactivate" : "Activate"}
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
                                     onClick={() => handleDeleteUser(u._id)}

@@ -249,7 +249,7 @@ export default function CreateQuestionPage() {
       console.log("Create question response:", res);
 
       const { success, question } = res;
-      if (!success) throw new Error("Failed to create question");
+      if (success !== true) throw new Error("Failed to create question");
       router.refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Something went wrong");

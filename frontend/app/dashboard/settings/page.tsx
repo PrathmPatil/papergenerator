@@ -193,7 +193,7 @@ export default function SettingsPage() {
       });
       console.log(res);
       const { success, message } = res;
-      if (!success) {
+      if (success !== true) {
         setNotifications((prev) => ({ ...prev, [key]: !prev[key] }));
       }
     } catch (error) {
@@ -208,7 +208,7 @@ export default function SettingsPage() {
         const res = await updateThemeApi(user?.id || "", {theme});
         console.log(res);
         const { success, message } = res;
-        if (!success) {
+        if (success !== true) {
           setTheme("light");
         }
       } catch (error) {

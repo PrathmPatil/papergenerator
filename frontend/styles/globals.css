@@ -274,3 +274,7 @@
     page-break-before: always;
   }
 }
+
+#paper-preview {
+  font-family: "Times New Roman", serif;
+}
