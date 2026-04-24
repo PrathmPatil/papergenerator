@@ -5,8 +5,26 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function formatTopicTitle(value: string) {
+  const cleaned = String(value || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  if (!cleaned) return "Untitled Topic"
+
+  return cleaned
+    .split(" ")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ")
+}
+
 
 export function mapPaperToPreviewConfig(paper: any) {
+  const snapshots = Array.isArray(paper?.questionsSnapshot)
+    ? paper.questionsSnapshot
+    : []
+
   return {
     title: paper.title,
     classLevel: paper.classId,
@@ -15,9 +33,22 @@ export function mapPaperToPreviewConfig(paper: any) {
     negativeMarking: true,
 
     sections: paper.sections.map((section: any) => {
-      const sectionQuestions = paper.questionsSnapshot.filter((q: any) =>
-        section.questions.includes(q.questionId)
+      const sectionQuestionIds = new Set(
+        (Array.isArray(section?.questions) ? section.questions : []).map((id: any) => String(id))
       )
+
+      const sectionQuestions = snapshots
+        .filter((q: any) => sectionQuestionIds.has(String(q?.questionId || q?._id || "")))
+        .map((q: any) => ({
+          ...q,
+          questionId: String(q?.questionId || q?._id || ""),
+          type: q?.type || "",
+          text: q?.text || "",
+          paragraph: q?.paragraph || "",
+          subQuestions: Array.isArray(q?.subQuestions) ? q.subQuestions : [],
+          options: Array.isArray(q?.options) ? q.options : [],
+          media: Array.isArray(q?.media) ? q.media : [],
+        }))
 
       const positiveMarks = sectionQuestions.reduce(
         (sum: number, q: any) => sum + (q.marks || 1),

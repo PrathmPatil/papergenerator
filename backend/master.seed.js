@@ -3,10 +3,7 @@ import User from "./models/User.js";
 
 export const seedMasterUser = async () => {
   try {
-    const existingMaster = await User.findOne({
-      email: "master@gmail.com",
-      role: "master",
-    });
+    const existingMaster = await User.findOne({ email: "master@gmail.com" });
 
     if (existingMaster) {
       return;

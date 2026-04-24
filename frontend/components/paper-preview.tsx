@@ -1,14 +1,44 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { FileText, Eye, Printer } from "lucide-react";
-import type { PaperConfig } from "@/lib/types";
 
-/* ============================
-   MAIN COMPONENT
-============================ */
-export function PaperPreview({ config }: { config: PaperConfig }) {
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
+
+const getMediaSrc = (url?: string) => {
+  if (!url) return "";
+  if (/^data:/i.test(url)) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (!API_BASE_URL) return url;
+  return `${API_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
+};
+
+const waitForImagesInDocument = async (doc: Document) => {
+  const images = Array.from(doc.images || []);
+  await Promise.all(
+    images.map((img) => {
+      if (img.complete && img.naturalWidth > 0) {
+        return Promise.resolve();
+      }
+
+      return new Promise<void>((resolve) => {
+        const done = () => resolve();
+        img.onload = done;
+        img.onerror = done;
+      });
+    })
+  );
+};
+
+export function PaperPreview({ config }: { config: any }) {
+  const [fontSize, setFontSize] = useState(Number(config?.previewSettings?.fontSize || 13));
+  const [orientation, setOrientation] = useState(config?.previewSettings?.orientation === "landscape" ? "landscape" : "portrait");
+  const [columnCount, setColumnCount] = useState(Math.min(2, Math.max(1, Number(config?.previewSettings?.columnCount || 1))));
+
   const cell = {
     border: "1px solid black",
     padding: "5px",
@@ -19,35 +49,363 @@ export function PaperPreview({ config }: { config: PaperConfig }) {
     textAlign: "center" as const,
   };
 
+  const previewStyles = useMemo(() => {
+    const parsedFontSize = Number(fontSize);
+    const safeFontSize = Number.isFinite(parsedFontSize) && parsedFontSize >= 0 ? parsedFontSize : 13;
+    const safeColumnCount = Math.max(1, Math.min(2, Number(columnCount) || 1));
+    const safeOrientation = orientation === "landscape" ? "landscape" : "portrait";
+
+    return {
+      fontSize: safeFontSize,
+      orientation: safeOrientation,
+      columnCount: safeColumnCount,
+      pageWidth: safeOrientation === "landscape" ? "277mm" : "190mm",
+      pageMinHeight: safeOrientation === "landscape" ? "190mm" : "297mm",
+    };
+  }, [columnCount, fontSize, orientation]);
+
+  const renderAnswerLine = (label = "Answer") => (
+    <div
+      className="answer-row"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        marginTop: "10px",
+      }}
+    >
+      <span style={{ fontSize: `${previewStyles.fontSize}px`, fontWeight: 600, whiteSpace: "nowrap" }}>
+        {label} :
+      </span>
+      <span
+        className="line"
+        style={{
+          flex: 1,
+          borderBottom: "1.2px solid #000",
+          minHeight: "18px",
+        }}
+      >
+        &nbsp;
+      </span>
+    </div>
+  );
+
+  const renderSubQuestion = (subQuestion: any, index: number) => {
+    const options = Array.isArray(subQuestion?.options) ? subQuestion.options : [];
+    const media = Array.isArray(subQuestion?.media) ? subQuestion.media : [];
+    const hasImageOptions = options.some((opt: any) => Boolean(opt?.mediaUrl));
+    const subQuestionType = String(subQuestion?.type || "").toLowerCase();
+
+    return (
+      <div key={subQuestion?.id || `sub-question-${index}`} style={{ marginTop: "10px" }}>
+        <p style={{ fontSize: `${previewStyles.fontSize}px` }}>
+          {index + 1}. {subQuestion?.text || ""}
+        </p>
+
+        {media.length > 0 && (
+          <div style={{ display: "flex", gap: "8px", marginTop: "6px", flexWrap: "wrap" }}>
+            {media.map((img: any, idx: number) => {
+              const src = getMediaSrc(img?.url);
+              if (!src) return null;
+
+              return (
+                <img
+                  key={`${subQuestion?.id || index}-media-${idx}`}
+                  src={src}
+                  alt={img?.alt || `Sub-question image ${idx + 1}`}
+                  style={{
+                    maxWidth: "220px",
+                    maxHeight: "150px",
+                    objectFit: "contain",
+                    border: "1px solid #000",
+                    padding: "2px",
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {options.length > 0 && (
+          <div
+            className={`options${hasImageOptions ? " options-image" : ""}`}
+            style={{
+              display: "grid",
+              gridTemplateColumns: hasImageOptions
+                ? "repeat(4, minmax(0, 1fr))"
+                : "repeat(2, minmax(0, 1fr))",
+              gap: "4px",
+              marginLeft: "15px",
+              marginTop: "4px",
+            }}
+          >
+            {options.map((opt: any) => (
+              <div
+                key={opt.id}
+                style={{
+                  boxSizing: "border-box",
+                  fontSize: `${previewStyles.fontSize}px`,
+                  minWidth: 0,
+                }}
+              >
+                <div>{opt.id}) {opt.text || ""}</div>
+                {opt.mediaUrl && (
+                  <img
+                    className="option-media"
+                    src={getMediaSrc(opt.mediaUrl)}
+                    alt={`Option ${opt.id}`}
+                    style={{
+                      marginTop: "4px",
+                      maxWidth: "85px",
+                      maxHeight: "60px",
+                      objectFit: "contain",
+                      border: "1px solid #000",
+                      padding: "2px",
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {subQuestionType === "true_false" && options.length === 0 && (
+          <div
+            className="options"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: "4px",
+              marginLeft: "15px",
+              marginTop: "4px",
+            }}
+          >
+            <div style={{ boxSizing: "border-box", fontSize: `${previewStyles.fontSize}px`, minWidth: 0 }}>
+              <div>A) True</div>
+            </div>
+            <div style={{ boxSizing: "border-box", fontSize: `${previewStyles.fontSize}px`, minWidth: 0 }}>
+              <div>B) False</div>
+            </div>
+          </div>
+        )}
+
+        {renderAnswerLine("Answer")}
+      </div>
+    );
+  };
+
+  const renderQuestion = (q: any, qIndex: number, sectionId: string) => {
+    const options = Array.isArray(q.options) ? q.options : [];
+    const media = Array.isArray(q.media) ? q.media : [];
+    const hasImageOptions = options.some((opt: any) => Boolean(opt?.mediaUrl));
+    const hasSubQuestions = Array.isArray(q.subQuestions) && q.subQuestions.length > 0;
+    const hasParagraphText = Boolean(q?.paragraph && String(q.paragraph).trim());
+    const isParagraphQuestion = q?.type === "paragraph" || hasSubQuestions || hasParagraphText;
+
+    if (isParagraphQuestion) {
+      return (
+        <div key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "6px" }}>
+            <span style={{ fontSize: `${previewStyles.fontSize}px`, fontWeight: 600 }}>{qIndex + 1}.</span>
+
+            <div style={{ flex: 1 }}>
+              {q.text && (
+                <p style={{ fontSize: `${previewStyles.fontSize}px`, marginBottom: "4px" }}>
+                  <strong>Instruction:</strong> {q.text}
+                </p>
+              )}
+
+              {hasParagraphText && (
+                <div style={{ fontSize: `${previewStyles.fontSize}px`, marginBottom: "8px" }}>
+                  <strong>Paragraph:</strong>
+                  <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}>{q.paragraph}</div>
+                </div>
+              )}
+
+              {media.length > 0 && (
+                <div style={{ display: "flex", gap: "8px", marginTop: "6px", flexWrap: "wrap" }}>
+                  {media.map((img: any, idx: number) => {
+                    const src = getMediaSrc(img?.url);
+                    if (!src) return null;
+
+                    return (
+                      <img
+                        key={`${q.questionId || sectionId}-media-${idx}`}
+                        src={src}
+                        alt={img?.alt || `Question image ${idx + 1}`}
+                        style={{
+                          maxWidth: "220px",
+                          maxHeight: "150px",
+                          objectFit: "contain",
+                          border: "1px solid #000",
+                          padding: "2px",
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{ marginTop: "8px" }}>
+                {(hasSubQuestions ? q.subQuestions : []).map((subQuestion: any, subIndex: number) =>
+                  renderSubQuestion(
+                    subQuestion,
+                    subIndex
+                  )
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
+        <p style={{ fontSize: `${previewStyles.fontSize}px` }}>
+          {qIndex + 1}. {q.text}
+        </p>
+
+        {media.length > 0 && (
+          <div style={{ display: "flex", gap: "8px", marginTop: "6px", flexWrap: "wrap" }}>
+            {media.map((img: any, idx: number) => {
+              const src = getMediaSrc(img?.url);
+              if (!src) return null;
+
+              return (
+                <img
+                  key={`${q.questionId || sectionId}-media-${idx}`}
+                  src={src}
+                  alt={img?.alt || `Question image ${idx + 1}`}
+                  style={{
+                    maxWidth: "220px",
+                    maxHeight: "150px",
+                    objectFit: "contain",
+                    border: "1px solid #000",
+                    padding: "2px",
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {options.length > 0 && (
+          <div
+            className={`options${hasImageOptions ? " options-image" : ""}`}
+            style={{
+              display: "grid",
+              gridTemplateColumns: hasImageOptions
+                ? "repeat(4, minmax(0, 1fr))"
+                : "repeat(2, minmax(0, 1fr))",
+              gap: "4px",
+              marginLeft: "15px",
+              marginTop: "4px",
+            }}
+          >
+            {options.map((opt: any) => (
+              <div
+                key={opt.id}
+                style={{
+                  boxSizing: "border-box",
+                  fontSize: `${previewStyles.fontSize}px`,
+                  minWidth: 0,
+                }}
+              >
+                <div>{opt.id}) {opt.text || ""}</div>
+                {opt.mediaUrl && (
+                  <img
+                    className="option-media"
+                    src={getMediaSrc(opt.mediaUrl)}
+                    alt={`Option ${opt.id}`}
+                    style={{
+                      marginTop: "4px",
+                      maxWidth: "85px",
+                      maxHeight: "60px",
+                      objectFit: "contain",
+                      border: "1px solid #000",
+                      padding: "2px",
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {renderAnswerLine("Answer")}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
-      {/* ============================
-          PAPER
-      ============================ */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Preview Settings</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-2">
+            <Label htmlFor="preview-font-size">Font Size</Label>
+            <Input
+              id="preview-font-size"
+              type="number"
+              min={0}
+              value={fontSize}
+              onChange={(e) => setFontSize(Math.max(0, Number(e.target.value)))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="preview-orientation">Page Orientation</Label>
+            <select
+              id="preview-orientation"
+              value={previewStyles.orientation}
+              onChange={(e) => setOrientation(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="portrait">Portrait</option>
+              <option value="landscape">Landscape</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="preview-column-count">Columns</Label>
+            <Input
+              id="preview-column-count"
+              type="number"
+              min={1}
+              max={2}
+              value={previewStyles.columnCount}
+              onChange={(e) => setColumnCount(Number(e.target.value))}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       <div
         id="paper-preview"
+        data-orientation={previewStyles.orientation}
         className="bg-white text-black font-serif"
         style={{
           width: "100%",
-          maxWidth: "210mm",
-          minHeight: "297mm",
+          maxWidth: previewStyles.pageWidth,
+          minHeight: previewStyles.pageMinHeight,
           margin: "0 auto",
-          padding: "15mm 18mm",
-          lineHeight: "1.4",
-          fontSize: "13px",
+          padding: "12mm 12mm",
+          lineHeight: "1.45",
+          fontSize: `${previewStyles.fontSize}px`,
+          boxSizing: "border-box",
+          background: "#ffffff",
         }}
       >
-        {/* HEADER */}
         <div style={{ textAlign: "center", borderBottom: "1px solid black", paddingBottom: "6px" }}>
           <h1 style={{ fontSize: "18px", fontWeight: "bold" }}>
-            INNOVATIVE SCHOLARS’ ACHIEVEMENT TEST [ INNOSAT ]
+            INNOVATIVE SCHOLARS' ACHIEVEMENT TEST [ INNOSAT ]
           </h1>
           <p style={{ fontSize: "12px", marginTop: "4px" }}>
             OCTOBER - 2025 CODE : {config.code}
           </p>
         </div>
 
-        {/* STUDENT INFO */}
         <div style={{ marginTop: "10px", fontSize: "12px" }}>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span>Name of the student : __________________________</span>
@@ -62,9 +420,6 @@ export function PaperPreview({ config }: { config: PaperConfig }) {
           </div>
         </div>
 
-        {/* ============================
-            DYNAMIC TABLE
-        ============================ */}
         <table
           style={{
             width: "100%",
@@ -77,7 +432,7 @@ export function PaperPreview({ config }: { config: PaperConfig }) {
             <tr>
               <th style={cell}>Sections</th>
 
-              {config.sections.map((section, index) => (
+              {config.sections.map((section: any, index: number) => (
                 <th key={section.id} style={cell}>
                   {section.name} [{String.fromCharCode(65 + index)}]
                 </th>
@@ -91,7 +446,7 @@ export function PaperPreview({ config }: { config: PaperConfig }) {
             <tr>
               <td style={cell}>Total Marks</td>
 
-              {config.sections.map((s) => (
+              {config.sections.map((s: any) => (
                 <td key={s.id} style={cellCenter}>
                   {s.marks}
                 </td>
@@ -103,7 +458,7 @@ export function PaperPreview({ config }: { config: PaperConfig }) {
             <tr>
               <td style={cell}>Marks obtained</td>
 
-              {config.sections.map((s) => (
+              {config.sections.map((s: any) => (
                 <td key={s.id} style={cell}></td>
               ))}
 
@@ -112,11 +467,8 @@ export function PaperPreview({ config }: { config: PaperConfig }) {
           </tbody>
         </table>
 
-        {/* ============================
-            SECTIONS
-        ============================ */}
-        {config.sections.map((section, sIndex) => (
-          <div key={section.id} style={{ marginTop: "18px" }}>
+        {config.sections.map((section: any) => (
+          <div key={section.id} style={{ marginTop: "14px" }}>
             <h2
               style={{
                 fontSize: "14px",
@@ -127,43 +479,20 @@ export function PaperPreview({ config }: { config: PaperConfig }) {
               SECTION : {section.name.toUpperCase()}
             </h2>
 
-            {section.questions.map((q, qIndex) => (
-              <div key={q.questionId} style={{ marginTop: "8px" }}>
-                <p style={{ fontSize: "13px" }}>
-                  {qIndex + 1}. {q.text}
-                </p>
-
-                {/* ✅ 2×2 OPTIONS */}
-                <div
-                  className="options"
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    marginLeft: "15px",
-                    marginTop: "4px",
-                  }}
-                >
-                  {q.options.map((opt) => (
-                    <p
-                      key={opt.id}
-                      style={{
-                        width: "50%",
-                        fontSize: "13px",
-                      }}
-                    >
-                      {opt.id}) {opt.text}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            ))}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${previewStyles.columnCount}, minmax(0, 1fr))`,
+                gap: "18px",
+                alignItems: "start",
+              }}
+            >
+              {(section.questions || []).map((q: any, qIndex: number) => renderQuestion(q, qIndex, section.id))}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* ============================
-          BUTTONS
-      ============================ */}
       <Card>
         <CardHeader>
           <CardTitle>Export Options</CardTitle>
@@ -175,7 +504,17 @@ export function PaperPreview({ config }: { config: PaperConfig }) {
             Export PDF
           </Button>
 
-          <Button onClick={printPaper}>
+          <Button onClick={() => exportAsWord(config)}>
+            <FileText className="mr-2 h-4 w-4" />
+            Export Word
+          </Button>
+
+          <Button onClick={() => exportAsExcel(config)}>
+            <FileText className="mr-2 h-4 w-4" />
+            Export Excel
+          </Button>
+
+          <Button onClick={() => printPaper(config)}>
             <Printer className="mr-2 h-4 w-4" />
             Print
           </Button>
@@ -190,12 +529,12 @@ export function PaperPreview({ config }: { config: PaperConfig }) {
   );
 }
 
-/* ============================
-   PREVIEW
-============================ */
-export const handleFullPreview = (config: PaperConfig) => {
+export const handleFullPreview = (config: any) => {
   const el = document.getElementById("paper-preview");
   if (!el) return;
+  const orientation = el.dataset.orientation === "landscape" ? "landscape" : "portrait";
+  const pageWidth = orientation === "landscape" ? "277mm" : "190mm";
+  const pageMinHeight = orientation === "landscape" ? "190mm" : "297mm";
 
   const win = window.open("", "_blank");
   if (!win) return;
@@ -203,10 +542,73 @@ export const handleFullPreview = (config: PaperConfig) => {
   win.document.write(`
     <html>
       <head>
+        <title>${config?.title || "Paper"} - Preview</title>
         <style>
-          body { padding: 20px; font-family: serif; }
-          .options { display:flex; flex-wrap:wrap; }
-          .options p { width:50%; }
+          body {
+            margin: 0;
+            padding: 20px;
+            background: #f4f5f7;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+          }
+
+          #paper-preview {
+            width: 100%;
+            max-width: ${pageWidth};
+            min-height: ${pageMinHeight};
+            margin: 0 auto;
+            padding: 18mm 15mm;
+            box-sizing: border-box;
+            background: #ffffff;
+            color: #000;
+          }
+
+          .options {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 4px;
+            margin-left: 15px;
+            margin-top: 4px;
+          }
+
+          .options.options-image {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+
+          .options > * {
+            box-sizing: border-box;
+            margin-bottom: 4px;
+            font-size: 13px;
+          }
+
+          .answer-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+          }
+
+          .answer-row span.line {
+            flex: 1;
+            display: block;
+            min-height: 18px;
+            border-bottom: 1.2px solid #000;
+            line-height: 18px;
+          }
+
+          img {
+            max-width: 160px;
+            max-height: 100px;
+            object-fit: contain;
+            border: 1px solid #000;
+            padding: 2px;
+          }
+
+          .option-media {
+            max-width: 85px;
+            max-height: 60px;
+          }
         </style>
       </head>
       <body>${el.outerHTML}</body>
@@ -216,69 +618,32 @@ export const handleFullPreview = (config: PaperConfig) => {
   win.document.close();
 };
 
-/* ============================
-   PRINT (PRODUCTION)
-============================ */
-// export const printPaper = () => {
-//   const preview = document.getElementById("paper-preview");
-//   if (!preview) return;
-
-//   const win = window.open("", "_blank");
-//   if (!win) return;
-
-//   win.document.write(`
-//     <html>
-//       <head>
-//         <style>
-//           body { padding:20px; font-family:serif; }
-//           .options { display:flex; flex-wrap:wrap; }
-//           .options p { width:50%; }
-//         </style>
-//       </head>
-//       <body>
-//         ${preview.outerHTML}
-//         <script>
-//           window.onload = () => window.print();
-//         </script>
-//       </body>
-//     </html>
-//   `);
-
-//   win.document.close();
-// };
-
-/* ============================
-   PDF EXPORT (FINAL)
-============================ */
 export const exportAsPDF = async (config: any) => {
   try {
     const preview = document.getElementById("paper-preview");
     if (!preview) return;
+    const orientation = preview.dataset.orientation === "landscape" ? "landscape" : "portrait";
+    const pageWidthMm = orientation === "landscape" ? 297 : 210;
+    const pageHeightMm = orientation === "landscape" ? 210 : 297;
 
     const html2canvas = (await import("html2canvas")).default;
     const { jsPDF } = await import("jspdf");
 
-    /* ============================
-       CLEAN HTML (NO TAILWIND)
-    ============================ */
     const cleanHTML = `
       <div style="
-        width: 210mm;
-        min-height: 297mm;
-        padding: 15mm 18mm;
+        box-sizing: border-box;
+        width: ${pageWidthMm}mm;
+        min-height: ${pageHeightMm}mm;
+        padding: 12mm;
         font-family: 'Times New Roman', serif;
         background: #ffffff;
         color: #000000;
-        font-size: 13px;
         line-height: 1.4;
       ">
-        ${preview.innerHTML}
+        ${preview.outerHTML}
       </div>
     `;
 
-    /* ============================
-       CREATE HIDDEN IFRAME
-    ============================ */
     const iframe = document.createElement("iframe");
     iframe.style.position = "fixed";
     iframe.style.left = "-99999px";
@@ -294,7 +659,6 @@ export const exportAsPDF = async (config: any) => {
           ${cleanHTML}
 
           <style>
-            /* FORCE SAFE COLORS */
             * {
               background: #ffffff !important;
               color: #000000 !important;
@@ -318,17 +682,22 @@ export const exportAsPDF = async (config: any) => {
               justify-content: space-between;
             }
 
-            /* ✅ OPTIONS 2x2 (SAFE FLEX) */
             .options {
-              display: flex;
-              flex-wrap: wrap;
+              display: grid;
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+              gap: 4px;
               margin-left: 15px;
               margin-top: 4px;
             }
 
-            .options p {
-              width: 50%;
+            .options.options-image {
+              grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+
+            .options > * {
+              box-sizing: border-box;
               margin-bottom: 4px;
+              font-size: 13px;
             }
 
             h1 { text-align: center; font-size: 18px; }
@@ -338,6 +707,34 @@ export const exportAsPDF = async (config: any) => {
               margin: 3px 0;
               line-height: 1.4;
             }
+
+            .answer-row {
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              margin-top: 10px;
+            }
+
+            .answer-row span.line {
+              flex: 1;
+              display: block;
+              min-height: 18px;
+              border-bottom: 1.2px solid #000;
+              line-height: 18px;
+            }
+
+            img {
+              max-width: 160px;
+              max-height: 100px;
+              object-fit: contain;
+              border: 1px solid #000;
+              padding: 2px;
+            }
+
+            .option-media {
+              max-width: 85px;
+              max-height: 60px;
+            }
           </style>
         </body>
       </html>
@@ -345,48 +742,50 @@ export const exportAsPDF = async (config: any) => {
 
     doc.close();
 
+    await waitForImagesInDocument(doc);
     await new Promise((r) => setTimeout(r, 300));
 
-    /* ============================
-       RENDER CANVAS
-    ============================ */
     const canvas = await html2canvas(doc.body, {
       scale: 3,
       backgroundColor: "#ffffff",
+      useCORS: true,
     });
 
-    iframe.remove(); // ✅ NO UI BREAK
+    iframe.remove();
 
-    /* ============================
-       PDF GENERATION
-    ============================ */
-    const pdf = new jsPDF("p", "mm", "a4");
+    const pdf = new jsPDF(orientation === "landscape" ? "l" : "p", "mm", "a4");
 
-    const imgWidth = 210;
+    const pageWidth = pageWidthMm;
+    const pageHeight = pageHeightMm;
+    const marginX = 10;
+    const marginTop = 10;
+    const footerBandHeight = 14;
+    const printableHeight = pageHeight - marginTop - footerBandHeight;
+
+    const imgWidth = pageWidth - marginX * 2;
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
     let heightLeft = imgHeight;
-    let position = 0;
+    let position = marginTop;
     let pageNumber = 1;
 
     const imgData = canvas.toDataURL("image/png");
 
     while (heightLeft > 0) {
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      pdf.addImage(imgData, "PNG", marginX, position, imgWidth, imgHeight);
 
-      /* FOOTER */
+      pdf.setFillColor(255, 255, 255);
+      pdf.rect(0, pageHeight - footerBandHeight, pageWidth, footerBandHeight, "F");
+
       pdf.setFontSize(10);
-      pdf.text(
-        `Page ${pageNumber} / INNOSAT / CODE ${config.code}`,
-        105,
-        290,
-        { align: "center" }
-      );
+      pdf.text(`Page ${pageNumber} / INNOSAT / CODE ${config.code}`, pageWidth / 2, pageHeight - 6, {
+        align: "center",
+      });
 
-      heightLeft -= 297;
+      heightLeft -= printableHeight;
 
       if (heightLeft > 0) {
-        position = heightLeft - imgHeight;
+        position -= printableHeight;
         pdf.addPage();
         pageNumber++;
       }
@@ -398,68 +797,361 @@ export const exportAsPDF = async (config: any) => {
   }
 };
 
-export const printPaper = async (config: any) => {
-  try {
-    if (!config) return;
+export const exportAsExcel = (config: any) => {
+  const preview = document.getElementById("paper-preview");
+  if (!preview) return;
 
-    const preview = document.getElementById("paper-preview");
-    if (!preview) return;
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+          xmlns:x="urn:schemas-microsoft-com:office:excel"
+          xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="UTF-8" />
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>Paper Preview</x:Name>
+                <x:WorksheetOptions>
+                  <x:DisplayGridlines/>
+                </x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>
+          body { font-family: "Times New Roman", serif; color: #000; }
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1px solid #000; padding: 5px; }
+          img { max-width: 160px; max-height: 100px; object-fit: contain; border: 1px solid #000; padding: 2px; }
+          .option-media { max-width: 85px; max-height: 60px; }
+          .answer-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+          .answer-row span.line { flex: 1; display: inline-block; min-height: 18px; border-bottom: 1.2px solid #000; }
+        </style>
+      </head>
+      <body>
+        ${preview.outerHTML}
+      </body>
+    </html>
+  `;
 
-    const html2canvas = (await import("html2canvas")).default;
-    const { jsPDF } = await import("jspdf");
+  const blob = new Blob([html], {
+    type: "application/vnd.ms-excel;charset=utf-8;",
+  });
 
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.left = "-99999px";
-    document.body.appendChild(iframe);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${config?.title || "paper"}.xls`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
 
-    const doc = iframe.contentDocument!;
-    doc.open();
+export const exportAsWord = (config: any) => {
+  const preview = document.getElementById("paper-preview");
+  if (!preview) return;
+  const orientation = preview.dataset.orientation === "landscape" ? "landscape" : "portrait";
 
-    doc.write(`
-      <html>
-        <body style="padding:15mm 18mm;font-family:serif;background:#fff;line-height:1.4;">
-          ${preview.innerHTML}
-          <style>
-            *{background:#fff!important;color:#000!important;}
-            table{width:100%;border-collapse:collapse;}
-            th,td{border:1px solid #000;padding:5px;}
-            .options{display:flex;flex-wrap:wrap;}
-            .options p{width:50%;}
-          </style>
-        </body>
-      </html>
-    `);
+  const clone = preview.cloneNode(true) as HTMLElement;
 
-    doc.close();
-    await new Promise((r) => setTimeout(r, 300));
+  clone.querySelectorAll(".options").forEach((optionsNode) => {
+    const children = Array.from(optionsNode.children) as HTMLElement[];
+    if (children.length === 0) return;
+    const hasImageOptions = optionsNode.classList.contains("options-image");
+    const columns = hasImageOptions ? 4 : 2;
+    const colWidth = `${100 / columns}%`;
 
-    const canvas = await html2canvas(doc.body, {
-      scale: 3,
-      backgroundColor: "#ffffff",
-    });
+    const table = document.createElement("table");
+    table.className = "options-table";
+    if (hasImageOptions) {
+      table.classList.add("options-image-table");
+    }
+    table.setAttribute("cellpadding", "0");
+    table.setAttribute("cellspacing", "0");
+    table.style.width = "100%";
+    table.style.borderCollapse = "collapse";
+    table.style.tableLayout = "fixed";
+    const tbody = document.createElement("tbody");
 
-    iframe.remove();
+    for (let i = 0; i < children.length; i += columns) {
+      const row = document.createElement("tr");
 
-    const pdf = new jsPDF("p", "mm", "a4");
+      for (let col = 0; col < columns; col++) {
+        const cell = document.createElement("td");
+        cell.className = "option-cell";
+        cell.style.width = colWidth;
+        cell.style.verticalAlign = "top";
+        cell.style.padding = hasImageOptions ? "2px" : "2px 6px";
+        cell.style.border = "none";
+        cell.innerHTML = children[i + col]?.outerHTML || "&nbsp;";
+        row.appendChild(cell);
+      }
 
-    const imgData = canvas.toDataURL("image/png");
+      tbody.appendChild(row);
+    }
 
-    const imgWidth = 210;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    table.appendChild(tbody);
+    optionsNode.replaceWith(table);
+  });
 
-    pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+  clone.querySelectorAll("span").forEach((spanNode) => {
+    const labelText = (spanNode.textContent || "").trim();
+    if (!/^answer\s*:\s*$/i.test(labelText)) return;
 
-    pdf.setFontSize(10);
-    pdf.text(
-      `INNOSAT / CODE ${config?.code || ""}`,
-      105,
-      290,
-      { align: "center" }
-    );
+    const row = spanNode.parentElement;
+    if (!row) return;
 
-    pdf.save(`${config?.title || "paper"}_print.pdf`);
-  } catch (err) {
-    console.error("Print-like PDF error:", err);
-  }
+    const answerTable = document.createElement("table");
+    answerTable.className = "answer-table";
+
+    const tbody = document.createElement("tbody");
+    const tr = document.createElement("tr");
+
+    const labelCell = document.createElement("td");
+    labelCell.className = "answer-label-cell";
+    labelCell.textContent = "Answer :";
+
+    const lineCell = document.createElement("td");
+    lineCell.className = "answer-line-cell";
+
+    const line = document.createElement("span");
+    line.className = "answer-export-line";
+    line.innerHTML = "&nbsp;";
+
+    lineCell.appendChild(line);
+    tr.appendChild(labelCell);
+    tr.appendChild(lineCell);
+    tbody.appendChild(tr);
+    answerTable.appendChild(tbody);
+
+    row.replaceWith(answerTable);
+  });
+
+  const styles = `
+    <style>
+      body {
+        font-family: 'Times New Roman', serif;
+        margin: 2cm;
+        width: ${orientation === "landscape" ? "297mm" : "210mm"};
+      }
+      @page {
+        size: A4 ${orientation};
+        margin: 12mm;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        border: 1px solid black;
+        padding: 5px;
+      }
+      .options {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 4px;
+      }
+      .options > * {
+        box-sizing: border-box;
+      }
+      .options-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        margin-top: 4px;
+      }
+      .options-table td {
+        width: 50%;
+        border: none;
+        vertical-align: top;
+        padding: 2px 6px 2px 0;
+      }
+
+      .options-table.options-image-table td {
+        width: 25%;
+        text-align: center;
+        padding: 2px;
+      }
+      .option-cell > * {
+        display: block;
+      }
+      .answer-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        margin-top: 8px;
+      }
+      .answer-table td {
+        border: none !important;
+        padding: 0;
+        vertical-align: middle;
+      }
+      .answer-label-cell {
+        width: 72px;
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+        padding-right: 8px;
+      }
+      .answer-line-cell {
+        width: auto;
+      }
+      .answer-export-line {
+        display: block;
+        width: 100%;
+        min-height: 16px;
+        border-bottom: 1px solid #000;
+        line-height: 16px;
+      }
+      img {
+        max-width: 160px;
+        max-height: 100px;
+        object-fit: contain;
+        border: 1px solid #000;
+        padding: 2px;
+      }
+
+      .option-media {
+        max-width: 85px;
+        max-height: 60px;
+      }
+    </style>
+  `;
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>${config.title}</title>
+        ${styles}
+      </head>
+      <body>
+        ${clone.outerHTML}
+      </body>
+    </html>
+  `;
+
+  const blob = new Blob([htmlContent], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${config.title.replace(/\s+/g, "_")}.doc`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+export const printPaper = (config: any) => {
+  const preview = document.getElementById("paper-preview");
+  if (!preview) return;
+  const orientation = preview.dataset.orientation === "landscape" ? "landscape" : "portrait";
+  const pageWidth = orientation === "landscape" ? "277mm" : "190mm";
+  const pageMinHeight = orientation === "landscape" ? "190mm" : "297mm";
+
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  win.document.write(`
+    <html>
+      <head>
+        <title>${config?.title || "Paper"} - Print</title>
+        <style>
+          body {
+            margin: 0;
+            padding: 12mm;
+            background: #f4f7f7;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+          }
+
+          @media print {
+            body {
+              background: #fff;
+              padding: 0;
+            }
+          }
+
+          @page {
+            size: A4 ${orientation};
+            margin: 12mm;
+          }
+
+          #paper-preview {
+            width: 100%;
+            max-width: ${pageWidth};
+            min-height: ${pageMinHeight};
+            margin: 0 auto;
+            padding: 12mm 12mm;
+            box-sizing: border-box;
+            background: #ffffff;
+            color: #000;
+          }
+
+          .options {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 4px;
+            margin-left: 15px;
+            margin-top: 4px;
+          }
+
+          .options.options-image {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+
+          .options > * {
+            box-sizing: border-box;
+          }
+
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #000; padding: 5px; }
+          h1 { text-align: center; font-size: 18px; }
+          h2 { font-size: 14px; margin-top: 18px; }
+          p { margin: 3px 0; line-height: 1.4; }
+
+          .answer-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+          }
+
+          .answer-row span.line {
+            flex: 1;
+            display: block;
+            min-height: 18px;
+            border-bottom: 1.2px solid #000;
+            line-height: 18px;
+          }
+
+          img {
+            max-width: 160px;
+            max-height: 100px;
+            object-fit: contain;
+            border: 1px solid #000;
+            padding: 2px;
+          }
+
+          .option-media {
+            max-width: 85px;
+            max-height: 60px;
+          }
+        </style>
+      </head>
+      <body>
+        ${preview.outerHTML}
+        <script>
+          window.onload = () => window.print();
+        </script>
+      </body>
+    </html>
+  `);
+
+  win.document.close();
 };

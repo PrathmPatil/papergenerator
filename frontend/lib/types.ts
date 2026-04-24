@@ -1,6 +1,6 @@
 // Type definitions for the Paper Setter Application
 
-export type UserRole = "master" | "teacher" | "student"
+export type UserRole = "master" | "administrative" | "teacher" | "student"
 
 export type User = {
   id: string

@@ -33,17 +33,45 @@ export const fetchQuestionsApi = async (filters: {
   return response;
 };
 
+export const fetchTopicsApi = async (filters: {
+  classId: string;
+  subjectId: string;
+}) => {
+  const response = await apiClient({
+    url: "/api/topics",
+    method: "GET",
+    params: filters,
+  });
+  return response;
+};
+
+export const createTopicApi = async (payload: {
+  name: string;
+  classId: string;
+  subjectId: string;
+}) => {
+  const response = await apiClient({
+    url: "/api/topics",
+    method: "POST",
+    data: payload,
+  });
+  return response;
+};
+
 // http://localhost:5000/api/questions/
 
 interface FetchQuestionsResponse {
   success: boolean;
   questions: IQuestion[];
+  totalRecords?: number;
+  totalPages?: number;
 }
 
 interface QuestionFilterPayload {
   search?: string;
   classId?: string;
   subjectId?: string;
+  topicId?: string;
   type?: string;
   difficulty?: string;
 }
@@ -147,6 +175,34 @@ export const deleteQuestionApi = async (id: string) => {
   const response = await apiClient({
     url: `/api/questions/${id}`,
     method: "DELETE",
+  });
+  return response;
+};
+
+export const updateQuestionApi = async (
+  id: string,
+  payload: {
+    marks?: number;
+    difficulty?: "easy" | "medium" | "hard";
+  }
+) => {
+  const response = await apiClient({
+    url: `/api/questions/${id}`,
+    method: "PUT",
+    data: payload,
+  });
+  return response;
+};
+
+export const bulkUpdateQuestionsApi = async (payload: {
+  ids: string[];
+  marks?: number;
+  difficulty?: "easy" | "medium" | "hard";
+}) => {
+  const response = await apiClient({
+    url: "/api/questions/bulk-update",
+    method: "PUT",
+    data: payload,
   });
   return response;
 };

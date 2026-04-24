@@ -61,10 +61,11 @@
 import express from "express";
 const router = express.Router();
 import multer from "multer";
+import path from "path";
 import Question from "../models/Question.js";
+import Topic from "../models/Topic.js";
 import { normalizeQuestionPayload } from "../middleware/normalizeImageQuestion.middleware.js";
 import XLSX from "xlsx";
-import fs from "fs-extra";
 import unzipper from "unzipper";
 
 router.post("/test", (req, res) => {
@@ -73,8 +74,89 @@ router.post("/test", (req, res) => {
   res.json({ message: "OK" });
 });
 
-// Local upload folder (production: use S3)
-const upload = multer({ dest: "uploads/" });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024,
+  },
+});
+
+const detectMimeTypeByFileName = (fileName = "") => {
+  const ext = path.extname(String(fileName)).toLowerCase();
+  const mimeByExt = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".avif": "image/avif",
+  };
+
+  return mimeByExt[ext] || "application/octet-stream";
+};
+
+const bufferToDataUrl = (buffer, mimeType) => {
+  if (!buffer) return "";
+  return `data:${mimeType || "application/octet-stream"};base64,${buffer.toString("base64")}`;
+};
+
+async function ensureTopicId(classId, subjectId, topicIdentifier) {
+  if (!classId || !subjectId || !topicIdentifier) {
+    return "";
+  }
+
+  const rawValue = String(topicIdentifier).trim();
+  if (!rawValue) {
+    return "";
+  }
+
+  const nameLower = rawValue.toLowerCase();
+
+  // If the value is already a valid Mongo _id, try to resolve it first.
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(rawValue);
+  if (isObjectId) {
+    const existingById = await Topic.findById(rawValue).lean();
+    if (existingById) {
+      return existingById._id.toString();
+    }
+  }
+
+  const existing = await Topic.findOne({
+    classId,
+    subjectId,
+    nameLower,
+  }).lean();
+
+  if (existing) {
+    return existing._id.toString();
+  }
+
+  try {
+    const created = await Topic.create({
+      name: rawValue,
+      nameLower,
+      classId,
+      subjectId,
+    });
+    return created._id.toString();
+  } catch (err) {
+    if (err?.code === 11000) {
+      const deduped = await Topic.findOne({
+        classId,
+        subjectId,
+        nameLower,
+      }).lean();
+      if (deduped) {
+        return deduped._id.toString();
+      }
+    }
+    throw err;
+  }
+}
 
 /*
 ====================================
@@ -88,7 +170,17 @@ router.post(
   normalizeQuestionPayload,
   async (req, res) => {
     try {
-      const q = new Question(req.normalizedPayload);
+      const normalizedPayload = { ...req.normalizedPayload };
+      const topicIdentifier =
+        normalizedPayload.topicId || normalizedPayload.topicName || "";
+
+      normalizedPayload.topicId = await ensureTopicId(
+        normalizedPayload.classId,
+        normalizedPayload.subjectId,
+        topicIdentifier
+      );
+
+      const q = new Question(normalizedPayload);
       await q.save();
 
       res.json({ success: true, question: q });
@@ -135,8 +227,44 @@ router.post("/create-bulk-upload", async (req, res) => {
       });
     }
 
-    // validation + insert logic
-    const inserted = await Question.insertMany(questions, { ordered: false });
+    const topicCache = new Map();
+
+    const normalizeTopic = async (classId, subjectId, topicId) => {
+      const rawValue = String(topicId || "").trim();
+      if (!rawValue) return "";
+
+      const cacheKey = `${classId}|${subjectId}|${rawValue.toLowerCase()}`;
+      if (topicCache.has(cacheKey)) {
+        return topicCache.get(cacheKey);
+      }
+
+      const resolvedId = await ensureTopicId(classId, subjectId, rawValue);
+      topicCache.set(cacheKey, resolvedId);
+      return resolvedId;
+    };
+
+    const prepared = await Promise.all(
+      questions.map(async (question) => {
+        // Ensure subQuestions is initialized for all questions
+        const processedQuestion = {
+          ...question,
+          topicId: await normalizeTopic(
+            question.classId,
+            question.subjectId,
+            question.topicId
+          ),
+        };
+        
+        // Initialize subQuestions as empty array if not provided
+        if (!processedQuestion.subQuestions) {
+          processedQuestion.subQuestions = [];
+        }
+        
+        return processedQuestion;
+      })
+    );
+
+    const inserted = await Question.insertMany(prepared, { ordered: false });
 
     res.json({
       success: true,
@@ -255,7 +383,11 @@ router.post("/", async (req, res) => {
       filter.subjectId = { $in: subjectId.split(",").map((s) => s.trim()) };
     }
 
-    if (topicId) filter.topicId = topicId;
+    if (topicId) {
+      filter.topicId = topicId.includes(",")
+        ? { $in: topicId.split(",").map((t) => t.trim()) }
+        : topicId;
+    }
 
     // -----------------------------
     // DIFFICULTY
@@ -427,6 +559,140 @@ router.post("/", async (req, res) => {
 //   }
 // });
 
+// UPDATE QUESTION META (marks / difficulty)
+router.put("/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (id === "bulk-update") {
+      return next();
+    }
+    const { marks, difficulty } = req.body || {};
+
+    const update = {};
+
+    if (marks !== undefined) {
+      const parsedMarks = Number(marks);
+      if (!Number.isFinite(parsedMarks) || parsedMarks < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "marks must be a valid non-negative number",
+        });
+      }
+      update.marks = parsedMarks;
+    }
+
+    if (difficulty !== undefined) {
+      const normalizedDifficulty = String(difficulty).toLowerCase();
+      if (!["easy", "medium", "hard"].includes(normalizedDifficulty)) {
+        return res.status(400).json({
+          success: false,
+          message: "difficulty must be one of easy, medium, hard",
+        });
+      }
+      update.difficulty = normalizedDifficulty;
+    }
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Nothing to update. Provide marks and/or difficulty",
+      });
+    }
+
+    const result = await Question.findOneAndUpdate(
+      {
+        _id: id,
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+      },
+      { $set: update },
+      { new: true }
+    );
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: "Question not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Question updated successfully",
+      question: result,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// BULK UPDATE QUESTION META (marks / difficulty)
+router.put("/bulk-update", async (req, res) => {
+  try {
+    const { ids, marks, difficulty } = req.body || {};
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ids must be a non-empty array",
+      });
+    }
+
+    const update = {};
+
+    if (marks !== undefined) {
+      const parsedMarks = Number(marks);
+      if (!Number.isFinite(parsedMarks) || parsedMarks < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "marks must be a valid non-negative number",
+        });
+      }
+      update.marks = parsedMarks;
+    }
+
+    if (difficulty !== undefined) {
+      const normalizedDifficulty = String(difficulty).toLowerCase();
+      if (!["easy", "medium", "hard"].includes(normalizedDifficulty)) {
+        return res.status(400).json({
+          success: false,
+          message: "difficulty must be one of easy, medium, hard",
+        });
+      }
+      update.difficulty = normalizedDifficulty;
+    }
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Nothing to update. Provide marks and/or difficulty",
+      });
+    }
+
+    const result = await Question.updateMany(
+      {
+        _id: { $in: ids },
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+      },
+      { $set: update }
+    );
+
+    return res.json({
+      success: true,
+      message: "Questions updated successfully",
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
 router.post(
   "/bulk-image-upload",
   upload.fields([
@@ -435,46 +701,96 @@ router.post(
   ]),
   async (req, res) => {
     try {
-      const excelFile = req.files.excel[0];
-      const zipFile = req.files.images[0];
+      const excelFile = req?.files?.excel?.[0];
+      const zipFile = req?.files?.images?.[0];
 
-      // extract images
-      await fs
-        .createReadStream(zipFile.path)
-        .pipe(unzipper.Extract({ path: "uploads/" }))
-        .promise();
+      if (!excelFile || !zipFile) {
+        return res.status(400).json({
+          success: false,
+          message: "Both excel and images zip files are required",
+        });
+      }
 
-      // parse excel
-      const workbook = XLSX.readFile(excelFile.path);
+      const zipDirectory = await unzipper.Open.buffer(zipFile.buffer);
+      const imageDataMap = new Map();
+
+      for (const entry of zipDirectory.files) {
+        if (entry.type !== "File") continue;
+
+        const imageBuffer = await entry.buffer();
+        const mimeType = detectMimeTypeByFileName(entry.path);
+        const dataUrl = bufferToDataUrl(imageBuffer, mimeType);
+
+        const normalizedFullPath = entry.path.replace(/\\/g, "/").toLowerCase();
+        const baseName = path.basename(entry.path).toLowerCase();
+
+        imageDataMap.set(normalizedFullPath, dataUrl);
+        imageDataMap.set(baseName, dataUrl);
+      }
+
+      const resolveImageDataUrl = (imageName) => {
+        const rawName = String(imageName || "").trim();
+        if (!rawName) return "";
+
+        const normalized = rawName.replace(/\\/g, "/").toLowerCase();
+        const baseName = path.basename(normalized).toLowerCase();
+
+        return imageDataMap.get(normalized) || imageDataMap.get(baseName) || "";
+      };
+
+      const workbook = XLSX.read(excelFile.buffer, { type: "buffer" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-      const questions = rows.map((row, i) => {
-        const options = ["A", "B", "C", "D"].map((id) => ({
-          id,
-          text: row[`option${id}Text`] || "",
-          mediaUrl: row[`option${id}Image`]
-            ? `/uploads/${row[`option${id}Image`]}`
-            : "",
-          isCorrect: row.correctAnswer === id,
-        }));
+      const topicCache = new Map();
 
-        return {
-          classId: row.classId,
-          subjectId: row.subjectId,
-          topicId: row.topicId || "",
-          type: row.type,
-          difficulty: row.difficulty || "easy",
-          marks: Number(row.marks) || 1,
-          negativeMarks: Number(row.negativeMarks) || 0,
-          text: row.questionText,
-          media: row.questionImage
-            ? [{ url: `/uploads/${row.questionImage}` }]
-            : [],
-          options,
-          correctAnswer: row.correctAnswer,
-        };
-      });
+      const normalizeTopic = async (classId, subjectId, topicId) => {
+        const rawValue = String(topicId || "").trim();
+        if (!rawValue) return "";
+
+        const cacheKey = `${classId}|${subjectId}|${rawValue.toLowerCase()}`;
+        if (topicCache.has(cacheKey)) {
+          return topicCache.get(cacheKey);
+        }
+
+        const resolvedId = await ensureTopicId(classId, subjectId, rawValue);
+        topicCache.set(cacheKey, resolvedId);
+        return resolvedId;
+      };
+
+      const questions = await Promise.all(
+        rows.map(async (row, i) => {
+          const topicId = await normalizeTopic(
+            row.classId,
+            row.subjectId,
+            row.topicId
+          );
+
+          const options = ["A", "B", "C", "D"].map((id) => ({
+            id,
+            text: row[`option${id}Text`] || "",
+            mediaUrl: resolveImageDataUrl(row[`option${id}Image`]),
+            isCorrect: row.correctAnswer === id,
+          }));
+
+          return {
+            classId: row.classId,
+            subjectId: row.subjectId,
+            topicId,
+            type: row.type,
+            difficulty: row.difficulty || "easy",
+            marks: Number(row.marks) || 1,
+            negativeMarks: Number(row.negativeMarks) || 0,
+            text: row.questionText,
+            media: resolveImageDataUrl(row.questionImage)
+              ? [{ url: resolveImageDataUrl(row.questionImage), alt: String(row.questionImage || "") }]
+              : [],
+            options,
+            correctAnswer: row.correctAnswer,
+            subQuestions: [], // Initialize subQuestions as empty array
+          };
+        })
+      );
 
       const inserted = await Question.insertMany(questions, { ordered: false });
 

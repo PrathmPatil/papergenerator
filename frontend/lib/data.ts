@@ -1,17 +1,17 @@
 import { Subject } from "./types";
 
 export const SUBJECTS = [
-  { id: "maths", name: "Mathematics",classLevels: ["class_1","class_2","class_3","class_4","class_5","class_6","class_7","class_8","class_9","class_10","class_11","class_12"] },
-  { id: "reasoning", name: "Reasoning",classLevels: ["class_1","class_2","class_3","class_4","class_5","class_6","class_7","class_8","class_9","class_10","class_11","class_12"] },
-  { id: "science", name: "Science",classLevels: ["class_1","class_2","class_3","class_4","class_5","class_6","class_7","class_8","class_9","class_10","class_11","class_12"] },
-  { id: "gk", name: "General Knowledge", classLevels: ["jkg", "skg", "class_1", "class_2", "class_3", " class_4", " class_5", " class_6", " class_7", " class_8", " class_9", " class_10", " class_11", " class_12"] },
-  { id: "english", name: "English", classLevels: ["jkg", "skg", "class_1", "class_2", "class_3", " class_4", " class_5", " class_6", " class_7", " class_8", " class_9", " class_10", " class_11", " class_12"] },
-  { id: "history", name: "History", classLevels: ["class_1","class_2","class_3","class_4","class_5","class_6","class_7","class_8","class_9","class_10","class_11","class_12"] },
-  { id: "geography", name: "Geography", classLevels: ["class_1","class_2","class_3","class_4","class_5","class_6","class_7","class_8","class_9","class_10","class_11","class_12"] },
-  { id: "civics", name: "Civics", classLevels: ["jkg", "skg", " class_1", " class_2", " class_3", " class_4", " class_5", " class_6", " class_7", " class_8", " class_9", " class_10", " class_11", " class_12"] },
-  { id: "physics", name: "Physics", classLevels: ["class_6","class_7","class_8","class_9","class_10","class_11","class_12"] },
-  { id: "chemistry", name: "Chemistry", classLevels: ["class_6","class_7","class_8","class_9","class_10","class_11","class_12"] },
-  { id: "biology", name: "Biology", classLevels: ["class_6","class_7","class_8","class_9","class_10","class_11","class_12"] },
+  { id: "maths", name: "Mathematics", classLevels: ["class_1", "class_2", "class_3", "class_4", "class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "reasoning", name: "Reasoning", classLevels: ["class_1", "class_2", "class_3", "class_4", "class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "science", name: "Science", classLevels: ["class_1", "class_2", "class_3", "class_4", "class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "gk", name: "General Knowledge", classLevels: ["jkg", "skg", "class_1", "class_2", "class_3", "class_4", "class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "english", name: "English", classLevels: ["jkg", "skg", "class_1", "class_2", "class_3", "class_4", "class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "history", name: "History", classLevels: ["class_1", "class_2", "class_3", "class_4", "class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "geography", name: "Geography", classLevels: ["class_1", "class_2", "class_3", "class_4", "class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "civics", name: "Civics", classLevels: ["jkg", "skg", "class_1", "class_2", "class_3", "class_4", "class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "physics", name: "Physics", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "chemistry", name: "Chemistry", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "biology", name: "Biology", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
 ];
 
 export const getSubjectNameById = (id: string) => {

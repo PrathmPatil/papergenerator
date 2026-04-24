@@ -20,39 +20,61 @@ export const FileUploadForm: React.FC<FileUploadFormProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
+console.log("FileUploadForm rendered with label:", label, "accept:", accept);
+ const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  console.log("File input triggered");   // ✅ Step 1 check
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    setFileName(file?.name || "");
-    onFileChange(file);
+  const file = e.target.files?.[0] || null;
+  console.log("Selected file:", file);   // ✅ Step 2 check
 
-    if (!file || !parseExcel) return;
+  setFileName(file?.name || "");
+  onFileChange(file);
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const workbook = XLSX.read(evt.target?.result, {
-          type: "binary",
-        });
-        const sheet =
-          workbook.Sheets[workbook.SheetNames[0]];
+  if (!file) {
+    console.log("No file selected ❌");
+    return;
+  }
 
-        const rows = XLSX.utils.sheet_to_json(sheet, {
-          defval: "",
-          trim: true,
-        });
+  if (!parseExcel) {
+    console.log("parseExcel is false ❌");
+    return;
+  }
 
-        onRowsChange?.(rows);
-      } catch (err) {
-        console.error("Excel parse error:", err);
-        alert("Invalid Excel file");
-      }
-    };
+  console.log("Reading file..."); // ✅ Step 3
 
-    reader.readAsBinaryString(file);
+  const reader = new FileReader();
 
-    e.target.value = "";
+  reader.onload = (evt) => {
+    console.log("FileReader loaded ✅"); // ✅ Step 4
+
+    try {
+      const workbook = XLSX.read(evt.target?.result, {
+        type: "binary",
+      });
+
+      console.log("Workbook:", workbook); // ✅ Step 5
+
+      const sheet =
+        workbook.Sheets[workbook.SheetNames[0]];
+
+      console.log("Sheet:", sheet); // ✅ Step 6
+
+      const rows = XLSX.utils.sheet_to_json(sheet, {
+        defval: "",
+      });
+
+      console.log("Parsed rows:", rows); // ✅ Step 7
+
+      onRowsChange?.(rows);
+    } catch (err) {
+      console.error("Excel parse error:", err);
+    }
   };
+
+  reader.readAsBinaryString(file);
+
+  e.target.value = "";
+};
 
   return (
     <div className="space-y-2">

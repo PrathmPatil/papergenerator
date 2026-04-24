@@ -3,12 +3,54 @@ import express from "express";
 const router = express.Router();
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { verifyToken } from "../middleware/tokenVerification.middleware.js";
+import { verifyAdmin, verifyToken } from "../middleware/tokenVerification.middleware.js";
+
+const normalizeRole = (role) => {
+  const value = String(role || "").trim().toLowerCase();
+  if (value === "master") return "master";
+  if (value === "teacher") return "teacher";
+  if (value === "administrative" || value === "admin" || value === "administrator") {
+    return "administrative";
+  }
+  return "student";
+};
+
+const canManageRole = (actorRole, targetRole) => {
+  const actor = normalizeRole(actorRole);
+  const target = normalizeRole(targetRole);
+
+  if (actor === "master") return target !== "master";
+  if (actor === "administrative") return target === "teacher" || target === "student";
+  return false;
+};
+
+const getAssignableRoles = (actorRole) => {
+  const actor = normalizeRole(actorRole);
+  if (actor === "master") return ["administrative", "teacher", "student"];
+  if (actor === "administrative") return ["teacher", "student"];
+  return [];
+};
 
 
 router.post("/register",verifyToken, async (req, res) => {
   try {
     const { name, email, role, phone, institution, password  } = req.body;
+    const requesterRole = normalizeRole(req.user?.role);
+    const nextRole = normalizeRole(role);
+
+    if (!["master", "administrative"].includes(requesterRole)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to create users",
+      });
+    }
+
+    if (!getAssignableRoles(requesterRole).includes(nextRole)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to create this role",
+      });
+    }
 
     const existingUser = await User.findOne({ email });
     // CASE 1: User exists and NOT deleted
@@ -24,7 +66,7 @@ router.post("/register",verifyToken, async (req, res) => {
     // CASE 2: User exists but SOFT DELETED → RESTORE
     if (existingUser && existingUser.isDeleted) {
       existingUser.name = name;
-      existingUser.role = role;
+      existingUser.role = nextRole;
       existingUser.password = hashedPassword;
       existingUser.isDeleted = false;
       existingUser.isActive = true;
@@ -41,7 +83,7 @@ router.post("/register",verifyToken, async (req, res) => {
     await User.create({
       name,
       email,
-      role,
+      role: nextRole,
       phone,
       institution,
       password: hashedPassword,
@@ -104,9 +146,13 @@ router.post("/login", async (req, res) => {
     }
     console.log(process.env.JWT_SECRET)
     // send the token 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "1d",
-    });
+    const token = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1d",
+      },
+    );
 
     return res.status(200).json({
       success: true,
@@ -133,7 +179,7 @@ router.post("/login", async (req, res) => {
 });
 
 // get all the user
-router.get("/",verifyToken, async (req, res) => {
+router.get("/", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const users = await User.find()
       .where({ isDeleted: false })
@@ -149,7 +195,7 @@ router.get("/",verifyToken, async (req, res) => {
 });
 
 // get single user by id
-router.get("/:id",verifyToken, async (req, res) => {
+router.get("/:id", verifyToken, verifyAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     const user = await User.findById(id);
@@ -170,8 +216,9 @@ router.get("/:id",verifyToken, async (req, res) => {
 
 router.put("/:id",verifyToken, async (req, res) => {
   const { id } = req.params;
-  const { name, email, role } = req.body;
+  const { name, email, role, phone, institution } = req.body;
   try {
+    const requesterRole = normalizeRole(req.user?.role);
     const checkUser = await User.findById(id);
     if (!checkUser) {
       return res
@@ -189,12 +236,29 @@ router.put("/:id",verifyToken, async (req, res) => {
         .json({ success: false, message: "User is deleted" });
     }
 
+    if (!canManageRole(requesterRole, checkUser.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to modify this user",
+      });
+    }
+
+    const nextRole = normalizeRole(role);
+    if (!getAssignableRoles(requesterRole).includes(nextRole)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to assign this role",
+      });
+    }
+
     const user = await User.findByIdAndUpdate(
       id,
       {
         name,
         email,
-        role,
+        role: nextRole,
+        phone,
+        institution,
         updatedAt: new Date(),
       },
       { new: true }
@@ -216,6 +280,7 @@ router.put("/:id/is-active",verifyToken, async (req, res) => {
   const { id } = req.params;
   const { isActive } = req.body;
   try {
+    const requesterRole = normalizeRole(req.user?.role);
     const checkUser = await User.findById(id);
     if (!checkUser) {
       return res
@@ -227,6 +292,14 @@ router.put("/:id/is-active",verifyToken, async (req, res) => {
         .status(400)
         .json({ success: false, message: "User is deleted" });
     }
+
+    if (!canManageRole(requesterRole, checkUser.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to modify this user",
+      });
+    }
+
     const user = await User.findByIdAndUpdate(id, { isActive }, { new: true });
     if (!user) {
       return res
@@ -246,12 +319,28 @@ router.put("/:id/is-deleted", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { isDeleted } = req.body;
+    const requesterRole = normalizeRole(req.user?.role);
 
     // Validate input
     if (typeof isDeleted !== "boolean") {
       return res.status(400).json({
         success: false,
         message: "isDeleted must be a boolean value",
+      });
+    }
+
+    const targetUser = await User.findById(id);
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (!canManageRole(requesterRole, targetUser.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to modify this user",
       });
     }
 

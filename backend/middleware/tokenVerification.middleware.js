@@ -37,10 +37,11 @@ export const verifyToken = (req, res, next) => {
    Authorize Admin Only
 ========================= */
 export const verifyAdmin = (req, res, next) => {
-  if (req.user?.role !== "admin") {
+  const role = String(req.user?.role || "").toLowerCase();
+  if (role !== "master" && role !== "administrative") {
     return res.status(403).json({
       success: false,
-      message: "Admin access required",
+      message: "Administrative access required",
     });
   }
   next();
@@ -51,8 +52,10 @@ export const verifyAdmin = (req, res, next) => {
 ========================= */
 export const authorizeUser = (req, res, next) => {
   const { userId } = req.params;
+  const role = String(req.user?.role || "").toLowerCase();
+  const isAdminRole = role === "master" || role === "administrative";
 
-  if (req.user.id !== userId && req.user.role !== "admin") {
+  if (req.user.id !== userId && !isAdminRole) {
     return res.status(403).json({
       success: false,
       message: "You are not authorized to perform this action",

@@ -3,7 +3,6 @@
 import type React from "react";
 import { createContext, useContext, useState, useEffect } from "react";
 import type { User, UserRole } from "./types";
-import { MOCK_USERS } from "./mock-data";
 import { useRouter } from "next/navigation";
 
 interface UserContextType {
@@ -36,9 +35,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user) {
       localStorage.setItem("user", JSON.stringify(user));
-      if(token){
-        localStorage.setItem("token", token);
-      }
       router.push("/dashboard");
       // localStorage.setItem("paper_setter_user", JSON.stringify(user))
     } else {
@@ -46,7 +42,13 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       // localStorage.removeItem("token");
       // router.push("/");
     }
-  }, [user]);
+  }, [user, router]);
+
+  useEffect(() => {
+    if (token) {
+      localStorage.setItem("token", token);
+    }
+  }, [token]);
 
   const login = (role: UserRole) => {
     // const mockUser = MOCK_USERS.find((u) => u.role === role) || MOCK_USERS[0]

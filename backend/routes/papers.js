@@ -204,11 +204,200 @@
  */
 
 import express from "express";
+import fs from "fs";
+import path from "path";
 import Question from "../models/Question.js";
 import PaperTemplate from "../models/PaperTemplate.js";
 import PDFDocument from "pdfkit";
 import Paper from "../models/Paper.js";
 const router = express.Router();
+
+const toLocalUploadPath = (url = "") => {
+  if (!url || typeof url !== "string") return null;
+  if (!url.startsWith("/uploads/")) return null;
+
+  const cleanPath = url.replace(/^\/uploads\//, "");
+  const normalized = path.normalize(cleanPath);
+
+  if (normalized.includes("..")) return null;
+  return path.join(process.cwd(), "uploads", normalized);
+};
+
+const drawImageIfExists = (doc, imageUrl, options = {}) => {
+  if (typeof imageUrl === "string" && imageUrl.startsWith("data:")) {
+    try {
+      const base64Payload = imageUrl.split(",")[1] || "";
+      const imageBuffer = Buffer.from(base64Payload, "base64");
+      const { x, y, ...imageOptions } = options;
+
+      if (typeof x === "number" && typeof y === "number") {
+        doc.image(imageBuffer, x, y, imageOptions);
+      } else {
+        doc.image(imageBuffer, imageOptions);
+      }
+
+      return true;
+    } catch (err) {
+      console.warn("Failed to draw data URL image in export:", err.message);
+      return false;
+    }
+  }
+
+  const imagePath = toLocalUploadPath(imageUrl);
+  if (!imagePath || !fs.existsSync(imagePath)) {
+    return false;
+  }
+
+  try {
+    const { x, y, ...imageOptions } = options;
+    if (typeof x === "number" && typeof y === "number") {
+      doc.image(imagePath, x, y, imageOptions);
+    } else {
+      doc.image(imagePath, imageOptions);
+    }
+    return true;
+  } catch (err) {
+    console.warn("Failed to draw image in export:", imageUrl, err.message);
+    return false;
+  }
+};
+
+const enrichPaperSnapshots = async (paperDoc) => {
+  const paper = typeof paperDoc?.toObject === "function" ? paperDoc.toObject() : paperDoc;
+  if (!paper) return null;
+
+  const sectionQuestionIds = Array.from(
+    new Set(
+      (paper.sections || [])
+        .flatMap((section) => section.questions || [])
+        .map((qid) => String(qid))
+    )
+  );
+
+  if (sectionQuestionIds.length === 0) {
+    paper.questionsSnapshot = Array.isArray(paper.questionsSnapshot) ? paper.questionsSnapshot : [];
+    return paper;
+  }
+
+  const sourceQuestions = await Question.find({
+    _id: { $in: sectionQuestionIds },
+  }).lean();
+
+  const questionById = new Map(
+    sourceQuestions.map((question) => [String(question._id), question])
+  );
+
+  const rawSnapshots = Array.isArray(paper.questionsSnapshot) ? paper.questionsSnapshot : [];
+  const snapshotById = new Map(
+    rawSnapshots.map((snapshot) => [
+      String(snapshot?.questionId || snapshot?._id || ""),
+      snapshot,
+    ])
+  );
+
+  paper.questionsSnapshot = sectionQuestionIds.map((questionId) => {
+    const snapshot = snapshotById.get(questionId) || {};
+    const fullQuestion = questionById.get(questionId) || {};
+
+    return {
+      ...fullQuestion,
+      ...snapshot,
+      questionId,
+      type: snapshot?.type || fullQuestion?.type || "",
+      text: snapshot?.text || fullQuestion?.text || "",
+      paragraph: snapshot?.paragraph || fullQuestion?.paragraph || "",
+      subQuestions: Array.isArray(snapshot?.subQuestions)
+        ? snapshot.subQuestions
+        : Array.isArray(fullQuestion?.subQuestions)
+          ? fullQuestion.subQuestions
+          : [],
+      options: Array.isArray(snapshot?.options)
+        ? snapshot.options
+        : Array.isArray(fullQuestion?.options)
+          ? fullQuestion.options
+          : [],
+      media: Array.isArray(snapshot?.media)
+        ? snapshot.media
+        : Array.isArray(fullQuestion?.media)
+          ? fullQuestion.media
+          : [],
+      marks: snapshot?.marks ?? fullQuestion?.marks ?? 1,
+      negativeMarks: snapshot?.negativeMarks ?? fullQuestion?.negativeMarks ?? 0,
+    };
+  });
+
+  return paper;
+};
+
+const renderPdfOptions = (doc, options = []) => {
+  if (!Array.isArray(options) || options.length === 0) return;
+
+  const imageOnlyOptions = options.filter((opt) => opt?.mediaUrl && !opt?.text);
+
+  if (imageOnlyOptions.length === options.length && options.length > 0) {
+    const startX = doc.x + 10;
+    const startY = doc.y;
+    const slotWidth = 110;
+
+    options.forEach((opt, index) => {
+      const label = String.fromCharCode(65 + index);
+      const x = startX + index * slotWidth;
+
+      doc.fontSize(10).text(`${label})`, x, startY, { width: 18 });
+
+      drawImageIfExists(doc, opt.mediaUrl, {
+        x: x + 14,
+        y: startY,
+        fit: [78, 54],
+        align: "center",
+      });
+    });
+
+    doc.y = startY + 62;
+    doc.moveDown(0.3);
+    return;
+  }
+
+  options.forEach((opt, index) => {
+    const label = String.fromCharCode(65 + index);
+
+    if (opt?.text) {
+      doc.text(`   ${label}) ${opt.text}`);
+    } else {
+      doc.text(`   ${label})`);
+    }
+
+    if (opt?.mediaUrl) {
+      const drawn = drawImageIfExists(doc, opt.mediaUrl, {
+        fit: [78, 54],
+        align: "left",
+      });
+
+      if (drawn) {
+        doc.moveDown(0.2);
+      }
+    }
+  });
+
+  doc.moveDown(0.3);
+};
+
+const renderPdfSubQuestion = (doc, subQuestion = {}, index = 0) => {
+  doc.fontSize(11).text(`   ${index + 1}. ${subQuestion?.text || ""}`);
+  doc.moveDown(0.2);
+
+  if (Array.isArray(subQuestion?.options) && subQuestion.options.length > 0) {
+    renderPdfOptions(doc, subQuestion.options);
+  } else if (String(subQuestion?.type || "").toLowerCase() === "true_false") {
+    renderPdfOptions(doc, [
+      { id: "A", text: "True" },
+      { id: "B", text: "False" },
+    ]);
+  }
+
+  doc.text("   Answer: __________________________");
+  doc.moveDown(0.4);
+};
 
 /*
 ====================================
@@ -253,6 +442,7 @@ router.post("/generate/manual", async (req, res) => {
           questionId: q._id,
           type: q.type,
           text: q.text,
+          paragraph: q.paragraph,
           media: q.media,
           options: q.options,
           subQuestions: q.subQuestions,
@@ -414,6 +604,7 @@ router.post("/generate", async (req, res) => {
           questionId: q._id,
           type: q.type,
           text: q.text,
+          paragraph: q.paragraph,
           media: q.media,
           options: q.options,
           subQuestions: q.subQuestions,
@@ -476,7 +667,9 @@ router.get("/edit/:id", async (req, res) => {
       subjectId: sec.subjectId,
     }));
 
-    res.json({ success: true, data: { paper, template, sections } });
+    const paperData = await enrichPaperSnapshots(paper);
+
+    res.json({ success: true, data: { paper: paperData, template, sections } });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -595,7 +788,8 @@ router.get("/export/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const paper = await Paper.findById(id);
+    const paperDoc = await Paper.findById(id);
+    const paper = await enrichPaperSnapshots(paperDoc);
 
     if (!paper) {
       return res.status(404).json({
@@ -650,15 +844,54 @@ router.get("/export/:id", async (req, res) => {
         ) || [];
 
       for (const q of questions) {
-        doc.fontSize(12).text(`${qNo}. ${q.text}`);
-        doc.moveDown(0.3);
+        const isParagraphQuestion =
+          q?.type === "paragraph" ||
+          (Array.isArray(q?.subQuestions) && q.subQuestions.length > 0) ||
+          Boolean(String(q?.paragraph || "").trim());
 
-        if (q.options?.length) {
-          q.options.forEach((opt, index) => {
-            const label = String.fromCharCode(65 + index);
-            doc.text(`   ${label}) ${opt.text}`);
-          });
+        if (isParagraphQuestion) {
+          doc.fontSize(12).text(`${qNo}.`);
+          doc.moveDown(0.2);
+
+          if (q?.text) {
+            doc.fontSize(12).text(`Instruction: ${q.text}`);
+            doc.moveDown(0.2);
+          }
+
+          if (q?.paragraph) {
+            doc.fontSize(12).text("Paragraph:");
+            doc.fontSize(11).text(q.paragraph, {
+              align: "left",
+            });
+            doc.moveDown(0.3);
+          }
+        } else {
+          doc.fontSize(12).text(`${qNo}. ${q.text}`);
           doc.moveDown(0.3);
+        }
+
+
+        if (Array.isArray(q.media) && q.media.length > 0) {
+          q.media.forEach((img) => {
+            const drawn = drawImageIfExists(doc, img?.url, {
+              fit: [220, 130],
+              align: "left",
+            });
+
+            if (drawn) {
+              doc.moveDown(0.3);
+            }
+          });
+        }
+
+        if (isParagraphQuestion) {
+          const subQuestions = Array.isArray(q?.subQuestions) ? q.subQuestions : [];
+
+          subQuestions.forEach((subQuestion, subIndex) => {
+            renderPdfSubQuestion(doc, subQuestion, subIndex);
+          });
+        } else if (q.options?.length) {
+          renderPdfOptions(doc, q.options);
         }
 
         qNo++;
@@ -682,7 +915,8 @@ router.get("/export/:id", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
-    const paper = await Paper.findById(req.params.id);
+    const paperDoc = await Paper.findById(req.params.id);
+    const paper = await enrichPaperSnapshots(paperDoc);
     res.json({ success: true, paper });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

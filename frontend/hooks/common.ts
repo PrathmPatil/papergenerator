@@ -229,13 +229,13 @@ export function convertExcelRowsToParagraphQuestions(
   if (!Array.isArray(rows)) {
     throw new Error("Input must be an array");
   }
-
+ console.log(rows)
   if (rows.length === 0) return [];
 
   /* ================= PARAGRAPH LEVEL ================= */
 
   const firstRow = rows[0];
-
+ console.log(firstRow)
   const {
     classId,
     subjectId,
@@ -269,7 +269,6 @@ export function convertExcelRowsToParagraphQuestions(
       marks,
       negative_marks,
     } = row;
-
     if (!sub_question_id || !sub_question_type) {
       throw new Error(`Missing sub-question fields at row ${index + 1}`);
     }

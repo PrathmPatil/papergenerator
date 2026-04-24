@@ -4,6 +4,7 @@ const SnapshotQuestionSchema = new mongoose.Schema({
   questionId: String,
   type: String,
   text: String,
+  paragraph: String,
   media: [{ url: String, alt: String }],
   options: [{ id: String, text: String, mediaUrl: String }],
   subQuestions: [{}],

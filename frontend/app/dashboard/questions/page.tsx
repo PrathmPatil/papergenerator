@@ -16,6 +16,7 @@ import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -43,6 +44,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -57,7 +59,7 @@ import {
   SUBJECTS,
 } from "@/lib/data";
 import { baseURL, debounce } from "@/hooks/common";
-import { deleteQuestionApi } from "@/utils/apis";
+import { deleteQuestionApi, bulkUpdateQuestionsApi, updateQuestionApi } from "@/utils/apis";
 /* ----------------------------------------
    TYPES
 ---------------------------------------- */
@@ -88,6 +90,7 @@ export type DifficultyLevel = "easy" | "medium" | "hard";
 
 // Media interface
 export interface IMedia {
+  _id?: string;
   url?: string;
   alt?: string;
   mimeType?: string;
@@ -95,6 +98,7 @@ export interface IMedia {
 
 // MCQ Option
 export interface IOption {
+  _id?: string;
   id?: string;
   text?: string; // used when option has text
   mediaUrl?: string; // used when option is an image
@@ -103,6 +107,7 @@ export interface IOption {
 
 // Sub-question (for paragraph questions)
 export interface ISubQuestion {
+  _id?: string;
   id?: string;
   type?: QuestionType | string;
   text?: string;
@@ -164,6 +169,18 @@ export default function QuestionBankPage() {
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkMarks, setBulkMarks] = useState<string>("");
+  const [bulkDifficulty, setBulkDifficulty] = useState<
+    "unchanged" | DifficultyLevel
+  >("unchanged");
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+  const [editQuestionOpen, setEditQuestionOpen] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState<IQuestion | null>(null);
+  const [editMarks, setEditMarks] = useState<string>("");
+  const [editDifficulty, setEditDifficulty] = useState<DifficultyLevel>("easy");
+  const [isUpdatingSingle, setIsUpdatingSingle] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage, setRecordsPerPage] = useState(10);
@@ -209,14 +226,23 @@ export default function QuestionBankPage() {
     };
 
     try {
-      const res = await fetchAllQuestionsApi(payload);
+      const res: any = await fetchAllQuestionsApi(payload);
 
       if (res.success) {
+        const safeTotalRecords =
+          typeof res.totalRecords === "number" ? res.totalRecords : 0;
+        const safeTotalPages =
+          typeof res.totalPages === "number" ? res.totalPages : 0;
+
         setQuestions(res.questions);
-        setTotalRecords(res.totalRecords);
-        setTotalPages(res.totalPages);
+        setTotalRecords(safeTotalRecords);
+        setTotalPages(safeTotalPages);
+        setSelectedQuestionIds((prev) =>
+          prev.filter((id) => res.questions.some((q: IQuestion) => q._id === id))
+        );
       } else {
         setQuestions([]);
+        setSelectedQuestionIds([]);
       }
     } catch (err) {
       console.error("Fetch failed", err);
@@ -286,7 +312,7 @@ export default function QuestionBankPage() {
 
   const handleExport = (q: IQuestion) => {
     const element = document.createElement("a");
-    const file = new Blob([q.text], { type: "text/plain" });
+    const file = new Blob([String(q.text ?? "")], { type: "text/plain" });
     element.href = URL.createObjectURL(file);
     element.download = `question-${q._id}.txt`;
     document.body.appendChild(element);
@@ -323,6 +349,154 @@ export default function QuestionBankPage() {
       }, 1000),
     []
   );
+
+  const handleOpenEditModal = (q: IQuestion) => {
+    setEditingQuestion(q);
+    setEditMarks(String(q.marks ?? ""));
+    setEditDifficulty((q.difficulty as DifficultyLevel) || "easy");
+    setEditQuestionOpen(true);
+  };
+
+  const handleUpdateSingleQuestion = async () => {
+    if (!editingQuestion?._id) {
+      alert("Question id is missing.");
+      return;
+    }
+
+    const parsedMarks = Number(editMarks);
+    if (!Number.isFinite(parsedMarks) || parsedMarks < 0) {
+      alert("Marks must be a valid non-negative number.");
+      return;
+    }
+
+    try {
+      setIsUpdatingSingle(true);
+      const res: any = await updateQuestionApi(editingQuestion._id, {
+        marks: parsedMarks,
+        difficulty: editDifficulty,
+      });
+
+      if (!res?.success) {
+        alert(res?.message || "Failed to update question.");
+        return;
+      }
+
+      setQuestions((prev) =>
+        prev.map((q) =>
+          q._id === editingQuestion._id
+            ? { ...q, marks: parsedMarks, difficulty: editDifficulty }
+            : q
+        )
+      );
+
+      setEditQuestionOpen(false);
+      setEditingQuestion(null);
+    } catch (error) {
+      console.error("Single question update failed", error);
+      alert("Failed to update question.");
+    } finally {
+      setIsUpdatingSingle(false);
+    }
+  };
+
+  const allVisibleSelected =
+    questions.length > 0 &&
+    questions.every((q) => q._id && selectedQuestionIds.includes(q._id));
+
+  const toggleQuestionSelection = (id?: string) => {
+    if (!id) return;
+
+    setSelectedQuestionIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedQuestionIds((prev) =>
+        prev.filter((id) => !questions.some((q) => q._id === id))
+      );
+      return;
+    }
+
+    setSelectedQuestionIds((prev) => {
+      const set = new Set(prev);
+      questions.forEach((q) => {
+        if (q._id) set.add(q._id);
+      });
+      return Array.from(set);
+    });
+  };
+
+  const resetBulkForm = () => {
+    setBulkMarks("");
+    setBulkDifficulty("unchanged");
+  };
+
+  const handleOpenBulkEdit = () => {
+    if (selectedQuestionIds.length === 0) {
+      alert("Please select at least one question.");
+      return;
+    }
+    resetBulkForm();
+    setBulkEditOpen(true);
+  };
+
+  const handleBulkUpdate = async () => {
+    const parsedMarks = bulkMarks.trim() === "" ? undefined : Number(bulkMarks);
+    const nextDifficulty = bulkDifficulty === "unchanged" ? undefined : bulkDifficulty;
+
+    if (parsedMarks === undefined && !nextDifficulty) {
+      alert("Please set marks and/or difficulty to update.");
+      return;
+    }
+
+    if (parsedMarks !== undefined && (!Number.isFinite(parsedMarks) || parsedMarks < 0)) {
+      alert("Marks must be a valid non-negative number.");
+      return;
+    }
+
+    try {
+      setIsBulkUpdating(true);
+      const payload: {
+        ids: string[];
+        marks?: number;
+        difficulty?: DifficultyLevel;
+      } = {
+        ids: selectedQuestionIds,
+      };
+
+      if (parsedMarks !== undefined) payload.marks = parsedMarks;
+      if (nextDifficulty) payload.difficulty = nextDifficulty;
+
+      const res = await bulkUpdateQuestionsApi(payload);
+
+      if (!res?.success) {
+        alert(res?.message || "Bulk update failed.");
+        return;
+      }
+
+      setQuestions((prev) =>
+        prev.map((q) => {
+          if (!q._id || !selectedQuestionIds.includes(q._id)) return q;
+          return {
+            ...q,
+            marks: parsedMarks !== undefined ? parsedMarks : q.marks,
+            difficulty: nextDifficulty || q.difficulty,
+          };
+        })
+      );
+
+      setSelectedQuestionIds([]);
+      setBulkEditOpen(false);
+      resetBulkForm();
+    } catch (error: any) {
+      console.error("Bulk update failed", error);
+      alert("Bulk update failed. Check console/network.");
+    } finally {
+      setIsBulkUpdating(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -445,6 +619,18 @@ export default function QuestionBankPage() {
 
       {/* TABLE */}
       <Card>
+        <div className="px-6 pt-4 flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            {selectedQuestionIds.length} selected
+          </p>
+          <Button
+            variant="outline"
+            onClick={handleOpenBulkEdit}
+            disabled={selectedQuestionIds.length === 0}
+          >
+            <Edit className="mr-2 h-4 w-4" /> Bulk Edit Marks & Difficulty
+          </Button>
+        </div>
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-4 text-center">
@@ -479,6 +665,13 @@ export default function QuestionBankPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={allVisibleSelected}
+                        onCheckedChange={toggleSelectAllVisible}
+                        aria-label="Select all questions in current page"
+                      />
+                    </TableHead>
                     <TableHead>Question</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Class</TableHead>
@@ -490,8 +683,16 @@ export default function QuestionBankPage() {
                 </TableHeader>
                 <TableBody>
                   {questions.map((q) => {
+                    const questionId: string = String(q._id || "");
                     return (
-                      <TableRow key={q._id}>
+                      <TableRow key={questionId || `${q.text}-${q.createdAt || "row"}`}>
+                        <TableCell>
+                          <Checkbox
+                            checked={!!questionId && selectedQuestionIds.includes(questionId)}
+                            onCheckedChange={() => toggleQuestionSelection(questionId)}
+                            aria-label={`Select question ${questionId}`}
+                          />
+                        </TableCell>
                         <TableCell className="truncate max-w-xs">
                           {q.text}
                         </TableCell>
@@ -530,13 +731,19 @@ export default function QuestionBankPage() {
                               <DropdownMenuItem onClick={() => handleView(q)}>
                                 <Eye className="mr-2 h-4 w-4" /> View
                               </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleOpenEditModal(q)}>
+                                <Edit className="mr-2 h-4 w-4" /> Edit
+                              </DropdownMenuItem>
                               <DropdownMenuItem onClick={() => handleExport(q)}>
                                 <Download className="mr-2 h-4 w-4" /> Export
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="text-red-600"
-                                onClick={() => handleDelete(q._id)}
+                                onClick={() => {
+                                  if (!questionId) return;
+                                  handleDelete(String(questionId));
+                                }}
                               >
                                 <Trash className="mr-2 h-4 w-4" /> Delete
                               </DropdownMenuItem>
@@ -549,7 +756,7 @@ export default function QuestionBankPage() {
                 </TableBody>
                 <TableFooter>
                   <TableRow>
-                    <TableHead colSpan={7} className="text-right">
+                    <TableHead colSpan={8} className="text-right">
                       <div className="w-full flex items-center justify-between p-4">
                         <span className="text-sm text-muted-foreground">
                           Showing {(currentPage - 1) * recordsPerPage + 1}–
@@ -615,6 +822,11 @@ export default function QuestionBankPage() {
 
           {selectedQuestion && (
             <>
+              {(() => {
+                const selectedOptions = selectedQuestion.options || [];
+                const selectedSubQuestions = selectedQuestion.subQuestions || [];
+                return (
+                  <>
               {/* ================= META INFO ================= */}
               <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
                 <p>Type: {selectedQuestion.type}</p>
@@ -636,8 +848,8 @@ export default function QuestionBankPage() {
                     ?.filter((m) => !m.alt?.toLowerCase().startsWith("option_"))
                     .map((img) => (
                       <img
-                        key={img._id}
-                        src={baseURL+img.url}
+                        key={img._id || img.url || "question-media"}
+                        src={`${baseURL || ""}${img.url || ""}`}
                         alt={img.alt}
                         className="max-h-40 rounded border"
                       />
@@ -646,18 +858,20 @@ export default function QuestionBankPage() {
               </div>
 
               {/* ================= OPTIONS ================= */}
-              {selectedQuestion.options?.length > 0 && (
+              {selectedOptions.length > 0 && (
                 <ul className="mt-6 space-y-3">
-                  {selectedQuestion.options.map((option) => {
+                  {selectedOptions.map((option) => {
+                    const optionKey = option._id || option.id || option.text || "option";
+                    const optionIdLower = String(option.id || "").toLowerCase();
                     const optionImage = selectedQuestion.media?.find(
                       (m) =>
                         m.alt?.toLowerCase() ===
-                        `option_${option.id.toLowerCase()}`
+                        `option_${optionIdLower}`
                     );
 
                     return (
                       <li
-                        key={option._id}
+                        key={optionKey}
                         className={`flex items-center gap-4 rounded-md border p-3 ${
                           option.isCorrect ? "border-green-500 bg-green-50" : ""
                         }`}
@@ -671,7 +885,7 @@ export default function QuestionBankPage() {
                         {/* OPTION IMAGE */}
                         {optionImage && (
                           <img
-                            src={baseURL+optionImage.url}
+                            src={`${baseURL || ""}${optionImage.url || ""}`}
                             alt={optionImage.alt}
                             className="max-h-24 rounded border"
                           />
@@ -709,13 +923,13 @@ export default function QuestionBankPage() {
 
               {/* ================= SUB QUESTIONS ================= */}
               {selectedQuestion.type === "paragraph" &&
-                selectedQuestion.subQuestions?.length > 0 && (
+                selectedSubQuestions.length > 0 && (
                   <div className="mt-6 space-y-5">
                     <h3 className="text-lg font-semibold">Sub-Questions</h3>
 
-                    {selectedQuestion.subQuestions.map((sq, index) => (
+                    {selectedSubQuestions.map((sq, index) => (
                       <div
-                        key={sq._id}
+                        key={sq._id || sq.id || `sub-${index}`}
                         className="rounded-lg border bg-muted/20 p-4 space-y-3"
                       >
                         <div className="flex justify-between items-start">
@@ -723,16 +937,16 @@ export default function QuestionBankPage() {
                             {index + 1}. {sq.text || "Untitled"}
                           </p>
                           <span className="text-xs text-muted-foreground capitalize">
-                            {sq.type.replace("_", " ")} | Marks: {sq.marks}
+                            {String(sq.type || "").replace("_", " ")} | Marks: {sq.marks}
                           </span>
                         </div>
 
                         {/* SUB MCQ */}
-                        {sq.type === "mcq_text" && sq.options?.length > 0 && (
+                        {sq.type === "mcq_text" && (sq.options || []).length > 0 && (
                           <ul className="space-y-2">
-                            {sq.options.map((opt) => (
+                            {(sq.options || []).map((opt, optIndex) => (
                               <li
-                                key={opt._id}
+                                key={opt._id || opt.id || `opt-${optIndex}`}
                                 className="flex items-center gap-3"
                               >
                                 <input
@@ -768,6 +982,9 @@ export default function QuestionBankPage() {
                     ))}
                   </div>
                 )}
+                  </>
+                );
+              })()}
             </>
           )}
         </DialogContent>
@@ -786,6 +1003,117 @@ export default function QuestionBankPage() {
             <Button variant="destructive" onClick={confirmDelete}>
               Delete
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* BULK EDIT MODAL */}
+      <Dialog open={bulkEditOpen} onOpenChange={setBulkEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Edit Questions</DialogTitle>
+            <DialogDescription>
+              Update marks and/or difficulty for {selectedQuestionIds.length} selected questions.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Marks (optional)</label>
+              <Input
+                type="number"
+                min={0}
+                value={bulkMarks}
+                onChange={(e) => setBulkMarks(e.target.value)}
+                placeholder="Leave blank to keep existing marks"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Difficulty (optional)</label>
+              <Select
+                value={bulkDifficulty}
+                onValueChange={(value: "unchanged" | DifficultyLevel) => setBulkDifficulty(value)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose difficulty" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unchanged">Keep existing</SelectItem>
+                  <SelectItem value="easy">Easy</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="hard">Hard</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setBulkEditOpen(false)}
+                disabled={isBulkUpdating}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleBulkUpdate} disabled={isBulkUpdating}>
+                {isBulkUpdating ? "Updating..." : "Update Selected"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* SINGLE EDIT MODAL */}
+      <Dialog open={editQuestionOpen} onOpenChange={setEditQuestionOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Question</DialogTitle>
+            <DialogDescription>
+              Edit marks and difficulty for selected question.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Marks</label>
+              <Input
+                type="number"
+                min={0}
+                value={editMarks}
+                onChange={(e) => setEditMarks(e.target.value)}
+                placeholder="Enter marks"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Difficulty</label>
+              <Select
+                value={editDifficulty}
+                onValueChange={(value: DifficultyLevel) => setEditDifficulty(value)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="easy">Easy</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="hard">Hard</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setEditQuestionOpen(false)}
+                disabled={isUpdatingSingle}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateSingleQuestion} disabled={isUpdatingSingle}>
+                {isUpdatingSingle ? "Updating..." : "Save Changes"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

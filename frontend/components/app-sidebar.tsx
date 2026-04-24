@@ -11,7 +11,7 @@ import {
   LogOut,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useUser } from "@/lib/user-context"
@@ -29,42 +29,33 @@ import {
 
 export function AppSidebar() {
   const pathname = usePathname()
-  const router = useRouter()
-  const { user, setUser, logout } = useUser()
+  const { user, logout } = useUser()
 
   if (!user) return null
 
   const commonLinks = [{ name: "Dashboard", href: "/dashboard", icon: LayoutDashboard }]
 
-  const masterLinks = [
+  const fullAccessLinks = [
     { name: "Question Bank", href: "/dashboard/questions", icon: BookOpen },
     { name: "Paper Generator", href: "/dashboard/generate", icon: FileText },
     { name: "Papers", href: "/dashboard/papers", icon: GraduationCap },
-    // { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
+   // { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
     { name: "User Management", href: "/dashboard/users", icon: Users },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ]
 
-  const teacherLinks = [
-    { name: "Question Bank", href: "/dashboard/questions", icon: BookOpen },
-    { name: "Paper Generator", href: "/dashboard/generate", icon: FileText },
-    // { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
-    { name: "My Classes", href: "/dashboard/classes", icon: GraduationCap },
-  ]
-
   const studentLinks = [
     { name: "My Papers", href: "/dashboard/my-papers", icon: FileText },
-    { name: "Practice Tests", href: "/dashboard/practice", icon: BookOpen },
-    { name: "Results", href: "/dashboard/results", icon: GraduationCap },
+    { name: "Papers", href: "/dashboard/papers", icon: GraduationCap },
   ]
+
+  const role = String(user.role || "").toLowerCase()
+  const hasFullAccess =
+    role === "master" || role === "administrative" || role === "teacher"
 
   const links = [
     ...commonLinks,
-    ...(user.role === "master"
-      ? masterLinks
-      : user.role === "teacher"
-      ? teacherLinks
-      : studentLinks),
+    ...(hasFullAccess ? fullAccessLinks : studentLinks),
   ]
 
   const handleLogout = () => {
@@ -75,7 +66,7 @@ export function AppSidebar() {
     <div className="flex h-full w-64 flex-col border-r bg-card text-card-foreground">
       <div className="flex h-14 items-center border-b px-4">
         <span className="text-lg font-bold tracking-tight text-primary">
-          PaperSetter Pro
+          PaperGenerator
         </span>
       </div>
 

@@ -12,11 +12,13 @@ import userSettingRoutes from "./routes/userSetting.js"
 import { swaggerDocs } from "./swagger.js";
 import { verifyToken } from "./middleware/tokenVerification.middleware.js";
 import { seedMasterUser } from "./master.seed.js";
+import { apiRateLimiter, authRateLimiter } from "./middleware/rateLimit.middleware.js";
 
 
 dotenv.config();
 
 const app = express();
+app.set("trust proxy", 1);
 
 // ⭐ REQUIRED for form-data + JSON
 app.use(express.json());
@@ -24,6 +26,13 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(cors());
 app.use("/uploads", express.static("uploads"));
+
+// Apply stricter limits on auth endpoints to reduce brute-force attempts.
+app.use("/api/users/login", authRateLimiter);
+app.use("/api/users/register", authRateLimiter);
+
+// Apply shared API rate limiting for all API routes.
+app.use("/api", apiRateLimiter);
 
 // Debug all incoming requests
 app.use((req, res, next) => {

@@ -13,6 +13,7 @@ import { baseURL } from "@/hooks/common"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { PaperPreview, exportAsPDF, printPaper } from "@/components/paper-preview"
 import { exportPaperPdfApi } from "@/utils/apis"
+import { mapPaperToPreviewConfig } from "@/lib/utils"
 
 /* ---------------- TYPES ---------------- */
 
@@ -26,8 +27,10 @@ interface QuestionSnapshot {
   questionId: string
   type: string
   text: string
+  paragraph?: string
   media?: { url: string }[]
   options?: Option[]
+  subQuestions?: any[]
   marks: number
   negativeMarks: number
 }
@@ -50,31 +53,16 @@ interface Paper {
   createdAt: string
 }
 
-// Convert paper data to PaperConfig format for PaperPreview
-const convertToPaperConfig = (paper: Paper) => {
-  return {
-    id: paper._id,
-    title: paper.title,
-    code: paper._id.slice(-6), // Generate a code from ID
-    classLevel: paper.classId,
-    durationMinutes: paper.durationMinutes,
-    totalMarks: paper.totalMarks,
-    sections: paper.sections.map((section, index) => ({
-      id: section.id,
-      name: section.name,
-      marks: section.marks,
-      questions: paper.questionsSnapshot
-        .filter(q => section.questions.includes(q.questionId))
-        .map((q, qIndex) => ({
-          questionId: q.questionId,
-          text: q.text,
-          marks: q.marks,
-          negativeMarks: q.negativeMarks,
-          options: q.options || [],
-          media: q.media || []
-        }))
-    }))
-  }
+const convertToPaperConfig = (paper: Paper) => ({
+  ...mapPaperToPreviewConfig(paper),
+  id: paper._id,
+  code: paper._id.slice(-6),
+})
+
+const getImageSrc = (url?: string) => {
+  if (!url) return ""
+  if (/^data:/i.test(url) || /^https?:\/\//i.test(url)) return url
+  return `${baseURL}${url}`
 }
 
 /* ---------------- COMPONENT ---------------- */
@@ -120,7 +108,9 @@ export default function PaperDetailsPage() {
 
   // Handle Print using the PaperPreview component's function
   const handlePrint = () => {
-    printPaper();
+    if (!paper) return;
+    const paperConfig = convertToPaperConfig(paper);
+    printPaper(paperConfig);
   };
 
   /* ---------------- FETCH PAPER ---------------- */
@@ -130,7 +120,7 @@ export default function PaperDetailsPage() {
 
     const fetchPaper = async () => {
       try {
-        const res = await fetchPaperByIdApi(paperId)
+        const res: any = await fetchPaperByIdApi(paperId)
         if (res?.success) {
           setPaper(res.paper)
         }
@@ -266,13 +256,20 @@ export default function PaperDetailsPage() {
                               </Badge>
                             </div>
 
+                            {q.type === "paragraph" && q.paragraph ? (
+                              <div className="mt-3 whitespace-pre-wrap text-sm">
+                                <span className="font-semibold">Paragraph: </span>
+                                {q.paragraph}
+                              </div>
+                            ) : null}
+
                             {/* IMAGE */}
-                            {q.media?.length > 0 && (
+                            {Array.isArray(q.media) && q.media.length > 0 && (
                               <div className="mt-3 flex gap-3">
                                 {q.media.map((img, idx) => (
                                   <img
                                     key={idx}
-                                    src={baseURL + img.url}
+                                    src={getImageSrc(img.url)}
                                     alt="question"
                                     className="max-h-32 rounded border"
                                   />
@@ -281,12 +278,46 @@ export default function PaperDetailsPage() {
                             )}
 
                             {/* OPTIONS */}
-                            {q.options?.length > 0 && (
+                            {Array.isArray(q.options) && q.options.length > 0 && (
                               <div className="mt-3 ml-4 space-y-2 grid grid-cols-4">
                                 {q.options.map((opt) => (
                                   <div key={opt.id} className="text-sm flex gap-2">
                                     <span className="font-semibold">({opt.id})</span>
                                     <span>{opt.text}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {Array.isArray(q.subQuestions) && q.subQuestions.length > 0 && (
+                              <div className="mt-3 space-y-3">
+                                {q.subQuestions.map((subQuestion, subIndex) => (
+                                  <div key={subQuestion?.id || `${q.questionId}-${subIndex}`} className="rounded border bg-white p-3">
+                                    <p className="text-sm font-medium">
+                                      {subIndex + 1}. {subQuestion?.text || ""}
+                                    </p>
+
+                                    {Array.isArray(subQuestion?.options) && subQuestion.options.length > 0 ? (
+                                      <div className="mt-2 ml-4 grid grid-cols-2 gap-2">
+                                        {subQuestion.options.map((opt: any) => (
+                                          <div key={opt.id} className="text-sm flex gap-2">
+                                            <span className="font-semibold">({opt.id})</span>
+                                            <span>{opt.text}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : subQuestion?.type === "true_false" ? (
+                                      <div className="mt-2 ml-4 grid grid-cols-2 gap-2 text-sm">
+                                        <div className="flex gap-2">
+                                          <span className="font-semibold">(A)</span>
+                                          <span>True</span>
+                                        </div>
+                                        <div className="flex gap-2">
+                                          <span className="font-semibold">(B)</span>
+                                          <span>False</span>
+                                        </div>
+                                      </div>
+                                    ) : null}
                                   </div>
                                 ))}
                               </div>

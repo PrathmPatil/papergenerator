@@ -25,13 +25,21 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { ClassLevel, Section, Sections } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import type { ClassLevel, Section, Sections, Topic } from "@/lib/types";
+import { cn, formatTopicTitle } from "@/lib/utils";
 import { CLASSES, SUBJECTS } from "../../../lib/data";
-import { TOPICS } from "@/lib/mock-data";
 import { MultiSelect } from "@/components/ui/multi-select";
-import { createPaperTemplateApi, fetchQuestionByIdApi, generatePaperApiManual, isTitleExist } from "@/utils/apis";
+import {
+  createPaperTemplateApi,
+  fetchPaperByIdApi,
+  fetchQuestionByIdApi,
+  generatePaperApiManual,
+  fetchTopicsApi,
+  createTopicApi,
+  isTitleExist,
+} from "@/utils/apis";
 import dynamic from "next/dynamic";
+import { mapPaperToPreviewConfig } from "@/lib/utils";
 
 
 const PaperPreview = dynamic(
@@ -40,7 +48,10 @@ const PaperPreview = dynamic(
 );
 
 const PaperGenerationTemplate = dynamic(
-  () => import("@/components/paper-generation-template"),
+  () =>
+    import("@/components/paper-generation-template").then(
+      (m) => m.PaperGenerationTemplate
+    ),
   { ssr: false }
 );
 
@@ -53,6 +64,20 @@ const STEPS = [
   { id: 5, title: "Preview & Export" },
 ];
 
+interface TopicDistributionRule {
+  topicId: string;
+  marks: number;
+}
+
+interface SectionRules {
+  marksPerQuestion: number;
+  topicDistributions: TopicDistributionRule[];
+}
+
+type SectionConfig = Sections & {
+  rules?: SectionRules;
+};
+
 export default function GeneratePaperPage() {
   const [currentStep, setCurrentStep] = useState(1);
 
@@ -63,6 +88,10 @@ export default function GeneratePaperPage() {
   const [selectedClass, setSelectedClass] = useState<ClassLevel | "">("");
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [availableTopics, setAvailableTopics] = useState<Topic[]>([]);
+  const [topicInputs, setTopicInputs] = useState<Record<string, string>>({});
+  const [topicLoading, setTopicLoading] = useState(false);
+  const [activeTopicSubject, setActiveTopicSubject] = useState<string>("");
 
   const [totalMarks, setTotalMarks] = useState(50);
   const [duration, setDuration] = useState(60);
@@ -88,23 +117,119 @@ export default function GeneratePaperPage() {
 
   const [fetchedQuestions, setFetchedQuestions] = useState<any[]>([]);
   const [selectedQuestions, setSelectedQuestions] = useState<Record<string, string[]>>({});
-  const [sections, setSections] = useState<Sections[]>([]);
+  const [sections, setSections] = useState<SectionConfig[]>([]);
   const [isNameExist, setIsTitleExist] = useState(false);
-  const filteredSubjects = SUBJECTS.filter(
-    (s) => !selectedClass || s.classLevels.includes(selectedClass)
-  );
-  const filteredTopics = TOPICS.filter(
-    (t) => !selectedSubjects.length || selectedSubjects.includes(t.subjectId)
+
+  const toSafeInt = (value: unknown, fallback = 0) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.floor(num);
+  };
+  const normalizedSelectedClass = selectedClass.trim();
+
+  const filteredSubjects = SUBJECTS.filter((s) =>
+    !normalizedSelectedClass
+      ? true
+      : s.classLevels.some((level) => level.trim() === normalizedSelectedClass)
   );
 
-  const getUsedMarksExcept = (subjectId: string) => {
-    return sections
-      .filter((s) => s.subjectId !== subjectId)
-      .reduce((sum, s) => sum + s.marks, 0);
+  const activeSubject = selectedSubjects.includes(activeTopicSubject)
+    ? activeTopicSubject
+    : selectedSubjects[0] || "";
+
+  const topicsForActiveSubject = availableTopics.filter(
+    (t) => t.subjectId === activeSubject
+  );
+
+  const activeSubjectName =
+    SUBJECTS.find((s) => s.id === activeSubject)?.name || "subject";
+
+  const getSelectedTopicsForSubject = (subjectId: string) => {
+    return availableTopics.filter(
+      (topic) => topic.subjectId === subjectId && selectedTopics.includes(topic.id)
+    );
   };
-  
+
   const getSubjectMarks = (subjectId: string) => {
     return sections.find((s) => s.subjectId === subjectId)?.marks || 0;
+  };
+
+  const getSectionRules = (subjectId: string): SectionRules => {
+    const section = sections.find((s) => s.subjectId === subjectId);
+    return {
+      marksPerQuestion: Math.max(1, Number(section?.rules?.marksPerQuestion || 1)),
+      topicDistributions: Array.isArray(section?.rules?.topicDistributions)
+        ? section!.rules!.topicDistributions
+        : [],
+    };
+  };
+
+  const getTopicAllocatedMarks = (subjectId: string) => {
+    const rules = getSectionRules(subjectId);
+    return rules.topicDistributions.reduce((sum, item) => sum + Number(item.marks || 0), 0);
+  };
+
+  const upsertSectionRules = (
+    subjectId: string,
+    updater: (rules: SectionRules) => SectionRules
+  ) => {
+    setSections((prev) =>
+      prev.map((section) => {
+        if (section.subjectId !== subjectId) return section;
+
+        const currentRules: SectionRules = {
+          marksPerQuestion: Math.max(1, Number(section.rules?.marksPerQuestion || 1)),
+          topicDistributions: Array.isArray(section.rules?.topicDistributions)
+            ? section.rules!.topicDistributions
+            : [],
+        };
+
+        const nextRules = updater(currentRules);
+        return {
+          ...section,
+          rules: {
+            marksPerQuestion: Math.max(1, Number(nextRules.marksPerQuestion || 1)),
+            topicDistributions: nextRules.topicDistributions.map((rule) => ({
+              topicId: rule.topicId,
+              marks: Math.max(0, Number(rule.marks || 0)),
+            })),
+          },
+        };
+      })
+    );
+  };
+
+  const updateTopicMarks = (subjectId: string, topicId: string, marks: number) => {
+    const safeRequestedMarks = Math.max(0, toSafeInt(marks, 0));
+
+    setSections((prev) =>
+      prev.map((section) => {
+        if (section.subjectId !== subjectId) return section;
+
+        const distributions = Array.isArray(section.rules?.topicDistributions)
+          ? section.rules!.topicDistributions
+          : [];
+
+        const allocatedWithoutCurrent = distributions
+          .filter((rule) => rule.topicId !== topicId)
+          .reduce((sum, rule) => sum + Math.max(0, toSafeInt(rule.marks, 0)), 0);
+
+        const maxAllowedForTopic = Math.max(0, toSafeInt(section.marks, 0) - allocatedWithoutCurrent);
+        const finalMarks = Math.min(safeRequestedMarks, maxAllowedForTopic);
+
+        return {
+          ...section,
+          rules: {
+            marksPerQuestion: Math.max(1, toSafeInt(section.rules?.marksPerQuestion, 1)),
+            topicDistributions: distributions.map((rule) =>
+              rule.topicId === topicId
+                ? { ...rule, marks: finalMarks }
+                : { ...rule, marks: Math.max(0, toSafeInt(rule.marks, 0)) }
+            ),
+          },
+        };
+      })
+    );
   };
 
   interface Subject {
@@ -124,15 +249,47 @@ const totalAllocated = selectedSubjects.reduce(
         .reduce((sum, s) => sum + s.marks, 0);
 
       const remaining = totalMarks - usedMarks;
-      const finalMarks = Math.min(value, remaining);
+      const finalMarks = Math.max(0, Math.min(value, remaining));
 
       const exists = prev.find((s) => s.subjectId === subject.id);
 
       if (exists) {
-        return prev.map((s) =>
-          s.subjectId === subject.id ? { ...s, marks: finalMarks } : s
-        );
+        return prev.map((s) => {
+          if (s.subjectId !== subject.id) return s;
+
+          const currentRules: SectionRules = {
+            marksPerQuestion: Math.max(1, Number(s.rules?.marksPerQuestion || 1)),
+            topicDistributions: Array.isArray(s.rules?.topicDistributions)
+              ? s.rules!.topicDistributions
+              : [],
+          };
+
+          const trimmed = [...currentRules.topicDistributions];
+          let allocated = trimmed.reduce((sum, item) => sum + Number(item.marks || 0), 0);
+          if (allocated > finalMarks) {
+            for (let i = trimmed.length - 1; i >= 0 && allocated > finalMarks; i -= 1) {
+              const overshoot = allocated - finalMarks;
+              const nextVal = Math.max(0, Number(trimmed[i].marks || 0) - overshoot);
+              allocated -= Number(trimmed[i].marks || 0) - nextVal;
+              trimmed[i] = { ...trimmed[i], marks: nextVal };
+            }
+          }
+
+          return {
+            ...s,
+            marks: finalMarks,
+            rules: {
+              marksPerQuestion: currentRules.marksPerQuestion,
+              topicDistributions: trimmed,
+            },
+          };
+        });
       }
+
+      const initialTopicRules = getSelectedTopicsForSubject(subject.id).map((topic) => ({
+        topicId: topic.id,
+        marks: 0,
+      }));
 
       return [
         ...prev,
@@ -141,14 +298,64 @@ const totalAllocated = selectedSubjects.reduce(
           name: subject.name,
           subjectId: subject.id,
           marks: finalMarks,
+          rules: {
+            marksPerQuestion: 1,
+            topicDistributions: initialTopicRules,
+          },
         },
       ];
     });
   };
 
+  const validateDistributionBeforeNext = () => {
+    if (sections.length === 0) {
+      return "Please allocate marks to at least one subject.";
+    }
+
+    for (const subjectId of selectedSubjects) {
+      const subject = SUBJECTS.find((s) => s.id === subjectId);
+      const section = sections.find((s) => s.subjectId === subjectId);
+
+      if (!section || section.marks <= 0) {
+        return `Please set marks for ${subject?.name || "a subject"}.`;
+      }
+
+      const rules = getSectionRules(subjectId);
+
+      const subjectTopics = getSelectedTopicsForSubject(subjectId);
+      if (subjectTopics.length === 0) {
+        return `Please select at least one topic for ${subject?.name || "a subject"}.`;
+      }
+
+      const topicMarksSum = rules.topicDistributions.reduce(
+        (sum, item) => sum + Number(item.marks || 0),
+        0
+      );
+
+      if (topicMarksSum !== section.marks) {
+        return `Topic marks for ${subject?.name || "a subject"} must equal subject marks (${section.marks}).`;
+      }
+
+      for (const rule of rules.topicDistributions) {
+        if (rule.marks <= 0) {
+          const topicName = availableTopics.find((t) => t.id === rule.topicId)?.name || "topic";
+          return `Please assign marks for ${topicName} in ${subject?.name || "subject"}.`;
+        }
+      }
+    }
+
+    return "";
+  };
+
   const handleNext = async () => {
     console.log(currentStep);
     if (currentStep === 3) {
+      const validationError = validateDistributionBeforeNext();
+      if (validationError) {
+        alert(validationError);
+        return;
+      }
+
       const payload = {
         title: paperTitle,
         totalMarks: Number(totalMarks),
@@ -158,6 +365,13 @@ const totalAllocated = selectedSubjects.reduce(
           name: s.name,
           subjectId: s.subjectId,
           marks: s.marks,
+          rules: {
+            marksPerQuestion: Math.max(1, Number(s.rules?.marksPerQuestion || 1)),
+            topicDistributions: (s.rules?.topicDistributions || []).map((rule) => ({
+              topicId: rule.topicId,
+              marks: Number(rule.marks || 0),
+            })),
+          },
         })),
         classId: selectedClass || "",
         subjectId: (selectedSubjects || []).join(","),
@@ -189,17 +403,205 @@ const totalAllocated = selectedSubjects.reduce(
   };
 
   const toggleTopic = (topicId: string) => {
-    if (selectedTopics.includes(topicId)) {
-      setSelectedTopics(selectedTopics.filter((id) => id !== topicId));
-    } else {
-      setSelectedTopics([...selectedTopics, topicId]);
-    }
+    setSelectedTopics((prev) =>
+      prev.includes(topicId)
+        ? prev.filter((id) => id !== topicId)
+        : [...prev, topicId]
+    );
   };
 
   const toggleSubject = (id: string) => {
-    setSelectedSubjects((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
-    );
+    setSelectedSubjects((prev) => {
+      const isSelected = prev.includes(id);
+      const nextSubjects = isSelected
+        ? prev.filter((s) => s !== id)
+        : [...prev, id];
+
+      if (isSelected) {
+        setSelectedTopics((prevTopics) =>
+          prevTopics.filter((topicId) => {
+            const topic = availableTopics.find((t) => t.id === topicId);
+            return topic?.subjectId !== id;
+          })
+        );
+
+        setSections((prevSections) =>
+          prevSections.filter((section) => section.subjectId !== id)
+        );
+      }
+
+      return nextSubjects;
+    });
+  };
+
+  useEffect(() => {
+    if (selectedSubjects.length === 0) {
+      setActiveTopicSubject("");
+      setAvailableTopics([]);
+      return;
+    }
+
+    if (!selectedSubjects.includes(activeTopicSubject)) {
+      setActiveTopicSubject(selectedSubjects[0]);
+    }
+  }, [activeTopicSubject, selectedSubjects]);
+
+  useEffect(() => {
+    setSelectedTopics((prevTopics) => {
+      const nextTopics = prevTopics.filter((topicId) => {
+        const topic = availableTopics.find((t) => t.id === topicId);
+        return topic ? selectedSubjects.includes(topic.subjectId) : false;
+      });
+
+      if (
+        nextTopics.length === prevTopics.length &&
+        nextTopics.every((topicId, idx) => topicId === prevTopics[idx])
+      ) {
+        return prevTopics;
+      }
+
+      return nextTopics;
+    });
+
+    setSections((prevSections) => {
+      const nextSections = prevSections
+        .filter((section) => selectedSubjects.includes(section.subjectId))
+        .map((section) => {
+          const subjectTopicIds = getSelectedTopicsForSubject(section.subjectId).map(
+            (topic) => topic.id
+          );
+
+          const existingRules = Array.isArray(section.rules?.topicDistributions)
+            ? section.rules!.topicDistributions
+            : [];
+
+          const distributions = subjectTopicIds.map((topicId) => {
+            const existing = existingRules.find((item) => item.topicId === topicId);
+            return {
+              topicId,
+              marks: Number(existing?.marks || 0),
+            };
+          });
+
+          let allocated = distributions.reduce(
+            (sum, item) => sum + Number(item.marks || 0),
+            0
+          );
+
+          if (allocated > section.marks) {
+            for (let i = distributions.length - 1; i >= 0 && allocated > section.marks; i -= 1) {
+              const overshoot = allocated - section.marks;
+              const nextVal = Math.max(0, Number(distributions[i].marks || 0) - overshoot);
+              allocated -= Number(distributions[i].marks || 0) - nextVal;
+              distributions[i] = { ...distributions[i], marks: nextVal };
+            }
+          }
+
+          return {
+            ...section,
+            rules: {
+              marksPerQuestion: Math.max(1, Number(section.rules?.marksPerQuestion || 1)),
+              topicDistributions: distributions,
+            },
+          };
+        });
+
+      if (JSON.stringify(nextSections) === JSON.stringify(prevSections)) {
+        return prevSections;
+      }
+
+      return nextSections;
+    });
+  }, [selectedSubjects, availableTopics, selectedTopics]);
+
+  useEffect(() => {
+    const loadTopics = async () => {
+      if (!selectedClass || selectedSubjects.length === 0) return;
+
+      setTopicLoading(true);
+      try {
+        const resultTopics: Topic[] = [];
+
+        await Promise.all(
+          selectedSubjects.map(async (subjectId) => {
+            const res: any = await fetchTopicsApi({
+              classId: selectedClass,
+              subjectId,
+            });
+            if (res?.topics) {
+              resultTopics.push(
+                ...res.topics.map((topic: any) => ({
+                  id: topic._id || topic.id,
+                  subjectId: topic.subjectId,
+                  name: topic.name,
+                }))
+              );
+            }
+          })
+        );
+
+        setAvailableTopics((prev) => {
+          const keep = prev.filter((topic) =>
+            selectedSubjects.includes(topic.subjectId)
+          );
+          const merged = [...keep, ...resultTopics];
+          return Array.from(
+            new Map(merged.map((topic) => [topic.id, topic])).values()
+          );
+        });
+      } catch (error) {
+        console.error("Failed to load topics", error);
+      } finally {
+        setTopicLoading(false);
+      }
+    };
+
+    loadTopics();
+  }, [selectedClass, selectedSubjects]);
+
+  const handleAddTopic = async () => {
+    if (!activeSubject || !selectedClass) return;
+
+    const inputValue = topicInputs[activeSubject]?.trim() || "";
+    if (!inputValue) return;
+
+    setTopicLoading(true);
+    try {
+      const res: any = await createTopicApi({
+        name: inputValue,
+        classId: selectedClass,
+        subjectId: activeSubject,
+      });
+
+      if (!res?.topic) {
+        throw new Error(res?.message || "Failed to create topic");
+      }
+
+      const topic: Topic = {
+        id: res.topic._id || res.topic.id,
+        subjectId: res.topic.subjectId,
+        name: res.topic.name,
+      };
+
+      setAvailableTopics((prev) => {
+        const merged = [...prev.filter((t) => t.id !== topic.id), topic];
+        return Array.from(
+          new Map(merged.map((item) => [item.id, item])).values()
+        );
+      });
+
+      setSelectedTopics((prev) =>
+        prev.includes(topic.id) ? prev : [...prev, topic.id]
+      );
+      setTopicInputs((prev) => ({ ...prev, [activeSubject]: "" }));
+    } catch (error) {
+      alert(
+        error instanceof Error ? error.message : "Failed to create the topic"
+      );
+      console.error(error);
+    } finally {
+      setTopicLoading(false);
+    }
   };
 
   const generatePaper = () => {
@@ -326,35 +728,15 @@ const handleSave = async () => {
     // ✅ API call
     const res = await generatePaperApiManual(payload);
 
-    // ✅ If backend returns paper with questionsSnapshot, use it for preview
-    if (res?.success && res?.paper) {
-      // Build preview config that PaperPreview expects
+    // Re-fetch the saved paper so preview always gets full paragraph + subquestion data
+    if (res?.success && res?.paper?._id) {
+      const fullPaperRes: any = await fetchPaperByIdApi(String(res.paper._id));
+      const fullPaper = fullPaperRes?.paper || res.paper;
+
       const preview = {
-        title: res.paper.title,
-        code: `CODE-${Date.now()}`,
-        classLevel: res.paper.classId,
-        durationMinutes: res.paper.durationMinutes,
-        totalMarks: res.paper.totalMarks,
-        examDate: new Date(res.paper.createdAt).toLocaleDateString(),
-        negativeMarking: true,
-
-        // IMPORTANT: PaperPreview expects section.questions to be REAL objects (q.text, q.options...)
-        sections: res.paper.sections.map((sec: any) => {
-          const qs = (res.paper.questionsSnapshot || []).filter((q: any) =>
-            sec.questions.includes(q.questionId)
-          );
-
-          return {
-            id: sec.id,
-            name: sec.name,
-            marks: sec.marks,
-            questionCount: qs.length,
-            positiveMarks: qs[0]?.marks ?? 1,
-            negativeMarks: qs[0]?.negativeMarks ?? 0,
-            instructions: "",
-            questions: qs, // ✅ real question objects for preview
-          };
-        }),
+        ...mapPaperToPreviewConfig(fullPaper),
+        code: fullPaper?.code || `CODE-${Date.now()}`,
+        examDate: new Date(fullPaper?.createdAt || Date.now()).toLocaleDateString(),
       };
 
       setPreviewConfig(preview);
@@ -463,6 +845,8 @@ const handleSave = async () => {
                       onValueChange={(v) => {
                         setSelectedClass(v as ClassLevel);
                         setSelectedSubjects([]);
+                        setSelectedTopics([]);
+                        setActiveTopicSubject("");
                       }}
                     >
                       <SelectTrigger className="w-full">
@@ -498,6 +882,7 @@ const handleSave = async () => {
                       type="number"
                       value={totalMarks}
                       min={0}
+                      onWheel={(e) => e.currentTarget.blur()}
                       onChange={(e) => setTotalMarks(Number(e.target.value))}
                     />
                   </div>
@@ -507,6 +892,7 @@ const handleSave = async () => {
                       type="number"
                       value={duration}
                       min={0}
+                      onWheel={(e) => e.currentTarget.blur()}
                       onChange={(e) => setDuration(Number(e.target.value))}
                     />
                   </div>
@@ -522,34 +908,146 @@ const handleSave = async () => {
                     {selectedTopics.length} Selected
                   </Badge>
                 </div>
-                <ScrollArea className="h-[300px] border rounded-md p-4">
-                  <div className="space-y-4">
-                    {filteredTopics.length > 0 ? (
-                      filteredTopics.map((topic) => (
-                        <div
-                          key={topic.id}
-                          className="flex items-center space-x-2"
-                        >
-                          <Checkbox
-                            id={topic.id}
-                            checked={selectedTopics.includes(topic.id)}
-                            onCheckedChange={() => toggleTopic(topic.id)}
-                          />
-                          <label
-                            htmlFor={topic.id}
-                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                          >
-                            {topic.name}
-                          </label>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center text-muted-foreground py-10">
-                        Select a Class and Subject first.
-                      </div>
-                    )}
+
+                {selectedSubjects.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-10">
+                    Select a class and at least one subject to choose topics.
                   </div>
-                </ScrollArea>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      {selectedSubjects.map((subjectId) => {
+                        const subject = SUBJECTS.find((s) => s.id === subjectId);
+                        if (!subject) return null;
+
+                        const selectedCount = availableTopics.filter(
+                          (topic) =>
+                            topic.subjectId === subjectId &&
+                            selectedTopics.includes(topic.id)
+                        ).length;
+
+                        return (
+                          <button
+                            key={subject.id}
+                            type="button"
+                            onClick={() => setActiveTopicSubject(subject.id)}
+                            className={cn(
+                              "rounded-full border px-4 py-2 text-sm transition",
+                              activeSubject === subject.id
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-muted bg-muted/70 text-muted-foreground"
+                            )}
+                          >
+                            {subject.name}
+                            {selectedCount > 0 && (
+                              <Badge className="ml-2" variant="secondary">
+                                {selectedCount}
+                              </Badge>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-[1.5fr,0.9fr]">
+                      <div className="space-y-4">
+                        <div className="rounded-lg border bg-slate-50 p-4">
+                          <p className="text-sm font-semibold">
+                            Topics for {SUBJECTS.find((s) => s.id === activeSubject)?.name || "subject"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {topicsForActiveSubject.length} available
+                          </p>
+                        </div>
+
+                        <ScrollArea className="h-[300px] border rounded-md p-4">
+                          <div className="space-y-3">
+                            {topicLoading ? (
+                              <div className="text-center text-muted-foreground py-10">
+                                Loading topics...
+                              </div>
+                            ) : topicsForActiveSubject.length > 0 ? (
+                              topicsForActiveSubject.map((topic) => (
+                                <div
+                                  key={topic.id}
+                                  className="flex items-center justify-between gap-3 rounded-md border p-3"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={topic.id}
+                                      checked={selectedTopics.includes(topic.id)}
+                                      onCheckedChange={() => toggleTopic(topic.id)}
+                                    />
+                                    <label htmlFor={topic.id} className="text-sm font-medium">
+                                      {formatTopicTitle(topic.name)}
+                                    </label>
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">
+                                    {activeSubjectName}
+                                  </span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-center text-muted-foreground py-10">
+                                No topics available for this subject yet. Add a new topic below.
+                              </div>
+                            )}
+                          </div>
+                        </ScrollArea>
+                      </div>
+
+                      {/* <div className="space-y-4">
+                        <div className="rounded-md border p-4">
+                          <Label>Add New Topic</Label>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Add a topic for the selected subject and include it immediately.
+                          </p>
+                          <Input
+                            value={topicInputs[activeSubject] || ""}
+                            onChange={(e) =>
+                              setTopicInputs((prev) => ({
+                                ...prev,
+                                [activeSubject]: e.target.value,
+                              }))
+                            }
+                            placeholder="Example: Algebra Applications"
+                          />
+                          <Button
+                            type="button"
+                            className="mt-4 w-full"
+                            onClick={handleAddTopic}
+                            disabled={
+                              !topicInputs[activeSubject]?.trim() || !activeSubject
+                            }
+                          >
+                            {topicLoading ? "Adding…" : "Add Topic"}
+                          </Button>
+                        </div>
+
+                        <div className="rounded-md border p-4">
+                          <Label>Selected Topics</Label>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {selectedTopics.length > 0 ? (
+                              selectedTopics.map((topicId) => {
+                                const topic = availableTopics.find((t) => t.id === topicId);
+                                if (!topic) return null;
+                                return (
+                                  <Badge key={topic.id} variant="secondary">
+                                    {formatTopicTitle(topic.name)}
+                                  </Badge>
+                                );
+                              })
+                            ) : (
+                              <span className="text-sm text-muted-foreground">
+                                No topics selected yet.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div> */}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -690,70 +1188,146 @@ const handleSave = async () => {
                   </span>
                 </div>
 
-                {/* ===== SUBJECT GRID ===== */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-4">
                   {selectedSubjects.length > 0 ? (
                     selectedSubjects.map((subjectId) => {
                       const subject = SUBJECTS.find((s) => s.id === subjectId);
                       if (!subject) return null;
 
-                      // marks used by other subjects
                       const usedMarks = selectedSubjects
                         .filter((id) => id !== subject.id)
                         .reduce((sum, id) => sum + getSubjectMarks(id), 0);
 
                       const currentMarks = getSubjectMarks(subject.id);
-
-                      // max this subject can take without exceeding total
                       const maxAllowed = Math.max(0, totalMarks - usedMarks);
-
-                      // keep current safe
                       const safeCurrent = Math.max(0, Math.min(currentMarks, maxAllowed));
 
-                      const percent =
-                        totalMarks === 0
-                          ? 0
-                          : Math.min(100, Math.max(0, (safeCurrent / totalMarks) * 100));
+                      const rules = getSectionRules(subject.id);
+                      const topicChoices = getSelectedTopicsForSubject(subject.id);
+                      const allocatedTopicMarks = getTopicAllocatedMarks(subject.id);
+                      const topicMarksRemaining = safeCurrent - allocatedTopicMarks;
 
                       return (
-                        <div
-                          key={subject.id}
-                          className="flex flex-col gap-3 border p-4 rounded-md"
-                        >
-                          <div className="flex justify-between items-center">
-                            <span className="font-medium">{subject.name}</span>
-                            <span className="text-sm text-muted-foreground">
-                              {safeCurrent} / {totalMarks}
-                            </span>
+                        <div key={subject.id} className="rounded-lg border p-4 space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="text-base font-semibold">{subject.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                Subject marks {">"} topic marks {">"} question marks
+                              </p>
+                            </div>
+                            <Badge
+                              variant={topicMarksRemaining === 0 ? "default" : "secondary"}
+                            >
+                              {safeCurrent} / {totalMarks} marks
+                            </Badge>
                           </div>
 
-                          <input
-                            type="number"
-                            min={0}
-                            max={maxAllowed}
-                            step={5}
-                            value={safeCurrent}
-                            className="w-28 border rounded px-2 py-1"
-                            onChange={(e) => {
-                              let val = Number(e.target.value);
-                              if (!Number.isFinite(val)) val = 0;
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label className="text-xs">Subject Marks</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={maxAllowed}
+                                step={1}
+                                value={safeCurrent}
+                                onWheel={(e) => e.currentTarget.blur()}
+                                onChange={(e) => {
+                                  const val = toSafeInt(e.target.value, 0);
+                                  updateSubjectMarks(
+                                    subject,
+                                    Math.max(0, Math.min(val, maxAllowed))
+                                  );
+                                }}
+                              />
+                            </div>
 
-                              const safeVal = Math.max(0, Math.min(val, maxAllowed));
-                              updateSubjectMarks(subject, safeVal);
-                            }}
-                          />
+                            {/* <div className="space-y-2">
+                              <Label className="text-xs">Selection Rule</Label>
+                              <div className="h-10 rounded-md border px-3 flex items-center text-sm">
+                                Use question's own marks during selection
+                              </div>
+                            </div> */}
+                          </div>
+
+                          <div className="rounded-md border p-3 bg-muted/20">
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                              <Label className="text-sm">Topic-wise Marks Distribution</Label>
+                              <Badge variant={topicMarksRemaining === 0 ? "default" : "secondary"}>
+                                Remaining: {topicMarksRemaining}
+                              </Badge>
+                            </div>
+
+                            {topicChoices.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">
+                                No topics selected for this subject. Go back to Topic Selection.
+                              </p>
+                            ) : (
+                              <div className="grid gap-3 md:grid-cols-2">
+                                {topicChoices.map((topic) => {
+                                  const currentTopicMarks =
+                                    rules.topicDistributions.find((item) => item.topicId === topic.id)
+                                      ?.marks || 0;
+
+                                  const maxTopicAllowed = Math.max(
+                                    0,
+                                    safeCurrent - (allocatedTopicMarks - currentTopicMarks)
+                                  );
+
+                                  return (
+                                    <div
+                                      key={topic.id}
+                                      className="rounded-md border bg-background p-3 space-y-2"
+                                    >
+                                      <span className="text-sm font-medium leading-tight">
+                                        {formatTopicTitle(topic.name)}
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <Input
+                                          type="number"
+                                          min={0}
+                                          max={maxTopicAllowed}
+                                          step={1}
+                                          value={currentTopicMarks}
+                                          onWheel={(e) => e.currentTarget.blur()}
+                                          onChange={(e) => {
+                                            const val = toSafeInt(e.target.value, 0);
+                                            updateTopicMarks(
+                                              subject.id,
+                                              topic.id,
+                                              Math.max(0, Math.min(val, maxTopicAllowed))
+                                            );
+                                          }}
+                                        />
+                                        <span className="whitespace-nowrap text-xs text-muted-foreground">
+                                          {currentTopicMarks} marks
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
 
                           <div className="w-full bg-gray-200 h-2 rounded">
                             <div
                               className="bg-primary h-2 rounded transition-all duration-300"
-                              style={{ width: `${percent}%` }}
+                              style={{
+                                width: `${
+                                  totalMarks === 0
+                                    ? 0
+                                    : Math.min(100, Math.max(0, (safeCurrent / totalMarks) * 100))
+                                }%`,
+                              }}
                             />
                           </div>
                         </div>
                       );
                     })
                   ) : (
-                    <span>No subjects selected</span>
+                    <span className="text-sm text-muted-foreground">No subjects selected</span>
                   )}
                 </div>
                 </div>
@@ -764,6 +1338,8 @@ const handleSave = async () => {
                 data={template}
                 paperGenerateFunction={setSelectedQuestions}
                 selectedQuestionsEdit={selectedQuestions}
+                selectedTopics={selectedTopics}
+                availableTopics={availableTopics}
               />
             ) }
 

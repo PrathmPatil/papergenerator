@@ -10,6 +10,12 @@ export const normalizeQuestionPayload = (req, res, next) => {
     const payload = JSON.parse(req.body.payload);
     const files = req.files || [];
 
+    const toDataUrl = (file) => {
+      if (!file?.buffer) return "";
+      const mimeType = file.mimetype || "application/octet-stream";
+      return `data:${mimeType};base64,${file.buffer.toString("base64")}`;
+    };
+
     /* --------------------------------
        QUESTION MEDIA (images)
     -------------------------------- */
@@ -20,11 +26,14 @@ export const normalizeQuestionPayload = (req, res, next) => {
       // Option images: option_A, option_B, etc.
       if (file.fieldname.startsWith("option_")) {
         const optionId = file.fieldname.replace("option_", "");
-        optionMediaMap[optionId] = `/uploads/${file.filename}`;
+        optionMediaMap[optionId] = toDataUrl(file);
       } else {
         // Question-level media
+        const url = toDataUrl(file);
+        if (!url) return;
+
         media.push({
-          url: `/uploads/${file.filename}`,
+          url,
           alt: file.originalname,
           mimeType: file.mimetype,
         });
@@ -62,6 +71,7 @@ export const normalizeQuestionPayload = (req, res, next) => {
       marks: Number(payload.marks || 1),
       negativeMarks: Number(payload.negativeMarks || 0),
       difficulty: payload.difficulty || "easy",
+      subQuestions: payload.subQuestions || [], // Initialize subQuestions
     };
 
     next();

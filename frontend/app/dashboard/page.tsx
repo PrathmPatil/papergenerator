@@ -174,7 +174,7 @@ export default function Dashboard() {
                 onClick={() => router.push("/dashboard/users")}
               >
                 <Users className="mr-2 h-4 w-4" />
-                Manage Students
+                Manage Users
               </Button>
             )}
           </CardContent>

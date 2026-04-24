@@ -1,0 +1,83 @@
+﻿app/dashboard/generate/page.tsx(188,22): error TS2339: Property 'template' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(382,33): error TS2339: Property 'questions' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(418,30): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(421,20): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(423,25): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(424,30): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(425,25): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(426,32): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(430,23): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(431,27): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/generate/page.tsx(474,18): error TS2339: Property 'isExist' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/page.tsx(53,26): error TS2339: Property 'papers' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/page.tsx(53,43): error TS2339: Property 'count' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/papers/[id]/page.tsx(123,5): error TS2554: Expected 1 arguments, but got 0.
+app/dashboard/papers/[id]/page.tsx(135,24): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/papers/[id]/page.tsx(215,23): error TS2739: Type '{ id: string; title: string; code: string; classLevel: string; durationMinutes: number; totalMarks: number; sections: { id: string; name: string; marks: number; questions: { questionId: string; text: string; marks: number; negativeMarks: number; options: Option[]; media: { ...; }[]; }[]; }[]; }' is missing the following properties from type 'PaperConfig': subjectId, topics, negativeMarking
+app/dashboard/papers/[id]/page.tsx(270,30): error TS18048: 'q.media.length' is possibly 'undefined'.
+app/dashboard/papers/[id]/page.tsx(272,34): error TS18048: 'q.media' is possibly 'undefined'.
+app/dashboard/papers/[id]/page.tsx(284,30): error TS18048: 'q.options.length' is possibly 'undefined'.
+app/dashboard/papers/[id]/page.tsx(286,34): error TS18048: 'q.options' is possibly 'undefined'.
+app/dashboard/papers/edit/[id]/page.tsx(166,56): error TS7006: Parameter 's' implicitly has an 'any' type.
+app/dashboard/papers/edit/[id]/page.tsx(241,63): error TS2339: Property 'topics' does not exist on type '{ id: string; name: string; classLevels: string[]; }'.
+app/dashboard/papers/edit/[id]/page.tsx(267,40): error TS2551: Property 'error' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'. Did you mean 'errors'?
+app/dashboard/papers/edit/[id]/page.tsx(268,35): error TS2339: Property 'paper' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/papers/edit/[id]/page.tsx(281,7): error TS2554: Expected 1 arguments, but got 0.
+app/dashboard/papers/edit/[id]/page.tsx(427,43): error TS7006: Parameter 'topic' implicitly has an 'any' type.
+app/dashboard/papers/edit/[id]/page.tsx(663,29): error TS2739: Type '{ title: any; classLevel: any; durationMinutes: any; totalMarks: any; negativeMarking: boolean; sections: any; }' is missing the following properties from type 'PaperConfig': subjectId, topics
+app/dashboard/papers/page.tsx(105,36): error TS2339: Property 'papers' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/questions/new/page.tsx(251,24): error TS2339: Property 'question' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/questions/new/page.tsx(298,25): error TS2339: Property 'createdCount' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/questions/new/page.tsx(299,16): error TS2339: Property 'failedCount' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/questions/new/page.tsx(299,45): error TS2339: Property 'failedCount' does not exist on type '{ success: boolean; message: string; data?: any; errors?: any; }'.
+app/dashboard/questions/page.tsx(216,29): error TS2339: Property 'totalRecords' does not exist on type 'FetchQuestionsResponse'.
+app/dashboard/questions/page.tsx(217,27): error TS2339: Property 'totalPages' does not exist on type 'FetchQuestionsResponse'.
+app/dashboard/questions/page.tsx(289,28): error TS2322: Type 'string | undefined' is not assignable to type 'BlobPart'.
+  Type 'undefined' is not assignable to type 'BlobPart'.
+app/dashboard/questions/page.tsx(539,61): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+app/dashboard/questions/page.tsx(639,34): error TS2339: Property '_id' does not exist on type 'IMedia'.
+app/dashboard/questions/page.tsx(640,30): error TS18048: 'baseURL' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(640,38): error TS18048: 'img.url' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(649,16): error TS18048: 'selectedQuestion.options.length' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(651,20): error TS18048: 'selectedQuestion.options' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(655,35): error TS18048: 'option.id' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(660,37): error TS2339: Property '_id' does not exist on type 'IOption'.
+app/dashboard/questions/page.tsx(674,34): error TS18048: 'baseURL' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(674,42): error TS18048: 'optionImage.url' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(712,17): error TS18048: 'selectedQuestion.subQuestions.length' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(716,22): error TS18048: 'selectedQuestion.subQuestions' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(718,33): error TS2339: Property '_id' does not exist on type 'ISubQuestion'.
+app/dashboard/questions/page.tsx(726,30): error TS18048: 'sq.type' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(731,52): error TS18048: 'sq.options.length' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(733,30): error TS18048: 'sq.options' is possibly 'undefined'.
+app/dashboard/questions/page.tsx(735,42): error TS2339: Property '_id' does not exist on type 'IOption'.
+app/dashboard/settings/page.tsx(52,18): error TS2339: Property 'phone' does not exist on type 'User'.
+app/dashboard/settings/page.tsx(53,24): error TS2339: Property 'institution' does not exist on type 'User'.
+components/paper-preview copy.tsx(814,11): error TS2322: Type 'void' is not assignable to type 'ReactNode'.
+components/paper-preview copy.tsx(830,32): error TS2322: Type '{ textAlign: string; border: string; padding: string; }' is not assignable to type 'Properties<string | number, string & {}>'.
+  Types of property 'textAlign' are incompatible.
+    Type 'string' is not assignable to type 'TextAlign | undefined'.
+components/paper-preview copy.tsx(834,19): error TS2322: Type '{ textAlign: string; border: string; padding: string; }' is not assignable to type 'Properties<string | number, string & {}>'.
+  Types of property 'textAlign' are incompatible.
+    Type 'string' is not assignable to type 'TextAlign | undefined'.
+components/paper-preview copy.tsx(861,22): error TS2339: Property 'questions' does not exist on type 'Section'.
+components/paper-preview copy.tsx(861,37): error TS7006: Parameter 'q' implicitly has an 'any' type.
+components/paper-preview copy.tsx(861,40): error TS7006: Parameter 'qIndex' implicitly has an 'any' type.
+components/paper-preview copy.tsx(876,35): error TS7006: Parameter 'opt' implicitly has an 'any' type.
+components/paper-preview.tsx(130,22): error TS2339: Property 'questions' does not exist on type 'Section'.
+components/paper-preview.tsx(130,37): error TS7006: Parameter 'q' implicitly has an 'any' type.
+components/paper-preview.tsx(130,40): error TS7006: Parameter 'qIndex' implicitly has an 'any' type.
+components/paper-preview.tsx(146,35): error TS7006: Parameter 'opt' implicitly has an 'any' type.
+components/question-forms/file-upload-form.tsx(42,11): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(worksheet: WorkSheet, opts?: Sheet2JSONOpts | undefined): unknown[]', gave the following error.
+    Object literal may only specify known properties, and 'trim' does not exist in type 'Sheet2JSONOpts'.
+  Overload 2 of 3, '(worksheet: WorkSheet, opts?: Sheet2JSONOpts | undefined): any[][]', gave the following error.
+    Object literal may only specify known properties, and 'trim' does not exist in type 'Sheet2JSONOpts'.
+  Overload 3 of 3, '(worksheet: WorkSheet, opts?: Sheet2JSONOpts | undefined): any[]', gave the following error.
+    Object literal may only specify known properties, and 'trim' does not exist in type 'Sheet2JSONOpts'.
+lib/mock-data.ts(1,59): error TS2305: Module '"./types"' has no exported member 'Paper'.
+lib/mock-data.ts(316,9): error TS2322: Type '"short_answer"' is not assignable to type '"mcq_text" | "single_word"'.
+lib/mock-data.ts(489,9): error TS2322: Type '"short_answer"' is not assignable to type '"mcq_text" | "single_word"'.
+utils/apis.ts(60,3): error TS2741: Property 'questions' is missing in type '{ success: boolean; message: string; data?: any; errors?: any; }' but required in type 'FetchQuestionsResponse'.
+utils/apis.ts(347,5): error TS2353: Object literal may only specify known properties, and 'responseType' does not exist in type 'ApiRequest<any>'.

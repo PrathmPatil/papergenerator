@@ -26,7 +26,6 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 import { CLASSES, SUBJECTS } from "@/lib/data";
-import { TOPICS } from "@/lib/mock-data";
 import type { ClassLevel } from "@/lib/types";
 
 import { MCQForm } from "@/components/question-forms/mcq-form";
@@ -36,6 +35,8 @@ import {
   bulkImageUploadApi,
   createBulkQuestionsApi,
   createQuestionApi,
+  createTopicApi,
+  fetchTopicsApi,
 } from "@/utils/apis";
 import { Switch } from "@/components/ui/switch";
 import { FileUploadForm } from "@/components/question-forms/file-upload-form";
@@ -114,6 +115,10 @@ export default function CreateQuestionPage() {
   const [selectedClass, setSelectedClass] = useState<ClassLevel | "">("");
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedTopic, setSelectedTopic] = useState("");
+  const [topicNameInput, setTopicNameInput] = useState("");
+  const [topics, setTopics] = useState<any[]>([]);
+  const [topicsLoading, setTopicsLoading] = useState(false);
+  const [creatingTopic, setCreatingTopic] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [marks, setMarks] = useState(1);
   const [negativeMarks, setNegativeMarks] = useState(0);
@@ -131,17 +136,79 @@ export default function CreateQuestionPage() {
 
   const filteredSubjects = useMemo(
     () =>
-      SUBJECTS.filter(
-        (s) => !selectedClass || s.classLevels.includes(selectedClass)
+      SUBJECTS.filter((s) =>
+        !selectedClass
+          ? true
+          : s.classLevels.some((level) => level.trim() === selectedClass.trim())
       ),
     [selectedClass]
   );
 
-  const filteredTopics = useMemo(
-    () =>
-      TOPICS.filter((t) => !selectedSubject || t.subjectId === selectedSubject),
-    [selectedSubject]
-  );
+  const loadTopics = async (classId?: string, subjectId?: string) => {
+    if (!classId || !subjectId) {
+      setTopics([]);
+      return;
+    }
+
+    try {
+      setTopicsLoading(true);
+      const res: any = await fetchTopicsApi({ classId, subjectId });
+      setTopics(Array.isArray(res?.topics) ? res.topics : []);
+    } catch (error) {
+      console.error("Failed to load topics", error);
+      setTopics([]);
+    } finally {
+      setTopicsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setSelectedTopic("");
+    setTopicNameInput("");
+    loadTopics(selectedClass || undefined, selectedSubject || undefined);
+  }, [selectedClass, selectedSubject]);
+
+  const handleAddTopic = async () => {
+    const topicName = topicNameInput.trim();
+
+    if (!selectedClass) {
+      alert("Please select class first");
+      return;
+    }
+
+    if (!selectedSubject) {
+      alert("Please select subject first");
+      return;
+    }
+
+    if (!topicName) {
+      alert("Please enter a topic name");
+      return;
+    }
+
+    try {
+      setCreatingTopic(true);
+      const res: any = await createTopicApi({
+        name: topicName,
+        classId: selectedClass,
+        subjectId: selectedSubject,
+      });
+
+      const createdTopic = res?.topic;
+      await loadTopics(selectedClass, selectedSubject);
+
+      if (createdTopic?._id) {
+        setSelectedTopic(createdTopic._id);
+      }
+
+      setTopicNameInput("");
+    } catch (error) {
+      console.error("Failed to create topic", error);
+      alert("Failed to create topic");
+    } finally {
+      setCreatingTopic(false);
+    }
+  };
 
   // on questionType change, reset mcqData and paragraphData and fileUpload
   useEffect(() => {
@@ -284,12 +351,12 @@ export default function CreateQuestionPage() {
         formData.append("excel", uploadedFile);
         formData.append("images", zipFile);
       }
-
+    console.log("Bulk upload questions:", questions);
       const res =
         questionType === "mcq_image"
           ? await bulkImageUploadApi(formData)
           : await createBulkQuestionsApi(questions, false);
-
+            
       if (!res.success) {
         throw new Error(res.message || "Bulk upload failed");
       }
@@ -300,6 +367,7 @@ export default function CreateQuestionPage() {
       );
 
       console.table(res.errors || []);
+      await loadTopics(selectedClass || undefined, selectedSubject || undefined);
       router.refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Something went wrong");
@@ -382,19 +450,45 @@ export default function CreateQuestionPage() {
               <Select
                 value={selectedTopic}
                 onValueChange={setSelectedTopic}
-                disabled={!selectedSubject}
+                disabled={!selectedSubject || topicsLoading}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select Topic" />
+                  <SelectValue
+                    placeholder={topicsLoading ? "Loading topics..." : "Select Topic"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {filteredTopics.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
+                  {topics.length === 0 ? (
+                    <SelectItem value="__none__" disabled>
+                      No topics found
+                    </SelectItem>
+                  ) : null}
+                  {topics.map((t) => (
+                    <SelectItem key={t._id || t.id} value={t._id || t.id}>
                       {t.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <div className="flex gap-2 pt-2">
+                <Input
+                  placeholder="Type a new topic name"
+                  value={topicNameInput}
+                  onChange={(e) => setTopicNameInput(e.target.value)}
+                  disabled={!selectedClass || !selectedSubject}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleAddTopic}
+                  disabled={!selectedClass || !selectedSubject || creatingTopic}
+                >
+                  {creatingTopic ? "Adding..." : "Add Topic"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Topics are loaded from the database. Add a missing topic here and it will appear in the dropdown.
+              </p>
             </div>
 
             <div className="pt-4 border-t space-y-2">
@@ -512,6 +606,7 @@ export default function CreateQuestionPage() {
                     <div className="flex justify-between items-center space-y-4">
                       <FileUploadForm
                         label="Upload Paragraph Questions"
+                        parseExcel={true} 
                         onRowsChange={setFileUpload}
                         onFileChange={setUploadedFile}
                         accept=".xlsx,.xls"
