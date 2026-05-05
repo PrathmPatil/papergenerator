@@ -8,6 +8,19 @@ import { Label } from "@/components/ui/label";
 import { FileText, Eye, Printer } from "lucide-react";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
+const PAGE_MARGIN_MM = 12;
+
+const getPageSize = (orientation: "portrait" | "landscape") => {
+  const widthMm = orientation === "landscape" ? 297 : 210;
+  const heightMm = orientation === "landscape" ? 210 : 297;
+
+  return {
+    widthMm,
+    heightMm,
+    width: `${widthMm}mm`,
+    height: `${heightMm}mm`,
+  };
+};
 
 const getMediaSrc = (url?: string) => {
   if (!url) return "";
@@ -59,8 +72,8 @@ export function PaperPreview({ config }: { config: any }) {
       fontSize: safeFontSize,
       orientation: safeOrientation,
       columnCount: safeColumnCount,
-      pageWidth: safeOrientation === "landscape" ? "277mm" : "190mm",
-      pageMinHeight: safeOrientation === "landscape" ? "190mm" : "297mm",
+      pageWidth: safeOrientation === "landscape" ? "297mm" : "210mm",
+      pageMinHeight: safeOrientation === "landscape" ? "210mm" : "297mm",
     };
   }, [columnCount, fontSize, orientation]);
 
@@ -204,7 +217,7 @@ export function PaperPreview({ config }: { config: any }) {
 
     if (isParagraphQuestion) {
       return (
-        <div key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
+        <div className="paper-question-item" key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: "6px" }}>
             <span style={{ fontSize: `${previewStyles.fontSize}px`, fontWeight: 600 }}>{qIndex + 1}.</span>
 
@@ -261,7 +274,7 @@ export function PaperPreview({ config }: { config: any }) {
     }
 
     return (
-      <div key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
+      <div className="paper-question-item" key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
         <p style={{ fontSize: `${previewStyles.fontSize}px` }}>
           {qIndex + 1}. {q.text}
         </p>
@@ -390,7 +403,7 @@ export function PaperPreview({ config }: { config: any }) {
           maxWidth: previewStyles.pageWidth,
           minHeight: previewStyles.pageMinHeight,
           margin: "0 auto",
-          padding: "12mm 12mm",
+          padding: `${PAGE_MARGIN_MM}mm`,
           lineHeight: "1.45",
           fontSize: `${previewStyles.fontSize}px`,
           boxSizing: "border-box",
@@ -467,8 +480,20 @@ export function PaperPreview({ config }: { config: any }) {
           </tbody>
         </table>
 
-        {config.sections.map((section: any) => (
+        {config.sections.map((section: any, sectionIndex: number) => (
           <div key={section.id} style={{ marginTop: "14px" }}>
+            {sectionIndex > 0 && (
+              <div
+                className="paper-section-divider"
+                aria-hidden="true"
+                style={{
+                  borderTop: "1px solid #000",
+                  margin: "16px 0 12px",
+                  width: "100%",
+                }}
+              />
+            )}
+
             <h2
               style={{
                 fontSize: "14px",
@@ -480,13 +505,31 @@ export function PaperPreview({ config }: { config: any }) {
             </h2>
 
             <div
+              className="paper-question-grid"
+              data-column-count={previewStyles.columnCount}
               style={{
                 display: "grid",
                 gridTemplateColumns: `repeat(${previewStyles.columnCount}, minmax(0, 1fr))`,
                 gap: "18px",
                 alignItems: "start",
+                position: "relative",
               }}
             >
+              <span
+                className="paper-column-divider"
+                aria-hidden="true"
+                style={{
+                  display: previewStyles.columnCount === 2 ? "block" : "none",
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: "50%",
+                  width: 0,
+                  borderLeft: "1px solid #000",
+                  transform: "translateX(-50%)",
+                  pointerEvents: "none",
+                }}
+              />
               {(section.questions || []).map((q: any, qIndex: number) => renderQuestion(q, qIndex, section.id))}
             </div>
           </div>
@@ -533,8 +576,7 @@ export const handleFullPreview = (config: any) => {
   const el = document.getElementById("paper-preview");
   if (!el) return;
   const orientation = el.dataset.orientation === "landscape" ? "landscape" : "portrait";
-  const pageWidth = orientation === "landscape" ? "277mm" : "190mm";
-  const pageMinHeight = orientation === "landscape" ? "190mm" : "297mm";
+  const page = getPageSize(orientation);
 
   const win = window.open("", "_blank");
   if (!win) return;
@@ -555,10 +597,10 @@ export const handleFullPreview = (config: any) => {
 
           #paper-preview {
             width: 100%;
-            max-width: ${pageWidth};
-            min-height: ${pageMinHeight};
+            max-width: ${page.width};
+            min-height: ${page.height};
             margin: 0 auto;
-            padding: 18mm 15mm;
+            padding: ${PAGE_MARGIN_MM}mm;
             box-sizing: border-box;
             background: #ffffff;
             color: #000;
@@ -580,6 +622,28 @@ export const handleFullPreview = (config: any) => {
             box-sizing: border-box;
             margin-bottom: 4px;
             font-size: 13px;
+          }
+
+          .paper-section-divider {
+            border-top: 1px solid #000;
+            margin: 16px 0 12px;
+            width: 100%;
+          }
+
+          .paper-question-grid {
+            position: relative;
+          }
+
+          .paper-question-grid[data-column-count="2"] .paper-column-divider {
+            display: block;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 50%;
+            width: 0;
+            border-left: 1px solid #000;
+            transform: translateX(-50%);
+            pointer-events: none;
           }
 
           .answer-row {
@@ -623,8 +687,9 @@ export const exportAsPDF = async (config: any) => {
     const preview = document.getElementById("paper-preview");
     if (!preview) return;
     const orientation = preview.dataset.orientation === "landscape" ? "landscape" : "portrait";
-    const pageWidthMm = orientation === "landscape" ? 297 : 210;
-    const pageHeightMm = orientation === "landscape" ? 210 : 297;
+    const page = getPageSize(orientation);
+    const pageWidthMm = page.widthMm;
+    const pageHeightMm = page.heightMm;
 
     const html2canvas = (await import("html2canvas")).default;
     const { jsPDF } = await import("jspdf");
@@ -634,7 +699,6 @@ export const exportAsPDF = async (config: any) => {
         box-sizing: border-box;
         width: ${pageWidthMm}mm;
         min-height: ${pageHeightMm}mm;
-        padding: 12mm;
         font-family: 'Times New Roman', serif;
         background: #ffffff;
         color: #000000;
@@ -700,6 +764,28 @@ export const exportAsPDF = async (config: any) => {
               font-size: 13px;
             }
 
+            .paper-section-divider {
+              border-top: 1px solid #000;
+              margin: 16px 0 12px;
+              width: 100%;
+            }
+
+            .paper-question-grid {
+              position: relative;
+            }
+
+            .paper-question-grid[data-column-count="2"] .paper-column-divider {
+              display: block;
+              position: absolute;
+              top: 0;
+              bottom: 0;
+              left: 50%;
+              width: 0;
+              border-left: 1px solid #000;
+              transform: translateX(-50%);
+              pointer-events: none;
+            }
+
             h1 { text-align: center; font-size: 18px; }
             h2 { font-size: 14px; margin-top: 18px; }
 
@@ -757,8 +843,8 @@ export const exportAsPDF = async (config: any) => {
 
     const pageWidth = pageWidthMm;
     const pageHeight = pageHeightMm;
-    const marginX = 10;
-    const marginTop = 10;
+    const marginX = PAGE_MARGIN_MM;
+    const marginTop = PAGE_MARGIN_MM;
     const footerBandHeight = 14;
     const printableHeight = pageHeight - marginTop - footerBandHeight;
 
@@ -829,6 +915,17 @@ export const exportAsExcel = (config: any) => {
           .option-media { max-width: 85px; max-height: 60px; }
           .answer-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
           .answer-row span.line { flex: 1; display: inline-block; min-height: 18px; border-bottom: 1.2px solid #000; }
+          .paper-section-divider { border-top: 1px solid #000; margin: 16px 0 12px; width: 100%; }
+          .paper-question-grid { position: relative; }
+          .paper-question-grid[data-column-count="2"] .paper-column-divider {
+            display: block;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 50%;
+            width: 0;
+            border-left: 1px solid #000;
+          }
         </style>
       </head>
       <body>
@@ -855,6 +952,7 @@ export const exportAsWord = (config: any) => {
   const preview = document.getElementById("paper-preview");
   if (!preview) return;
   const orientation = preview.dataset.orientation === "landscape" ? "landscape" : "portrait";
+  const page = getPageSize(orientation);
 
   const clone = preview.cloneNode(true) as HTMLElement;
 
@@ -935,12 +1033,20 @@ export const exportAsWord = (config: any) => {
     <style>
       body {
         font-family: 'Times New Roman', serif;
-        margin: 2cm;
-        width: ${orientation === "landscape" ? "297mm" : "210mm"};
+        margin: 0;
+        padding: 0;
       }
       @page {
         size: A4 ${orientation};
-        margin: 12mm;
+        margin: ${PAGE_MARGIN_MM}mm;
+      }
+      #paper-preview {
+        width: 100% !important;
+        max-width: ${page.width} !important;
+        min-height: ${page.height} !important;
+        margin: 0 auto !important;
+        padding: ${PAGE_MARGIN_MM}mm !important;
+        box-sizing: border-box !important;
       }
       table {
         width: 100%;
@@ -957,6 +1063,25 @@ export const exportAsWord = (config: any) => {
       }
       .options > * {
         box-sizing: border-box;
+      }
+      .paper-section-divider {
+        border-top: 1px solid #000;
+        margin: 16px 0 12px;
+        width: 100%;
+      }
+      .paper-question-grid {
+        position: relative;
+      }
+      .paper-question-grid[data-column-count="2"] .paper-column-divider {
+        display: block;
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 0;
+        border-left: 1px solid #000;
+        transform: translateX(-50%);
+        pointer-events: none;
       }
       .options-table {
         width: 100%;
@@ -1050,8 +1175,7 @@ export const printPaper = (config: any) => {
   const preview = document.getElementById("paper-preview");
   if (!preview) return;
   const orientation = preview.dataset.orientation === "landscape" ? "landscape" : "portrait";
-  const pageWidth = orientation === "landscape" ? "277mm" : "190mm";
-  const pageMinHeight = orientation === "landscape" ? "190mm" : "297mm";
+  const page = getPageSize(orientation);
 
   const win = window.open("", "_blank");
   if (!win) return;
@@ -1079,15 +1203,15 @@ export const printPaper = (config: any) => {
 
           @page {
             size: A4 ${orientation};
-            margin: 12mm;
+            margin: ${PAGE_MARGIN_MM}mm;
           }
 
           #paper-preview {
             width: 100%;
-            max-width: ${pageWidth};
-            min-height: ${pageMinHeight};
+            max-width: ${page.width};
+            min-height: ${page.height};
             margin: 0 auto;
-            padding: 12mm 12mm;
+            padding: ${PAGE_MARGIN_MM}mm;
             box-sizing: border-box;
             background: #ffffff;
             color: #000;
@@ -1107,6 +1231,28 @@ export const printPaper = (config: any) => {
 
           .options > * {
             box-sizing: border-box;
+          }
+
+          .paper-section-divider {
+            border-top: 1px solid #000;
+            margin: 16px 0 12px;
+            width: 100%;
+          }
+
+          .paper-question-grid {
+            position: relative;
+          }
+
+          .paper-question-grid[data-column-count="2"] .paper-column-divider {
+            display: block;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 50%;
+            width: 0;
+            border-left: 1px solid #000;
+            transform: translateX(-50%);
+            pointer-events: none;
           }
 
           table { width: 100%; border-collapse: collapse; }

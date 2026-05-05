@@ -104,6 +104,129 @@ const bufferToDataUrl = (buffer, mimeType) => {
   return `data:${mimeType || "application/octet-stream"};base64,${buffer.toString("base64")}`;
 };
 
+const QUESTION_DUPLICATE_FIELDS = [
+  "type",
+  "classId",
+  "subjectId",
+  "topicId",
+  "text",
+  "paragraph",
+  "media",
+  "options",
+  "subQuestions",
+  "correctAnswer",
+  "matches",
+  "marks",
+  "negativeMarks",
+  "difficulty",
+  "ocrText",
+  "ocrConfidence",
+  "needsReview",
+];
+
+const ARRAY_DUPLICATE_FIELDS = new Set(["media", "options", "subQuestions"]);
+const NUMBER_DUPLICATE_FIELDS = new Set(["marks", "negativeMarks", "ocrConfidence"]);
+
+const normalizeDuplicateValue = (value) => {
+  if (value === undefined || value === null) return "";
+  if (value instanceof Date) return value.toISOString();
+
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeDuplicateValue(item));
+  }
+
+  if (typeof value === "object") {
+    const normalized = {};
+
+    Object.keys(value)
+      .filter((key) => !["_id", "__v", "createdAt", "deletedAt", "deletedBy", "isDeleted"].includes(key))
+      .sort()
+      .forEach((key) => {
+        normalized[key] = normalizeDuplicateValue(value[key]);
+      });
+
+    return normalized;
+  }
+
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return Number.isFinite(value) ? value : "";
+  return value;
+};
+
+const normalizeDuplicateField = (field, value) => {
+  if (ARRAY_DUPLICATE_FIELDS.has(field)) {
+    return Array.isArray(value) ? normalizeDuplicateValue(value) : [];
+  }
+
+  if (NUMBER_DUPLICATE_FIELDS.has(field)) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : "";
+  }
+
+  if (field === "needsReview") {
+    return Boolean(value);
+  }
+
+  if (field === "difficulty") {
+    return normalizeDuplicateValue(value || "easy");
+  }
+
+  return normalizeDuplicateValue(value);
+};
+
+const buildQuestionDuplicateFingerprint = (question = {}) => {
+  const source = typeof question.toObject === "function" ? question.toObject() : question;
+  const normalized = {};
+
+  QUESTION_DUPLICATE_FIELDS.forEach((field) => {
+    normalized[field] = normalizeDuplicateField(field, source?.[field]);
+  });
+
+  return JSON.stringify(normalized);
+};
+
+const findDuplicateQuestion = async (question) => {
+  const fingerprint = buildQuestionDuplicateFingerprint(question);
+  const topicId = question.topicId || "";
+  const topicFilter = topicId ? topicId : { $in: ["", null] };
+
+  const candidates = await Question.find({
+    classId: question.classId,
+    subjectId: question.subjectId,
+    topicId: topicFilter,
+    type: question.type,
+    isDeleted: { $ne: true },
+  }).lean();
+
+  return candidates.find((candidate) => buildQuestionDuplicateFingerprint(candidate) === fingerprint) || null;
+};
+
+const filterDuplicateQuestions = async (questions = []) => {
+  const uniqueQuestions = [];
+  const duplicateQuestions = [];
+  const seenBatchFingerprints = new Set();
+
+  for (const question of questions) {
+    const fingerprint = buildQuestionDuplicateFingerprint(question);
+
+    if (seenBatchFingerprints.has(fingerprint)) {
+      duplicateQuestions.push(question);
+      continue;
+    }
+
+    const existingDuplicate = await findDuplicateQuestion(question);
+    if (existingDuplicate) {
+      duplicateQuestions.push({ ...question, duplicateOf: existingDuplicate._id?.toString() });
+      continue;
+    }
+
+    seenBatchFingerprints.add(fingerprint);
+    uniqueQuestions.push(question);
+  }
+
+  return { uniqueQuestions, duplicateQuestions };
+};
+
 async function ensureTopicId(classId, subjectId, topicIdentifier) {
   if (!classId || !subjectId || !topicIdentifier) {
     return "";
@@ -179,6 +302,16 @@ router.post(
         normalizedPayload.subjectId,
         topicIdentifier
       );
+
+      const existingDuplicate = await findDuplicateQuestion(normalizedPayload);
+      if (existingDuplicate) {
+        return res.json({
+          success: true,
+          duplicate: true,
+          message: "Question already exists with the same fields",
+          question: existingDuplicate,
+        });
+      }
 
       const q = new Question(normalizedPayload);
       await q.save();
@@ -264,11 +397,16 @@ router.post("/create-bulk-upload", async (req, res) => {
       })
     );
 
-    const inserted = await Question.insertMany(prepared, { ordered: false });
+    const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(prepared);
+    const inserted = uniqueQuestions.length
+      ? await Question.insertMany(uniqueQuestions, { ordered: false })
+      : [];
 
     res.json({
       success: true,
       createdCount: inserted.length,
+      duplicateCount: duplicateQuestions.length,
+      skippedCount: duplicateQuestions.length,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -792,11 +930,16 @@ router.post(
         })
       );
 
-      const inserted = await Question.insertMany(questions, { ordered: false });
+      const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(questions);
+      const inserted = uniqueQuestions.length
+        ? await Question.insertMany(uniqueQuestions, { ordered: false })
+        : [];
 
       res.json({
         success: true,
         createdCount: inserted.length,
+        duplicateCount: duplicateQuestions.length,
+        skippedCount: duplicateQuestions.length,
       });
     } catch (err) {
       console.error(err);

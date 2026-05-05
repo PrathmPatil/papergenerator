@@ -203,7 +203,7 @@ export function PaperPreview({ config }) {
 
     if (isParagraphQuestion) {
       return (
-        <div key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
+        <div className="paper-question-item" key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
           <div style={{ display: "flex", alignItems: "flex-start", gap: "6px" }}>
             <span style={{ fontSize: `${previewStyles.fontSize}px`, fontWeight: 600 }}>{qIndex + 1}.</span>
 
@@ -257,7 +257,7 @@ export function PaperPreview({ config }) {
     }
 
     return (
-      <div key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
+      <div className="paper-question-item" key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
         <p style={{ fontSize: `${previewStyles.fontSize}px` }}>
           {qIndex + 1}. {q.text}
         </p>
@@ -463,8 +463,20 @@ export function PaperPreview({ config }) {
           </tbody>
         </table>
 
-        {config.sections.map((section) => (
+        {config.sections.map((section, sectionIndex) => (
           <div key={section.id} style={{ marginTop: "14px" }}>
+            {sectionIndex > 0 && (
+              <div
+                className="paper-section-divider"
+                aria-hidden="true"
+                style={{
+                  borderTop: "1px solid #000",
+                  margin: "16px 0 12px",
+                  width: "100%",
+                }}
+              />
+            )}
+
             <h2
               style={{
                 fontSize: "14px",
@@ -476,13 +488,31 @@ export function PaperPreview({ config }) {
             </h2>
 
             <div
+              className="paper-question-grid"
+              data-column-count={previewStyles.columnCount}
               style={{
                 display: "grid",
                 gridTemplateColumns: `repeat(${previewStyles.columnCount}, minmax(0, 1fr))`,
                 gap: "18px",
                 alignItems: "start",
+                position: "relative",
               }}
             >
+              <span
+                className="paper-column-divider"
+                aria-hidden="true"
+                style={{
+                  display: previewStyles.columnCount === 2 ? "block" : "none",
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: "50%",
+                  width: 0,
+                  borderLeft: "1px solid #000",
+                  transform: "translateX(-50%)",
+                  pointerEvents: "none",
+                }}
+              />
               {(section.questions || []).map((q, qIndex) => renderQuestion(q, qIndex, section.id))}
             </div>
           </div>
@@ -571,6 +601,28 @@ export const handleFullPreview = (config) => {
             box-sizing: border-box;
             margin-bottom: 4px;
             font-size: 13px;
+          }
+
+          .paper-section-divider {
+            border-top: 1px solid #000;
+            margin: 16px 0 12px;
+            width: 100%;
+          }
+
+          .paper-question-grid {
+            position: relative;
+          }
+
+          .paper-question-grid[data-column-count="2"] .paper-column-divider {
+            display: block;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 50%;
+            width: 0;
+            border-left: 1px solid #000;
+            transform: translateX(-50%);
+            pointer-events: none;
           }
 
           .answer-row {
@@ -689,6 +741,28 @@ export const exportAsPDF = async (config) => {
               box-sizing: border-box;
               margin-bottom: 4px;
               font-size: 13px;
+            }
+
+            .paper-section-divider {
+              border-top: 1px solid #000;
+              margin: 16px 0 12px;
+              width: 100%;
+            }
+
+            .paper-question-grid {
+              position: relative;
+            }
+
+            .paper-question-grid[data-column-count="2"] .paper-column-divider {
+              display: block;
+              position: absolute;
+              top: 0;
+              bottom: 0;
+              left: 50%;
+              width: 0;
+              border-left: 1px solid #000;
+              transform: translateX(-50%);
+              pointer-events: none;
             }
 
             h1 { text-align: center; font-size: 18px; }
@@ -895,6 +969,25 @@ export const exportAsWord = (config) => {
       .options > * {
         box-sizing: border-box;
       }
+      .paper-section-divider {
+        border-top: 1px solid #000;
+        margin: 16px 0 12px;
+        width: 100%;
+      }
+      .paper-question-grid {
+        position: relative;
+      }
+      .paper-question-grid[data-column-count="2"] .paper-column-divider {
+        display: block;
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 0;
+        border-left: 1px solid #000;
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
       .options-table {
         width: 100%;
         border-collapse: collapse;
@@ -1044,6 +1137,28 @@ export const printPaper = (config) => {
 
           .options > * {
             box-sizing: border-box;
+          }
+
+          .paper-section-divider {
+            border-top: 1px solid #000;
+            margin: 16px 0 12px;
+            width: 100%;
+          }
+
+          .paper-question-grid {
+            position: relative;
+          }
+
+          .paper-question-grid[data-column-count="2"] .paper-column-divider {
+            display: block;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 50%;
+            width: 0;
+            border-left: 1px solid #000;
+            transform: translateX(-50%);
+            pointer-events: none;
           }
 
           table { width: 100%; border-collapse: collapse; }

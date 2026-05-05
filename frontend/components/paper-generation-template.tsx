@@ -499,6 +499,82 @@ export function PaperGenerationTemplate({
                   </div>
                 )}
 
+                <div className="flex items-center gap-3 mb-2">
+                  <Checkbox
+                    checked={
+                      !!sectionId && state.questions.length > 0 &&
+                      state.questions.every((qq) => (selectedQuestions[sectionId] || []).includes(qq._id))
+                    }
+                    onCheckedChange={() => {
+                      if (!sectionId) return;
+
+                      setSelectedQuestions((prev) => {
+                        const current = prev[sectionId] || [];
+
+                        const allVisibleSelected =
+                          state.questions.length > 0 &&
+                          state.questions.every((qq) => current.includes(qq._id));
+
+                        if (allVisibleSelected) {
+                          const next = current.filter((id) => !state.questions.some((qq) => qq._id === id));
+                          return { ...prev, [sectionId]: next };
+                        }
+
+                        // Try to add visible questions while respecting section rules
+                        const rules = getSectionRules(sec);
+                        if (!rules) {
+                          const set = new Set(current);
+                          state.questions.forEach((qq) => qq._id && set.add(qq._id));
+                          return { ...prev, [sectionId]: Array.from(set) };
+                        }
+
+                        const requiredByTopicMarks: Record<string, number> = {};
+                        rules.topicDistributions.forEach((item) => {
+                          requiredByTopicMarks[item.topicId] = Math.max(0, Number(item.marks || 0));
+                        });
+
+                        let totalRequiredMarks = Object.values(requiredByTopicMarks).reduce((s, n) => s + n, 0);
+
+                        const selectedByTopicMarks: Record<string, number> = {};
+                        let totalSelectedMarks = 0;
+
+                        const snapshot = [...current];
+                        snapshot.forEach((id) => {
+                          const qq = questionById.get(String(id));
+                          if (!qq?.topicId) return;
+                          const m = Math.max(1, Number(qq.marks ?? 1));
+                          selectedByTopicMarks[qq.topicId] = (selectedByTopicMarks[qq.topicId] || 0) + m;
+                          totalSelectedMarks += m;
+                        });
+
+                        for (const qq of state.questions) {
+                          if (!qq._id) continue;
+                          if (snapshot.includes(qq._id)) continue;
+
+                          const topicId = String(qq.topicId || "");
+                          const qMarks = Math.max(1, Number(qq.marks ?? 1));
+
+                          const requiredForTopic = requiredByTopicMarks[topicId] || 0;
+                          if (!requiredForTopic) continue;
+
+                          const alreadyForTopic = selectedByTopicMarks[topicId] || 0;
+                          if (alreadyForTopic + qMarks > requiredForTopic) continue;
+
+                          if (totalSelectedMarks + qMarks > totalRequiredMarks) continue;
+
+                          snapshot.push(qq._id);
+                          selectedByTopicMarks[topicId] = (selectedByTopicMarks[topicId] || 0) + qMarks;
+                          totalSelectedMarks += qMarks;
+                        }
+
+                        return { ...prev, [sectionId]: snapshot };
+                      });
+                    }}
+                    aria-label="Select all questions in current page"
+                  />
+                  <span className="text-sm text-muted-foreground">Select all visible</span>
+                </div>
+
                 {state.questions.map((q) => {
                   const checked =
                     !!sectionId && (selectedQuestions[sectionId] || []).includes(q._id);

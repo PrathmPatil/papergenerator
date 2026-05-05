@@ -55,6 +55,8 @@ import BulkImageMCQUpload from "@/components/question-forms/bulk-image-MCQ-uploa
 type Difficulty = "easy" | "medium" | "hard";
 type QuestionType = "mcq_text" | "mcq_image" | "paragraph";
 
+const BULK_UPLOAD_BATCH_SIZE = 25;
+
 interface CreateQuestionPayload {
   type: QuestionType;
   classId: string;
@@ -143,6 +145,16 @@ export default function CreateQuestionPage() {
       ),
     [selectedClass]
   );
+
+  const chunkQuestions = (items: any[]) => {
+    const chunks: any[][] = [];
+
+    for (let index = 0; index < items.length; index += BULK_UPLOAD_BATCH_SIZE) {
+      chunks.push(items.slice(index, index + BULK_UPLOAD_BATCH_SIZE));
+    }
+
+    return chunks;
+  };
 
   const loadTopics = async (classId?: string, subjectId?: string) => {
     if (!classId || !subjectId) {
@@ -309,13 +321,13 @@ export default function CreateQuestionPage() {
       }
       
       // return
-      const res = await createQuestionApi(
+      const res: any = await createQuestionApi(
         isFormdataNeeded ? formData : payload,
         !!isFormdataNeeded
       );
       console.log("Create question response:", res);
 
-      const { success, question } = res;
+      const { success } = res;
       if (success !== true) throw new Error("Failed to create question");
       router.refresh();
     } catch (err) {
@@ -351,18 +363,48 @@ export default function CreateQuestionPage() {
         formData.append("excel", uploadedFile);
         formData.append("images", zipFile);
       }
-    console.log("Bulk upload questions:", questions);
-      const res =
-        questionType === "mcq_image"
-          ? await bulkImageUploadApi(formData)
-          : await createBulkQuestionsApi(questions, false);
-            
-      if (!res.success) {
-        throw new Error(res.message || "Bulk upload failed");
+      console.log("Bulk upload questions:", questions);
+
+      let res: any;
+
+      if (questionType === "mcq_image") {
+        res = await bulkImageUploadApi(formData);
+        if (!res.success) {
+          throw new Error(res.message || "Bulk upload failed");
+        }
+      } else {
+        if (questions.length === 0) {
+          throw new Error("No questions were found in the Excel file");
+        }
+
+        const questionChunks = chunkQuestions(questions);
+        const totals = {
+          createdCount: 0,
+          duplicateCount: 0,
+          skippedCount: 0,
+        };
+
+        for (const batch of questionChunks) {
+          const batchRes: any = await createBulkQuestionsApi(batch, false);
+
+          if (!batchRes.success) {
+            throw new Error(batchRes.message || "Bulk upload failed");
+          }
+
+          totals.createdCount += Number(batchRes.createdCount) || 0;
+          totals.duplicateCount += Number(batchRes.duplicateCount) || 0;
+          totals.skippedCount += Number(batchRes.skippedCount) || 0;
+        }
+
+        res = {
+          success: true,
+          ...totals,
+        };
       }
 
       alert(
         `Uploaded ${res.createdCount} questions\n` +
+          (res.duplicateCount ? `Duplicates skipped: ${res.duplicateCount}\n` : "") +
           (res.failedCount ? `Failed: ${res.failedCount}` : "")
       );
 
@@ -563,28 +605,33 @@ export default function CreateQuestionPage() {
 
                 <TabsContent value="mcq_text">
                   {isFileUpload ? (
-                    <div className="flex justify-between items-center space-y-4">
-                      <FileUploadForm
-                        label="Upload MCQ Questions"
-                        onRowsChange={setFileUpload}
-                        onFileChange={setUploadedFile}
-                        accept=".xlsx,.xls"
-                        parseExcel
-                      />
+                    <>
+                      <div className="flex justify-between items-center space-y-4">
+                        <FileUploadForm
+                          label="Upload MCQ Questions"
+                          onRowsChange={setFileUpload}
+                          onFileChange={setUploadedFile}
+                          accept=".xlsx,.xls"
+                          parseExcel
+                        />
 
-                      <Button
-                        className="cursor-pointer"
-                        variant="outline"
-                        onClick={() =>
-                          downloadFile(
-                            "/sample_file/mcq_text_questions_upload_template.xlsx",
-                            "mcq_text_questions_upload_template.xlsx"
-                          )
-                        }
-                      >
-                        <Download /> Sample File
-                      </Button>
-                    </div>
+                        <Button
+                          className="cursor-pointer"
+                          variant="outline"
+                          onClick={() =>
+                            downloadFile(
+                              "/sample_file/mcq_text_questions_upload_template.xlsx",
+                              "mcq_text_questions_upload_template.xlsx"
+                            )
+                          }
+                        >
+                          <Download /> Sample File
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Large spreadsheets are split into batches automatically, so you can import as many rows as needed.
+                      </p>
+                    </>
                   ) : (
                     <MCQForm onChange={setMcqData} />
                   )}
@@ -603,28 +650,33 @@ export default function CreateQuestionPage() {
 
                 <TabsContent value="paragraph">
                   {isFileUpload ? (
-                    <div className="flex justify-between items-center space-y-4">
-                      <FileUploadForm
-                        label="Upload Paragraph Questions"
-                        parseExcel={true} 
-                        onRowsChange={setFileUpload}
-                        onFileChange={setUploadedFile}
-                        accept=".xlsx,.xls"
-                      />
+                    <>
+                      <div className="flex justify-between items-center space-y-4">
+                        <FileUploadForm
+                          label="Upload Paragraph Questions"
+                          parseExcel={true} 
+                          onRowsChange={setFileUpload}
+                          onFileChange={setUploadedFile}
+                          accept=".xlsx,.xls"
+                        />
 
-                      <Button
-                        className="cursor-pointer"
-                        variant="outline"
-                        onClick={() =>
-                          downloadFile(
-                            "/sample_file/paragraph_questions_upload_template.xlsx",
-                            "paragraph_questions_upload_template.xlsx"
-                          )
-                        }
-                      >
-                        <Download /> Sample File
-                      </Button>
-                    </div>
+                        <Button
+                          className="cursor-pointer"
+                          variant="outline"
+                          onClick={() =>
+                            downloadFile(
+                              "/sample_file/paragraph_questions_upload_template.xlsx",
+                              "paragraph_questions_upload_template.xlsx"
+                            )
+                          }
+                        >
+                          <Download /> Sample File
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Large spreadsheets are split into batches automatically, so you can import as many rows as needed.
+                      </p>
+                    </>
                   ) : (
                     <ParagraphForm onChange={setParagraphData} />
                   )}
