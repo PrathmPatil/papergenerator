@@ -26,7 +26,15 @@ const getMediaSrc = (url?: string) => {
   if (!url) return "";
   if (/^data:/i.test(url)) return url;
   if (/^https?:\/\//i.test(url)) return url;
-  if (!API_BASE_URL) return url;
+  if (!API_BASE_URL) {
+    if (typeof window !== "undefined") {
+      // make relative uploads absolute so iframe/html2canvas can load them
+      if (url.startsWith("/")) return `${window.location.origin}${url}`;
+      return url;
+    }
+    return url;
+  }
+
   return `${API_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
 };
 
@@ -105,7 +113,11 @@ export function PaperPreview({ config }: { config: any }) {
 
   const renderSubQuestion = (subQuestion: any, index: number) => {
     const options = Array.isArray(subQuestion?.options) ? subQuestion.options : [];
-    const media = Array.isArray(subQuestion?.media) ? subQuestion.media : [];
+    const media = Array.isArray(subQuestion?.media)
+      ? subQuestion.media
+      : subQuestion?.mediaUrl
+      ? [{ url: subQuestion.mediaUrl, alt: subQuestion.mediaAlt || "" }]
+      : [];
     const hasImageOptions = options.some((opt: any) => Boolean(opt?.mediaUrl));
     const subQuestionType = String(subQuestion?.type || "").toLowerCase();
 
@@ -694,11 +706,13 @@ export const exportAsPDF = async (config: any) => {
     const html2canvas = (await import("html2canvas")).default;
     const { jsPDF } = await import("jspdf");
 
+    const contentWidthMm = pageWidthMm - PAGE_MARGIN_MM * 2;
+
     const cleanHTML = `
       <div style="
         box-sizing: border-box;
-        width: ${pageWidthMm}mm;
-        min-height: ${pageHeightMm}mm;
+        width: ${contentWidthMm}mm;
+        min-height: ${pageHeightMm - PAGE_MARGIN_MM * 2}mm;
         font-family: 'Times New Roman', serif;
         background: #ffffff;
         color: #000000;
@@ -719,7 +733,7 @@ export const exportAsPDF = async (config: any) => {
 
     doc.write(`
       <html>
-        <body style="margin:0;">
+        <body style="margin:0; width:${contentWidthMm}mm; background:#ffffff;">
           ${cleanHTML}
 
           <style>
@@ -744,6 +758,15 @@ export const exportAsPDF = async (config: any) => {
             .flex {
               display: flex;
               justify-content: space-between;
+            }
+
+            #paper-preview {
+              width: ${contentWidthMm}mm !important;
+              max-width: ${contentWidthMm}mm !important;
+              min-height: auto !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              box-sizing: border-box !important;
             }
 
             .options {
@@ -841,37 +864,57 @@ export const exportAsPDF = async (config: any) => {
 
     const pdf = new jsPDF(orientation === "landscape" ? "l" : "p", "mm", "a4");
 
-    const pageWidth = pageWidthMm;
-    const pageHeight = pageHeightMm;
     const marginX = PAGE_MARGIN_MM;
     const marginTop = PAGE_MARGIN_MM;
     const footerBandHeight = 14;
-    const printableHeight = pageHeight - marginTop - footerBandHeight;
+    const printableHeight = pageHeightMm - marginTop - footerBandHeight;
+    const imgWidth = contentWidthMm;
+    const pxPerMm = canvas.width / imgWidth;
+    const sliceHeightPx = Math.max(1, Math.floor(printableHeight * pxPerMm));
 
-    const imgWidth = pageWidth - marginX * 2;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-    let heightLeft = imgHeight;
-    let position = marginTop;
+    let sourceY = 0;
     let pageNumber = 1;
 
-    const imgData = canvas.toDataURL("image/png");
+    while (sourceY < canvas.height - 1) {
+      const currentSliceHeightPx = Math.min(sliceHeightPx, canvas.height - sourceY);
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = currentSliceHeightPx;
 
-    while (heightLeft > 0) {
-      pdf.addImage(imgData, "PNG", marginX, position, imgWidth, imgHeight);
+      const pageContext = pageCanvas.getContext("2d");
+      if (!pageContext) {
+        throw new Error("Could not prepare PDF page canvas");
+      }
+
+      pageContext.fillStyle = "#ffffff";
+      pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+      pageContext.drawImage(
+        canvas,
+        0,
+        sourceY,
+        canvas.width,
+        currentSliceHeightPx,
+        0,
+        0,
+        canvas.width,
+        currentSliceHeightPx
+      );
+
+      const pageImgData = pageCanvas.toDataURL("image/png");
+      const pageImgHeight = currentSliceHeightPx / pxPerMm;
+      pdf.addImage(pageImgData, "PNG", marginX, marginTop, imgWidth, pageImgHeight);
 
       pdf.setFillColor(255, 255, 255);
-      pdf.rect(0, pageHeight - footerBandHeight, pageWidth, footerBandHeight, "F");
+      pdf.rect(0, pageHeightMm - footerBandHeight, pageWidthMm, footerBandHeight, "F");
 
       pdf.setFontSize(10);
-      pdf.text(`Page ${pageNumber} / INNOSAT / CODE ${config.code}`, pageWidth / 2, pageHeight - 6, {
+      pdf.text(`Page ${pageNumber} / INNOSAT / CODE ${config.code}`, pageWidthMm / 2, pageHeightMm - 6, {
         align: "center",
       });
 
-      heightLeft -= printableHeight;
+      sourceY += currentSliceHeightPx;
 
-      if (heightLeft > 0) {
-        position -= printableHeight;
+      if (sourceY < canvas.height - 1) {
         pdf.addPage();
         pageNumber++;
       }

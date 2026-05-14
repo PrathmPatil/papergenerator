@@ -11,6 +11,8 @@ const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/,
 
 const getMediaSrc = (url) => {
   if (!url) return "";
+  // Handle data URLs (base64 encoded images from bulk uploads)
+  if (/^data:/i.test(url)) return url;
   if (/^https?:\/\//i.test(url)) return url;
   if (!API_BASE_URL) return url;
   return `${API_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
@@ -823,34 +825,64 @@ export const exportAsPDF = async (config) => {
     const pageWidth = pageWidthMm;
     const pageHeight = pageHeightMm;
     const marginX = 10;
-    const marginTop = 10;
-    const footerBandHeight = 14;
-    const printableHeight = pageHeight - marginTop - footerBandHeight;
+    const marginTop = 12;
+    const marginBottom = 16;
+    const printableWidth = pageWidth - marginX * 2;
+    const printableHeight = pageHeight - marginTop - marginBottom;
 
-    const imgWidth = pageWidth - marginX * 2;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const sourcePageHeightPx = Math.max(
+      1,
+      Math.floor((printableHeight / printableWidth) * canvas.width)
+    );
 
-    let heightLeft = imgHeight;
-    let position = marginTop;
+    let sourceY = 0;
     let pageNumber = 1;
 
-    const imgData = canvas.toDataURL("image/png");
+    while (sourceY < canvas.height) {
+      const remainingPx = canvas.height - sourceY;
+      const sliceHeightPx = Math.min(sourcePageHeightPx, remainingPx);
 
-    while (heightLeft > 0) {
-      pdf.addImage(imgData, "PNG", marginX, position, imgWidth, imgHeight);
+      const pageSliceCanvas = document.createElement("canvas");
+      pageSliceCanvas.width = canvas.width;
+      pageSliceCanvas.height = sliceHeightPx;
+
+      const pageSliceCtx = pageSliceCanvas.getContext("2d");
+      if (!pageSliceCtx) {
+        throw new Error("Unable to create PDF page canvas context");
+      }
+
+      pageSliceCtx.fillStyle = "#ffffff";
+      pageSliceCtx.fillRect(0, 0, pageSliceCanvas.width, pageSliceCanvas.height);
+      pageSliceCtx.drawImage(
+        canvas,
+        0,
+        sourceY,
+        canvas.width,
+        sliceHeightPx,
+        0,
+        0,
+        canvas.width,
+        sliceHeightPx
+      );
+
+      const sliceImageData = pageSliceCanvas.toDataURL("image/png");
+      const renderedHeightMm = (sliceHeightPx * printableWidth) / canvas.width;
+
+      pdf.addImage(sliceImageData, "PNG", marginX, marginTop, printableWidth, renderedHeightMm);
 
       pdf.setFillColor(255, 255, 255);
-      pdf.rect(0, pageHeight - footerBandHeight, pageWidth, footerBandHeight, "F");
+      pdf.rect(0, pageHeight - marginBottom, pageWidth, marginBottom, "F");
 
       pdf.setFontSize(10);
-      pdf.text(`Page ${pageNumber} / INNOSAT / CODE ${config.code}`, pageWidth / 2, pageHeight - 6, {
-        align: "center",
-      });
+      pdf.text(
+        `Page ${pageNumber} / INNOSAT / CODE ${config.code}`,
+        pageWidth / 2,
+        pageHeight - 6,
+        { align: "center" }
+      );
 
-      heightLeft -= printableHeight;
-
-      if (heightLeft > 0) {
-        position -= printableHeight;
+      sourceY += sliceHeightPx;
+      if (sourceY < canvas.height) {
         pdf.addPage();
         pageNumber++;
       }

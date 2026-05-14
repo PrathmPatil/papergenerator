@@ -31,6 +31,7 @@ import type { ClassLevel } from "@/lib/types";
 import { MCQForm } from "@/components/question-forms/mcq-form";
 import { ParagraphForm } from "@/components/question-forms/paragraph-form";
 import { ImageMCQForm } from "@/components/question-forms/image-mcq-form";
+import { ImageSubQuestionsForm } from "@/components/question-forms/image-subquestions-form";
 import {
   bulkImageUploadApi,
   createBulkQuestionsApi,
@@ -38,6 +39,7 @@ import {
   createTopicApi,
   fetchTopicsApi,
 } from "@/utils/apis";
+  import { bulkImageUploadWithTypeApi } from "@/utils/apis";
 import { Switch } from "@/components/ui/switch";
 import { FileUploadForm } from "@/components/question-forms/file-upload-form";
 import {
@@ -53,7 +55,7 @@ import BulkImageMCQUpload from "@/components/question-forms/bulk-image-MCQ-uploa
 /* ------------------------------------------------------------------ */
 
 type Difficulty = "easy" | "medium" | "hard";
-type QuestionType = "mcq_text" | "mcq_image" | "paragraph";
+type QuestionType = "mcq_text" | "mcq_image" | "paragraph" | "image_subquestions";
 
 const BULK_UPLOAD_BATCH_SIZE = 25;
 
@@ -113,6 +115,15 @@ function validatePayload(payload: CreateQuestionPayload) {
 export default function CreateQuestionPage() {
   const router = useRouter();
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      router.replace("/");
+    }
+  }, [router]);
+
   /* Metadata */
   const [selectedClass, setSelectedClass] = useState<ClassLevel | "">("");
   const [selectedSubject, setSelectedSubject] = useState("");
@@ -135,6 +146,7 @@ export default function CreateQuestionPage() {
   /* Question content (received from child forms) */
   const [mcqData, setMcqData] = useState<any>(null);
   const [paragraphData, setParagraphData] = useState<any>(null);
+  const [imageSubQuestionsData, setImageSubQuestionsData] = useState<any>(null);
 
   const filteredSubjects = useMemo(
     () =>
@@ -226,6 +238,7 @@ export default function CreateQuestionPage() {
   useEffect(() => {
     setMcqData(null);
     setParagraphData(null);
+    setImageSubQuestionsData(null);
     setFileUpload([]);
     setUploadedFile(null);
     setZipFile(null);
@@ -263,6 +276,27 @@ export default function CreateQuestionPage() {
         return;
       }
 
+      if (questionType === "mcq_image" && !mcqData) {
+        alert("Please fill image MCQ details");
+        setIsLoading(false);
+        return;
+      }
+
+      if (
+        questionType === "image_subquestions" &&
+        (!imageSubQuestionsData?.subQuestions || imageSubQuestionsData.subQuestions.length === 0)
+      ) {
+        alert("Please add at least one sub-question");
+        setIsLoading(false);
+        return;
+      }
+
+      if (questionType === "image_subquestions" && !imageSubQuestionsData?.questionImage) {
+        alert("Please upload a question image");
+        setIsLoading(false);
+        return;
+      }
+
       let payload: CreateQuestionPayload;
 
       switch (questionType) {
@@ -270,11 +304,20 @@ export default function CreateQuestionPage() {
         case "mcq_image":
           payload = {
             ...basePayload,
-            type: "mcq_text",
+            type: questionType,
             text: mcqData?.text,
             options: mcqData?.options,
             correctAnswer: mcqData?.options.find((opt: any) => opt.isCorrect)
               ?.id,
+          };
+          break;
+
+        case "image_subquestions":
+          payload = {
+            ...basePayload,
+            type: "image_subquestions",
+            text: imageSubQuestionsData?.text,
+            subQuestions: imageSubQuestionsData?.subQuestions,
           };
           break;
 
@@ -295,13 +338,16 @@ export default function CreateQuestionPage() {
       // validatePayload(payload);
       const formData = new FormData();
       const isFormdataNeeded =
-        questionType === "mcq_text" || questionType === "paragraph";
+        questionType === "mcq_text" ||
+        questionType === "mcq_image" ||
+        questionType === "paragraph" ||
+        questionType === "image_subquestions";
       // for the mcq with image type, we need to handle file uploads
       if (isFormdataNeeded) {
         formData.append("payload", JSON.stringify(payload));
       }
 
-      if (mcqData) {
+      if (questionType === "mcq_image" && mcqData) {
         // Question image
         if (mcqData.questionImage !== null) {
           formData.append("media", mcqData.questionImage);
@@ -315,20 +361,23 @@ export default function CreateQuestionPage() {
         });
       }
 
+      if (questionType === "image_subquestions" && imageSubQuestionsData?.questionImage) {
+        formData.append("media", imageSubQuestionsData.questionImage);
+      }
+
       // DEBUG
       for (let p of formData.entries()) {
         console.log(p[0], p[1]);
       }
       
       // return
-      const res: any = await createQuestionApi(
-        isFormdataNeeded ? formData : payload,
-        !!isFormdataNeeded
-      );
+      const res: any = await createQuestionApi(isFormdataNeeded ? formData : payload, !!isFormdataNeeded);
       console.log("Create question response:", res);
 
       const { success } = res;
-      if (success !== true) throw new Error("Failed to create question");
+      if (success !== true) {
+        throw new Error(res?.message || res?.error || "Failed to create question");
+      }
       router.refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Something went wrong");
@@ -348,7 +397,7 @@ export default function CreateQuestionPage() {
       } else if (questionType == "paragraph") {
         questions = convertExcelRowsToParagraphQuestions(fileUpload);
       }
-      if (questionType === "mcq_image") {
+      if (questionType === "mcq_image" || questionType === "image_subquestions") {
          if (!uploadedFile) {
           alert("Please upload excel file");
           setIsLoading(false);
@@ -369,6 +418,11 @@ export default function CreateQuestionPage() {
 
       if (questionType === "mcq_image") {
         res = await bulkImageUploadApi(formData);
+        if (!res.success) {
+          throw new Error(res.message || "Bulk upload failed");
+        }
+      } else if (questionType === "image_subquestions") {
+        res = await bulkImageUploadWithTypeApi(formData, "image_subquestions");
         if (!res.success) {
           throw new Error(res.message || "Bulk upload failed");
         }
@@ -402,8 +456,16 @@ export default function CreateQuestionPage() {
         };
       }
 
+      const subQuestionCount = Number(res.subQuestionCount) || 0;
+      const uploadSummary =
+        questionType === "paragraph" && subQuestionCount > res.createdCount
+          ? `Uploaded ${res.createdCount} paragraph question(s) with ${subQuestionCount} sub-question(s)\n`
+          : questionType === "image_subquestions"
+          ? `Uploaded ${res.createdCount} image question(s) with ${subQuestionCount} sub-question(s)\n`
+          : `Uploaded ${res.createdCount} questions\n`;
+
       alert(
-        `Uploaded ${res.createdCount} questions\n` +
+        uploadSummary +
           (res.duplicateCount ? `Duplicates skipped: ${res.duplicateCount}\n` : "") +
           (res.failedCount ? `Failed: ${res.failedCount}` : "")
       );
@@ -591,7 +653,7 @@ export default function CreateQuestionPage() {
                 value={questionType}
                 onValueChange={(v) => setQuestionType(v as QuestionType)}
               >
-                <TabsList className="grid grid-cols-3 mb-6">
+                <TabsList className="grid grid-cols-4 mb-6">
                   <TabsTrigger value="mcq_text" className="cursor-pointer">
                     Text MCQ
                   </TabsTrigger>
@@ -600,6 +662,9 @@ export default function CreateQuestionPage() {
                   </TabsTrigger>
                   <TabsTrigger value="paragraph" className="cursor-pointer">
                     Paragraph
+                  </TabsTrigger>
+                  <TabsTrigger value="image_subquestions" className="cursor-pointer">
+                    Image + Sub-Questions
                   </TabsTrigger>
                 </TabsList>
 
@@ -640,6 +705,7 @@ export default function CreateQuestionPage() {
                 <TabsContent value="mcq_image">
                   {isFileUpload ? (
                       <BulkImageMCQUpload
+                        questionType="mcq_image"
                         onFileUpload={setUploadedFile}
                         onZipUpload={setZipFile}
                       />
@@ -648,9 +714,33 @@ export default function CreateQuestionPage() {
                   )}
                 </TabsContent>
 
+                <TabsContent value="image_subquestions">
+                  {isFileUpload ? (
+                    <BulkImageMCQUpload
+                      questionType="image_subquestions"
+                      onFileUpload={setUploadedFile}
+                      onZipUpload={setZipFile}
+                    />
+                  ) : (
+                    <ImageSubQuestionsForm onChange={setImageSubQuestionsData} />
+                  )}
+                </TabsContent>
+
                 <TabsContent value="paragraph">
                   {isFileUpload ? (
                     <>
+                      <div className="mb-4 rounded-md border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                        <p className="font-medium text-foreground">Excel format for paragraph with multiple sub-questions</p>
+                        <p>
+                          Add one row per sub-question and keep same value in <b>paragraph_group_id</b>
+                          (or <b>groupId</b>) for rows of the same paragraph block.
+                        </p>
+                        <p>
+                          Required paragraph-level values per group: classId, subjectId, question_type,
+                          instruction_text, paragraph. Sub-question fields stay row-wise.
+                        </p>
+                      </div>
+
                       <div className="flex justify-between items-center space-y-4">
                         <FileUploadForm
                           label="Upload Paragraph Questions"
@@ -689,9 +779,13 @@ export default function CreateQuestionPage() {
                 Cancel
               </Button>
               <Button
-                onClick={() =>
-                  isFileUpload ? handleBulkUpload(questionType) : handleSave()
-                }
+                onClick={() => {
+                  const isBulkUploadFlow = isFileUpload;
+
+                  return isBulkUploadFlow
+                    ? handleBulkUpload(questionType)
+                    : handleSave();
+                }}
                 disabled={isLoading}
                 className="cursor-pointer"
               >

@@ -125,6 +125,20 @@ export const bulkImageUploadApi = async (payload: FormData) => {
   return response;
 };
 
+// http://localhost:5000/api/questions/bulk-image-upload?questionType=image_subquestions
+export const bulkImageUploadWithTypeApi = async (
+  payload: FormData,
+  questionType: "mcq_image" | "image_subquestions" = "mcq_image"
+) => {
+  const response = await apiClient({
+    url: `/api/questions/bulk-image-upload?questionType=${questionType}`,
+    method: "POST",
+    data: payload,
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response;
+};
+
 // http://localhost:5000/api/questions/
 //       {
 //   "classId": "class_8",
@@ -201,6 +215,15 @@ export const bulkUpdateQuestionsApi = async (payload: {
 }) => {
   const response = await apiClient({
     url: "/api/questions/bulk-update",
+    method: "PUT",
+    data: payload,
+  });
+  return response;
+};
+
+export const bulkDeleteQuestionsApi = async (payload: { ids: string[] }) => {
+  const response = await apiClient({
+    url: "/api/questions/bulk-delete",
     method: "PUT",
     data: payload,
   });

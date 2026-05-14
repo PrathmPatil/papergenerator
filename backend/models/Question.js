@@ -23,7 +23,7 @@ const SubQuestionSchema = new mongoose.Schema({
 const QuestionSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ["mcq_text", "mcq_image", "paragraph", "short_answer", "true_false", "matching"],
+    enum: ["mcq_text", "mcq_image", "paragraph", "image_subquestions", "short_answer", "true_false", "matching"],
     required: true
   },
 

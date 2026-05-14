@@ -3,7 +3,10 @@ interface ExcelMCQImageRow {
   classId: string;
   subjectId: string;
   topicId?: string;
+  topicName?: string;
   type: "mcq_image";
+  question_group_id?: string;
+  groupId?: string;
   difficulty?: string;
   marks?: number;
   negativeMarks?: number;
@@ -27,6 +30,7 @@ type ExcelMCQRow = {
   classId: string;
   subjectId: string;
   topicId?: string;
+  topicName?: string;
   type: string;
   difficulty?: string;
   marks?: number | string;
@@ -43,14 +47,19 @@ type ExcelParagraphRow = {
   classId: string;
   subjectId: string;
   topicId?: string;
+  topicName?: string;
   difficulty?: string;
   question_type: "paragraph";
+  paragraph_group_id?: string;
+  groupId?: string;
+  paragraph_id?: string;
+  passage_id?: string;
 
   instruction_text: string;
   paragraph: string;
 
   sub_question_id: string;
-  sub_question_type: "mcq_text" | "true_false" | "short_answer";
+  sub_question_type: "mcq" | "mcq_text" | "mcq_image" | "true_false" | "short_answer";
   sub_question_text?: string;
 
   option_A?: string;
@@ -136,7 +145,7 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
     return {
       classId,
       subjectId,
-      topicId: topicId || "",
+      topicId: topicId || row.topicName || "",
       type,
       difficulty: difficulty || "easy",
       marks: Number(marks) || 1,
@@ -205,7 +214,7 @@ export function convertExcelRowsToImageMCQQuestions(
     return {
       classId,
       subjectId,
-      topicId: topicId || "",
+      topicId: topicId || row.topicName || "",
       type: "mcq_image",
       difficulty: difficulty || "easy",
       marks: Number(marks) || 1,
@@ -229,34 +238,35 @@ export function convertExcelRowsToParagraphQuestions(
   if (!Array.isArray(rows)) {
     throw new Error("Input must be an array");
   }
- console.log(rows)
+
   if (rows.length === 0) return [];
 
-  /* ================= PARAGRAPH LEVEL ================= */
+  const normalize = (value: unknown) => String(value || "").trim();
 
-  const firstRow = rows[0];
- console.log(firstRow)
-  const {
-    classId,
-    subjectId,
-    topicId,
-    difficulty,
-    question_type,
-    instruction_text,
-    paragraph,
-  } = firstRow;
+  const groupRows = new Map<string, ExcelParagraphRow[]>();
+  rows.forEach((row, index) => {
+    const groupId =
+      normalize(row.paragraph_group_id) ||
+      normalize(row.groupId) ||
+      normalize(row.paragraph_id) ||
+      normalize(row.passage_id);
 
-  if (!classId || !subjectId || question_type !== "paragraph") {
-    throw new Error("Invalid paragraph question data");
-  }
+    const fallbackKey = [
+      normalize(row.classId),
+      normalize(row.subjectId),
+      normalize(row.topicId),
+      normalize(row.instruction_text),
+      normalize(row.paragraph),
+    ].join("|");
 
-  if (!instruction_text || !paragraph) {
-    throw new Error("Missing instruction text or paragraph");
-  }
+    const key = groupId || fallbackKey || `row_${index + 1}`;
+    if (!groupRows.has(key)) {
+      groupRows.set(key, []);
+    }
+    groupRows.get(key)!.push(row);
+  });
 
-  /* ================= SUB QUESTIONS ================= */
-
-  const subQuestions = rows.map((row, index) => {
+  const buildSubQuestion = (row: ExcelParagraphRow, index: number) => {
     const {
       sub_question_id,
       sub_question_type,
@@ -269,12 +279,16 @@ export function convertExcelRowsToParagraphQuestions(
       marks,
       negative_marks,
     } = row;
-    if (!sub_question_id || !sub_question_type) {
+    const normalizedSubQuestionType = String(sub_question_type || "")
+      .trim()
+      .toLowerCase();
+
+    if (!sub_question_id || !normalizedSubQuestionType) {
       throw new Error(`Missing sub-question fields at row ${index + 1}`);
     }
 
     /* ---------- MCQ ---------- */
-    if (sub_question_type === "mcq_text") {
+    if (normalizedSubQuestionType === "mcq" || normalizedSubQuestionType === "mcq_text" || normalizedSubQuestionType === "mcq_image") {
       if (!["A", "B", "C", "D"].includes(correct_answer as string)) {
         throw new Error(`Invalid correct answer at row ${index + 1}`);
       }
@@ -308,7 +322,7 @@ export function convertExcelRowsToParagraphQuestions(
     }
 
     /* ---------- TRUE / FALSE ---------- */
-    if (sub_question_type === "true_false") {
+    if (normalizedSubQuestionType === "true_false") {
       if (
         correct_answer !== true &&
         correct_answer !== false &&
@@ -329,7 +343,7 @@ export function convertExcelRowsToParagraphQuestions(
     }
 
     /* ---------- SHORT ANSWER ---------- */
-    if (sub_question_type === "short_answer") {
+    if (normalizedSubQuestionType === "short_answer") {
       return {
         id: sub_question_id,
         type: "short_answer",
@@ -341,15 +355,34 @@ export function convertExcelRowsToParagraphQuestions(
     }
 
     throw new Error(`Unsupported sub-question type at row ${index + 1}`);
-  });
+  };
 
-  /* ================= FINAL PAYLOAD ================= */
-
-  return [
-    {
+  return Array.from(groupRows.values()).map((group, groupIndex) => {
+    const firstRow = group[0];
+    const {
       classId,
       subjectId,
-      topicId: topicId || "",
+      topicId,
+      difficulty,
+      question_type,
+      instruction_text,
+      paragraph,
+    } = firstRow;
+
+    if (!classId || !subjectId || (question_type && question_type !== "paragraph")) {
+      throw new Error(`Invalid paragraph question data in group ${groupIndex + 1}`);
+    }
+
+    if (!instruction_text || !paragraph) {
+      throw new Error(`Missing instruction text or paragraph in group ${groupIndex + 1}`);
+    }
+
+    const subQuestions = group.map((row, index) => buildSubQuestion(row, index));
+
+    return {
+      classId,
+      subjectId,
+      topicId: topicId || row.topicName || "",
       difficulty: difficulty || "easy",
       type: "paragraph",
       text: instruction_text,
@@ -357,8 +390,8 @@ export function convertExcelRowsToParagraphQuestions(
       subQuestions,
       marks: subQuestions.reduce((sum, q) => sum + q.marks, 0),
       negativeMarks: subQuestions.reduce((sum, q) => sum + q.negativeMarks, 0),
-    },
-  ];
+    };
+  });
 }
 
 export const downloadFile = (

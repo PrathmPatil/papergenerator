@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 import { Card } from "./ui/card";
 import { Checkbox } from "./ui/checkbox";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import Pagination from "./pagination";
 
 import { fetchAllQuestionsApi } from "@/utils/apis";
 import { getClassNameById, getSubjectNameById } from "@/lib/data";
@@ -53,8 +54,6 @@ interface AvailableTopic {
   name: string;
   subjectId: string;
 }
-
-type PaginationItem = number | "ellipsis-left" | "ellipsis-right";
 
 function getSectionId(sec: any) {
   return String(sec?.id ?? sec?._id ?? "");
@@ -126,6 +125,7 @@ export function PaperGenerationTemplate({
 
   const [selectedQuestion, setSelectedQuestion] = useState<IQuestion | null>(null);
   const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [expandedQuestions, setExpandedQuestions] = useState<Record<string, boolean>>({});
 
   const parentSyncRef = useRef<any>(paperGenerateFunction);
   useEffect(() => {
@@ -380,46 +380,6 @@ export function PaperGenerationTemplate({
     fetchQuestions(subjectId, page, topicId);
   };
 
-  const getPaginationItems = (
-    currentPage: number,
-    totalPages: number,
-    maxNumbers = 5
-  ): PaginationItem[] => {
-    if (totalPages <= maxNumbers + 2) {
-      return Array.from({ length: totalPages }, (_, i) => i + 1);
-    }
-
-    const items: PaginationItem[] = [1];
-    const sideCount = Math.floor(maxNumbers / 2);
-
-    let start = Math.max(2, currentPage - sideCount);
-    let end = Math.min(totalPages - 1, currentPage + sideCount);
-
-    const actualCount = end - start + 1;
-    if (actualCount < maxNumbers) {
-      if (start === 2) {
-        end = Math.min(totalPages - 1, end + (maxNumbers - actualCount));
-      } else if (end === totalPages - 1) {
-        start = Math.max(2, start - (maxNumbers - actualCount));
-      }
-    }
-
-    if (start > 2) {
-      items.push("ellipsis-left");
-    }
-
-    for (let i = start; i <= end; i += 1) {
-      items.push(i);
-    }
-
-    if (end < totalPages - 1) {
-      items.push("ellipsis-right");
-    }
-
-    items.push(totalPages);
-    return items;
-  };
-
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Question Paper Generator</h1>
@@ -582,7 +542,7 @@ export function PaperGenerationTemplate({
                   const disabled = !checked && !constraint.allowed;
 
                   return (
-                    <div key={q._id} className="flex gap-3 border p-3 rounded">
+                    <div key={q._id} className="flex flex-col gap-3 border p-3 rounded">
                       <Checkbox
                         checked={checked}
                         disabled={disabled}
@@ -610,7 +570,22 @@ export function PaperGenerationTemplate({
                       />
 
                       <div className="flex-1">
-                        <p className="font-medium line-clamp-2">{q.text}</p>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-medium line-clamp-2">{q.text || q.paragraph}</p>
+                          <div className="flex items-center gap-2">
+                            {Array.isArray(q.subQuestions) && q.subQuestions.length > 0 && (
+                              <button
+                                type="button"
+                                className="text-sm text-muted-foreground"
+                                onClick={() =>
+                                  setExpandedQuestions((prev) => ({ ...prev, [String(q._id)]: !prev[String(q._id)] }))
+                                }
+                              >
+                                {expandedQuestions[String(q._id)] ? "Hide sub-questions" : `Show ${q.subQuestions.length} sub-questions`}
+                              </button>
+                            )}
+                          </div>
+                        </div>
                         <div className="flex flex-wrap gap-2 mt-1">
                           <Badge variant="outline">{q.type}</Badge>
                           <Badge>{q.difficulty}</Badge>
@@ -624,16 +599,51 @@ export function PaperGenerationTemplate({
                         )}
                       </div>
 
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          setSelectedQuestion(q);
-                          setViewModalOpen(true);
-                        }}
-                      >
-                        View
-                      </Button>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            setSelectedQuestion(q);
+                            setViewModalOpen(true);
+                          }}
+                        >
+                          View
+                        </Button>
+                      </div>
+
+                      {/* Inline expanded sub-questions */}
+                      {expandedQuestions[String(q._id)] && Array.isArray(q.subQuestions) && q.subQuestions.length > 0 && (
+                        <div className="mt-3 space-y-2 border-t pt-3">
+                          {q.subQuestions.map((sq: any, idx: number) => (
+                            <div key={sq._id || sq.id || idx} className="p-2 rounded bg-muted/10">
+                              <div className="flex justify-between items-start">
+                                <p className="font-medium">{idx + 1}. {sq.text || "Untitled"}</p>
+                                <span className="text-xs text-muted-foreground">{String(sq.type || "").replace("_", " ")} | Marks: {sq.marks}</span>
+                              </div>
+
+                              {(Array.isArray(sq.media) && sq.media.length > 0) || sq.mediaUrl ? (
+                                <div className="flex flex-wrap gap-2 mt-2">
+                                  {(Array.isArray(sq.media) ? sq.media : sq.mediaUrl ? [{ url: sq.mediaUrl, alt: sq.mediaAlt || "" }] : []).map((m: any, mi: number) => (
+                                    <img key={mi} src={m?.url} alt={m?.alt} className="max-h-28 rounded border" />
+                                  ))}
+                                </div>
+                              ) : null}
+
+                              {(Array.isArray(sq.options) && sq.options.length > 0) && (
+                                <ul className="mt-2 space-y-1">
+                                  {sq.options.map((opt: any, oi: number) => (
+                                    <li key={oi} className="flex items-center gap-2">
+                                      <input type="radio" disabled checked={opt.isCorrect} />
+                                      {opt.mediaUrl ? <img src={opt.mediaUrl} className="max-h-16" /> : <span>{opt.text}</span>}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -645,94 +655,12 @@ export function PaperGenerationTemplate({
                 )}
 
                 {!state.loading && totalPages > 1 && (
-                  <div className="rounded-xl border bg-muted/20 p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <Badge variant="outline" className="text-[10px]">
-                        10 per page
-                      </Badge>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-center gap-1.5">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 px-2"
-                        onClick={() => goToTopicPage(subjectId, 1)}
-                        disabled={currentPage <= 1}
-                        aria-label="Go to first page"
-                      >
-                        <ChevronsLeft className="h-3.5 w-3.5" />
-                      </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 px-3"
-                      onClick={() => goToTopicPage(subjectId, Math.max(1, currentPage - 1))}
-                      disabled={currentPage <= 1}
-                    >
-                      Prev
-                    </Button>
-
-                      {getPaginationItems(currentPage, totalPages).map((item) => {
-                        if (typeof item !== "number") {
-                          return (
-                            <span
-                              key={`${subjectId}-${activeTopicId}-${item}`}
-                              className="px-1 text-xs text-muted-foreground"
-                            >
-                              ...
-                            </span>
-                          );
-                        }
-
-                        const isActive = item === currentPage;
-                        return (
-                          <Button
-                            key={`${subjectId}-${activeTopicId}-page-${item}`}
-                            type="button"
-                            size="sm"
-                            variant={isActive ? "default" : "outline"}
-                            className={`h-8 min-w-8 px-2 font-semibold ${
-                              isActive ? "shadow-sm" : "hover:bg-muted"
-                            }`}
-                            onClick={() => goToTopicPage(subjectId, item)}
-                            aria-current={isActive ? "page" : undefined}
-                          >
-                            {item}
-                          </Button>
-                        );
-                      })}
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 px-3"
-                      onClick={() => goToTopicPage(subjectId, Math.min(totalPages, currentPage + 1))}
-                      disabled={currentPage >= totalPages}
-                    >
-                      Next
-                    </Button>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 px-2"
-                        onClick={() => goToTopicPage(subjectId, totalPages)}
-                        disabled={currentPage >= totalPages}
-                        aria-label="Go to last page"
-                      >
-                        <ChevronsRight className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={(page) => goToTopicPage(subjectId, page)}
+                    pageSizeLabel="10 per page"
+                  />
                 )}
               </div>
             )}
@@ -757,7 +685,62 @@ export function PaperGenerationTemplate({
                 <p>Topic: {topicNameById.get(selectedQuestion.topicId) || "Topic"}</p>
               </div>
 
-              <p className="font-medium">{selectedQuestion.text}</p>
+              <div className="space-y-3">
+                {selectedQuestion.text && (
+                  <p className="font-medium">
+                    <b>Instruction:</b> {selectedQuestion.text}
+                  </p>
+                )}
+
+                {selectedQuestion.paragraph && (
+                  <div className="rounded bg-muted/10 p-3">
+                    <strong>Paragraph:</strong>
+                    <div className="mt-2 whitespace-pre-wrap">{selectedQuestion.paragraph}</div>
+                  </div>
+                )}
+
+                {Array.isArray(selectedQuestion.media) && selectedQuestion.media.length > 0 && (
+                  <div className="flex flex-wrap gap-3">
+                    {selectedQuestion.media.map((img: any, i: number) => (
+                      <img
+                        key={i}
+                        src={img?.url}
+                        alt={img?.alt}
+                        className="max-h-40 rounded border"
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {Array.isArray(selectedQuestion.subQuestions) && selectedQuestion.subQuestions.length > 0 && (
+                  <div className="mt-4 space-y-3">
+                    <h3 className="text-lg font-semibold">Sub-Questions</h3>
+                    {selectedQuestion.subQuestions.map((sq: any, idx: number) => (
+                      <div key={sq._id || sq.id || idx} className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                        <div className="flex justify-between items-start">
+                          <p className="font-medium">{idx + 1}. {sq.text || 'Untitled'}</p>
+                          <span className="text-xs text-muted-foreground capitalize">{String(sq.type || '').replace('_', ' ')} | Marks: {sq.marks}</span>
+                        </div>
+
+                        {Array.isArray(sq.options) && sq.options.length > 0 && (
+                          <ul className="space-y-2">
+                            {sq.options.map((opt: any, optIndex: number) => (
+                              <li key={opt._id || opt.id || optIndex} className="flex items-center gap-3">
+                                <input type="radio" disabled checked={opt.isCorrect} />
+                                {opt.mediaUrl ? (
+                                  <img src={opt.mediaUrl} alt="Option" className="max-h-20 rounded border" />
+                                ) : (
+                                  <span>{opt.text}</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </DialogContent>

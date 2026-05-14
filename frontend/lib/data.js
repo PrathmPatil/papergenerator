@@ -14,8 +14,44 @@ exports.SUBJECTS = [
     { id: "chemistry", name: "Chemistry", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
     { id: "biology", name: "Biology", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
 ];
+var SUBJECT_ALIASES = {
+    maths: "maths",
+    math: "maths",
+    math10: "maths",
+    science: "science",
+    science10: "science",
+    sci10: "science",
+    english: "english",
+    english10: "english",
+    eng10: "english",
+    reasoning: "reasoning",
+    reasoning10: "reasoning",
+    gk: "gk",
+    generalknowledge: "gk",
+    geography: "geography",
+    history: "history",
+    civics: "civics",
+    physics: "physics",
+    chemistry: "chemistry",
+    biology: "biology",
+};
+var normalizeSubjectKey = function (value) {
+    return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+};
+var normalizeSubjectId = function (id) {
+    var raw = String(id || "").trim();
+    if (!raw)
+        return "";
+    var exact = exports.SUBJECTS.find(function (subject) { return subject.id === raw; });
+    if (exact)
+        return exact.id;
+    var normalized = normalizeSubjectKey(raw);
+    return SUBJECT_ALIASES[normalized] || raw;
+};
+exports.normalizeSubjectId = normalizeSubjectId;
 var getSubjectNameById = function (id) {
-    var subject = exports.SUBJECTS.find(function (subj) { return subj.id === id; });
+    var subjectId = normalizeSubjectId(id);
+    var subject = exports.SUBJECTS.find(function (subj) { return subj.id === subjectId; });
     return subject ? subject.name : "Unknown Subject";
 };
 exports.getSubjectNameById = getSubjectNameById;

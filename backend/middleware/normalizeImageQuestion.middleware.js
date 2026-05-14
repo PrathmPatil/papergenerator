@@ -23,9 +23,11 @@ export const normalizeQuestionPayload = (req, res, next) => {
     const optionMediaMap = {};
 
     files.forEach((file) => {
+      const optionToken = String(file.fieldname || file.originalname || "");
+
       // Option images: option_A, option_B, etc.
-      if (file.fieldname.startsWith("option_")) {
-        const optionId = file.fieldname.replace("option_", "");
+      if (optionToken.startsWith("option_")) {
+        const optionId = optionToken.replace("option_", "");
         optionMediaMap[optionId] = toDataUrl(file);
       } else {
         // Question-level media

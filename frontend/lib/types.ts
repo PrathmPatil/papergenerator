@@ -42,6 +42,7 @@ export type QuestionType =
   | "mcq_image"
   | "single_word"
   | "paragraph"
+  | "image_subquestions"
   | "image_mixed"
   | "matching"
   | "true_false"
@@ -86,6 +87,13 @@ export interface ParagraphQuestion extends QuestionBase {
   subQuestions: (MCQQuestion | SingleAnswerQuestion)[]
 }
 
+export interface ImageSubQuestionsQuestion extends QuestionBase {
+  type: "image_subquestions"
+  questionText?: string
+  questionImage?: string
+  subQuestions: (MCQQuestion | SingleAnswerQuestion | TrueFalseQuestion)[]
+}
+
 export interface MatchingQuestion extends QuestionBase {
   type: "matching"
   questionText: string
@@ -110,6 +118,7 @@ export type Question =
   | ImageMCQQuestion
   | SingleAnswerQuestion
   | ParagraphQuestion
+  | ImageSubQuestionsQuestion
   | MatchingQuestion
   | TrueFalseQuestion
   | ShortAnswerQuestion

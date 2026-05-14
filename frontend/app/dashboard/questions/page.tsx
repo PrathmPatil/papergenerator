@@ -59,7 +59,7 @@ import {
   SUBJECTS,
 } from "@/lib/data";
 import { baseURL, debounce } from "@/hooks/common";
-import { deleteQuestionApi, bulkUpdateQuestionsApi, updateQuestionApi } from "@/utils/apis";
+import { deleteQuestionApi, bulkUpdateQuestionsApi, bulkDeleteQuestionsApi, updateQuestionApi } from "@/utils/apis";
 /* ----------------------------------------
    TYPES
 ---------------------------------------- */
@@ -79,7 +79,9 @@ interface QuestionFilterPayload {
 // Common enums
 export type QuestionType =
   | "mcq_text"
+  | "mcq_image"
   | "paragraph"
+  | "image_subquestions"
   | "short_answer"
   | "true_false"
   | "matching"
@@ -176,6 +178,7 @@ export default function QuestionBankPage() {
     "unchanged" | DifficultyLevel
   >("unchanged");
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [editQuestionOpen, setEditQuestionOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<IQuestion | null>(null);
   const [editMarks, setEditMarks] = useState<string>("");
@@ -326,6 +329,7 @@ export default function QuestionBankPage() {
     "true_false",
     "short_answer",
     "paragraph",
+    "image_subquestions",
     "long_answer"
   ];
 
@@ -440,6 +444,37 @@ export default function QuestionBankPage() {
     }
     resetBulkForm();
     setBulkEditOpen(true);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedQuestionIds.length === 0) {
+      alert("Please select at least one question.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${selectedQuestionIds.length} selected question${selectedQuestionIds.length === 1 ? "" : "s"}? This will move them to soft delete.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setIsBulkDeleting(true);
+      const res: any = await bulkDeleteQuestionsApi({ ids: selectedQuestionIds });
+
+      if (!res?.success) {
+        alert(res?.message || "Bulk delete failed.");
+        return;
+      }
+
+      setSelectedQuestionIds([]);
+      await fetchQuestions();
+    } catch (error: any) {
+      console.error("Bulk delete failed", error);
+      alert("Bulk delete failed. Check console/network.");
+    } finally {
+      setIsBulkDeleting(false);
+    }
   };
 
   const handleBulkUpdate = async () => {
@@ -623,13 +658,22 @@ export default function QuestionBankPage() {
           <p className="text-sm text-muted-foreground">
             {selectedQuestionIds.length} selected
           </p>
-          <Button
-            variant="outline"
-            onClick={handleOpenBulkEdit}
-            disabled={selectedQuestionIds.length === 0}
-          >
-            <Edit className="mr-2 h-4 w-4" /> Bulk Edit Marks & Difficulty
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleOpenBulkEdit}
+              disabled={selectedQuestionIds.length === 0 || isBulkDeleting}
+            >
+              <Edit className="mr-2 h-4 w-4" /> Bulk Edit Marks & Difficulty
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting}
+            >
+              <Trash className="mr-2 h-4 w-4" /> Delete Selected
+            </Button>
+          </div>
         </div>
         <CardContent className="p-0">
           {isLoading ? (
@@ -740,12 +784,14 @@ export default function QuestionBankPage() {
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 className="text-red-600"
+                                aria-label="Delete question"
+                                title="Delete question"
                                 onClick={() => {
                                   if (!questionId) return;
                                   handleDelete(String(questionId));
                                 }}
                               >
-                                <Trash className="mr-2 h-4 w-4" /> Delete
+                                <Trash className="h-4 w-4" />
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -849,7 +895,7 @@ export default function QuestionBankPage() {
                     .map((img) => (
                       <img
                         key={img._id || img.url || "question-media"}
-                        src={`${baseURL || ""}${img.url || ""}`}
+                        src={/^(data:|https?:\/\/)/.test(img.url) ? img.url : `${baseURL || ""}${img.url || ""}`}
                         alt={img.alt}
                         className="max-h-40 rounded border"
                       />
@@ -885,7 +931,7 @@ export default function QuestionBankPage() {
                         {/* OPTION IMAGE */}
                         {optionImage && (
                           <img
-                            src={`${baseURL || ""}${optionImage.url || ""}`}
+                            src={/^(data:|https?:\/\/)/.test(optionImage.url) ? optionImage.url : `${baseURL || ""}${optionImage.url || ""}`}
                             alt={optionImage.alt}
                             className="max-h-24 rounded border"
                           />
@@ -913,17 +959,21 @@ export default function QuestionBankPage() {
                 </ul>
               )}
 
-              {/* ================= PARAGRAPH TYPE ================= */}
-              {selectedQuestion.type === "paragraph" && (
+              {/* ================= PARAGRAPH / IMAGE SUB QUESTIONS ================= */}
+              {(selectedQuestion.type === "paragraph" ||
+                selectedQuestion.type === "image_subquestions") && (
                 <div className="mt-6 rounded bg-muted/20 p-4">
-                  <h3 className="font-semibold mb-2">Paragraph</h3>
-                  <p>{selectedQuestion.paragraph}</p>
+                  <h3 className="font-semibold mb-2">
+                    {selectedQuestion.type === "paragraph"
+                      ? "Paragraph"
+                      : "Instruction"}
+                  </h3>
+                  <p>{selectedQuestion.paragraph || selectedQuestion.text}</p>
                 </div>
               )}
 
               {/* ================= SUB QUESTIONS ================= */}
-              {selectedQuestion.type === "paragraph" &&
-                selectedSubQuestions.length > 0 && (
+              {selectedSubQuestions.length > 0 && (
                   <div className="mt-6 space-y-5">
                     <h3 className="text-lg font-semibold">Sub-Questions</h3>
 
@@ -956,7 +1006,7 @@ export default function QuestionBankPage() {
                                 />
                                 {opt.mediaUrl ? (
                                   <img
-                                    src={baseURL+opt.mediaUrl}
+                                    src={/^(data:|https?:\/\/)/.test(opt.mediaUrl) ? opt.mediaUrl : baseURL + opt.mediaUrl}
                                     alt="Option"
                                     className="max-h-20 rounded border"
                                   />

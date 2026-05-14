@@ -99,6 +99,36 @@ const detectMimeTypeByFileName = (fileName = "") => {
   return mimeByExt[ext] || "application/octet-stream";
 };
 
+const normalizeSubjectId = (value = "") => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const aliases = {
+    maths: "maths",
+    math: "maths",
+    math10: "maths",
+    science: "science",
+    science10: "science",
+    sci10: "science",
+    english: "english",
+    english10: "english",
+    eng10: "english",
+    reasoning: "reasoning",
+    reasoning10: "reasoning",
+    gk: "gk",
+    generalknowledge: "gk",
+    geography: "geography",
+    history: "history",
+    civics: "civics",
+    physics: "physics",
+    chemistry: "chemistry",
+    biology: "biology",
+  };
+
+  return aliases[normalized] || raw;
+};
+
 const bufferToDataUrl = (buffer, mimeType) => {
   if (!buffer) return "";
   return `data:${mimeType || "application/octet-stream"};base64,${buffer.toString("base64")}`;
@@ -362,8 +392,8 @@ router.post("/create-bulk-upload", async (req, res) => {
 
     const topicCache = new Map();
 
-    const normalizeTopic = async (classId, subjectId, topicId) => {
-      const rawValue = String(topicId || "").trim();
+    const normalizeTopic = async (classId, subjectId, topicId, topicName) => {
+      const rawValue = String(topicId || topicName || "").trim();
       if (!rawValue) return "";
 
       const cacheKey = `${classId}|${subjectId}|${rawValue.toLowerCase()}`;
@@ -384,7 +414,8 @@ router.post("/create-bulk-upload", async (req, res) => {
           topicId: await normalizeTopic(
             question.classId,
             question.subjectId,
-            question.topicId
+              question.topicId,
+              question.topicName
           ),
         };
         
@@ -401,10 +432,15 @@ router.post("/create-bulk-upload", async (req, res) => {
     const inserted = uniqueQuestions.length
       ? await Question.insertMany(uniqueQuestions, { ordered: false })
       : [];
+    const subQuestionCount = inserted.reduce(
+      (total, question) => total + (Array.isArray(question.subQuestions) ? question.subQuestions.length : 0),
+      0
+    );
 
     res.json({
       success: true,
       createdCount: inserted.length,
+      subQuestionCount,
       duplicateCount: duplicateQuestions.length,
       skippedCount: duplicateQuestions.length,
     });
@@ -701,7 +737,7 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (id === "bulk-update") {
+    if (id === "bulk-update" || id === "bulk-delete") {
       return next();
     }
     const { marks, difficulty } = req.body || {};
@@ -831,6 +867,58 @@ router.put("/bulk-update", async (req, res) => {
   }
 });
 
+// BULK SOFT DELETE QUESTIONS
+router.put("/bulk-delete", async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ids must be a non-empty array",
+      });
+    }
+
+    const uniqueIds = [...new Set(ids.map((id) => String(id)).filter(Boolean))];
+
+    if (uniqueIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ids must contain at least one valid question id",
+      });
+    }
+
+    const update = {
+      isDeleted: true,
+      deletedAt: new Date(),
+    };
+
+    if (req.user?._id) {
+      update.deletedBy = req.user._id;
+    }
+
+    const result = await Question.updateMany(
+      {
+        _id: { $in: uniqueIds },
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+      },
+      { $set: update }
+    );
+
+    return res.json({
+      success: true,
+      message: "Questions deleted successfully",
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
 router.post(
   "/bulk-image-upload",
   upload.fields([
@@ -881,9 +969,35 @@ router.post(
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
       const topicCache = new Map();
+      const questionType = req.query.questionType || "mcq_image";
+      const normalize = (value) => String(value || "").trim();
+      const hasGroupedImageRows = rows.some((row) => {
+        const groupId =
+          normalize(row.question_group_id) ||
+          normalize(row.groupId) ||
+          normalize(row.image_group_id);
 
-      const normalizeTopic = async (classId, subjectId, topicId) => {
-        const rawValue = String(topicId || "").trim();
+        const subQuestionText =
+          normalize(row.subQuestionText) ||
+          normalize(row.sub_question_text);
+
+        const subQuestionId =
+          normalize(row.subQuestionId) ||
+          normalize(row.sub_question_id);
+
+        return Boolean(groupId || subQuestionText || subQuestionId);
+      });
+
+      if (questionType === "image_subquestions" && !hasGroupedImageRows) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "No grouped questions found in Excel. For image subquestions, your Excel must have rows grouped by 'question_group_id' or 'groupId', and include 'subQuestionText' or 'subQuestionId' columns.",
+        });
+      }
+
+      const normalizeTopic = async (classId, subjectId, topicId, topicName) => {
+        const rawValue = String(topicId || topicName || "").trim();
         if (!rawValue) return "";
 
         const cacheKey = `${classId}|${subjectId}|${rawValue.toLowerCase()}`;
@@ -898,10 +1012,12 @@ router.post(
 
       const questions = await Promise.all(
         rows.map(async (row, i) => {
+          const subjectId = normalizeSubjectId(row.subjectId);
           const topicId = await normalizeTopic(
             row.classId,
-            row.subjectId,
-            row.topicId
+            subjectId,
+            row.topicId,
+            row.topicName
           );
 
           const options = ["A", "B", "C", "D"].map((id) => ({
@@ -913,7 +1029,7 @@ router.post(
 
           return {
             classId: row.classId,
-            subjectId: row.subjectId,
+            subjectId,
             topicId,
             type: row.type,
             difficulty: row.difficulty || "easy",
@@ -930,14 +1046,141 @@ router.post(
         })
       );
 
+      if (hasGroupedImageRows) {
+        const groupedRows = new Map();
+        rows.forEach((row, index) => {
+          const groupId =
+            normalize(row.question_group_id) ||
+            normalize(row.groupId) ||
+            normalize(row.image_group_id);
+
+          const fallbackKey = [
+            normalize(row.classId),
+            normalize(row.subjectId),
+            normalize(row.topicId),
+            normalize(row.questionImage),
+            normalize(row.questionText),
+          ].join("|");
+
+          const key = groupId || fallbackKey || `row_${index + 1}`;
+          if (!groupedRows.has(key)) {
+            groupedRows.set(key, []);
+          }
+          groupedRows.get(key).push(row);
+        });
+
+        const groupedQuestions = await Promise.all(
+          Array.from(groupedRows.values()).map(async (group) => {
+            const firstRow = group[0];
+            const subjectId = normalizeSubjectId(firstRow.subjectId);
+            const topicId = await normalizeTopic(
+              firstRow.classId,
+              subjectId,
+              firstRow.topicId,
+              firstRow.topicName
+            );
+
+            const questionImage =
+              normalize(firstRow.questionImage) ||
+              normalize(firstRow.image);
+
+            const media = resolveImageDataUrl(questionImage)
+              ? [
+                  {
+                    url: resolveImageDataUrl(questionImage),
+                    alt: String(questionImage || ""),
+                  },
+                ]
+              : [];
+
+            const subQuestions = group.map((row, index) => {
+              const subQuestionId =
+                normalize(row.subQuestionId) ||
+                normalize(row.sub_question_id) ||
+                String(index + 1);
+
+              const subQuestionText =
+                normalize(row.subQuestionText) ||
+                normalize(row.sub_question_text) ||
+                normalize(row.questionText);
+
+              const correctAnswer = normalize(row.correctAnswer);
+              const options = ["A", "B", "C", "D"]
+                .map((id) => ({
+                  id,
+                  text: row[`option${id}Text`] || row[`option_${id}`] || "",
+                  mediaUrl: resolveImageDataUrl(
+                    row[`option${id}Image`] || row[`option_${id}_image`] || ""
+                  ),
+                  isCorrect: correctAnswer === id,
+                }))
+                .filter((option) => option.text || option.mediaUrl);
+
+              return {
+                id: subQuestionId,
+                type: "mcq_text",
+                text: subQuestionText,
+                options,
+                marks: Number(row.marks) || 1,
+                negativeMarks: Number(row.negativeMarks) || 0,
+                correctAnswer,
+              };
+            });
+
+            return {
+              classId: firstRow.classId,
+              subjectId,
+              topicId,
+              type: firstRow.type || "mcq_image",
+              difficulty: firstRow.difficulty || "easy",
+              marks: subQuestions.reduce((sum, sq) => sum + (Number(sq.marks) || 0), 0),
+              negativeMarks: subQuestions.reduce(
+                (sum, sq) => sum + (Number(sq.negativeMarks) || 0),
+                0
+              ),
+              text:
+                normalize(firstRow.instructionText) ||
+                normalize(firstRow.questionText) ||
+                "",
+              media,
+              options: [],
+              correctAnswer: null,
+              subQuestions,
+            };
+          })
+        );
+
+        const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(groupedQuestions);
+        const inserted = uniqueQuestions.length
+          ? await Question.insertMany(uniqueQuestions, { ordered: false })
+          : [];
+        const subQuestionCount = inserted.reduce(
+          (total, question) => total + (Array.isArray(question.subQuestions) ? question.subQuestions.length : 0),
+          0
+        );
+
+        return res.json({
+          success: true,
+          createdCount: inserted.length,
+          subQuestionCount,
+          duplicateCount: duplicateQuestions.length,
+          skippedCount: duplicateQuestions.length,
+        });
+      }
+
       const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(questions);
       const inserted = uniqueQuestions.length
         ? await Question.insertMany(uniqueQuestions, { ordered: false })
         : [];
+      const subQuestionCount = inserted.reduce(
+        (total, question) => total + (Array.isArray(question.subQuestions) ? question.subQuestions.length : 0),
+        0
+      );
 
       res.json({
         success: true,
         createdCount: inserted.length,
+        subQuestionCount,
         duplicateCount: duplicateQuestions.length,
         skippedCount: duplicateQuestions.length,
       });
@@ -948,43 +1191,5 @@ router.post(
   }
 );
 
-// SOFT DELETE QUESTION
-router.delete("/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const question = await Question.findById(id);
-    if (!question) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Question not found" });
-    }
-
-    // already deleted?
-    if (question.isDeleted) {
-      return res.json({
-        success: true,
-        message: "Question already deleted",
-        question,
-      });
-    }
-
-    question.isDeleted = true;
-    question.deletedAt = new Date();
-
-    // if you have auth middleware setting req.user
-    if (req.user?._id) question.deletedBy = req.user._id;
-
-    await question.save();
-
-    return res.json({
-      success: true,
-      message: "Question deleted (soft)",
-      question,
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 export default router;
+

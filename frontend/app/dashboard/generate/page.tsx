@@ -516,7 +516,7 @@ const totalAllocated = selectedSubjects.reduce(
 
   useEffect(() => {
     const loadTopics = async () => {
-      if (!selectedClass || selectedSubjects.length === 0) return;
+      if (currentStep < 2 || !selectedClass || selectedSubjects.length === 0) return;
 
       setTopicLoading(true);
       try {
@@ -557,7 +557,7 @@ const totalAllocated = selectedSubjects.reduce(
     };
 
     loadTopics();
-  }, [selectedClass, selectedSubjects]);
+  }, [currentStep, selectedClass, selectedSubjects]);
 
   const handleAddTopic = async () => {
     if (!activeSubject || !selectedClass) return;

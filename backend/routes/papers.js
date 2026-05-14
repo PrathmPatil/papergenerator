@@ -386,6 +386,24 @@ const renderPdfSubQuestion = (doc, subQuestion = {}, index = 0) => {
   doc.fontSize(11).text(`   ${index + 1}. ${subQuestion?.text || ""}`);
   doc.moveDown(0.2);
 
+  // render any images attached to the sub-question (support media array or mediaUrl)
+  const sqMedia = Array.isArray(subQuestion?.media)
+    ? subQuestion.media
+    : subQuestion?.mediaUrl
+    ? [{ url: subQuestion.mediaUrl, alt: subQuestion.mediaAlt || "" }]
+    : [];
+
+  if (sqMedia.length > 0) {
+    for (const img of sqMedia) {
+      const drawn = drawImageIfExists(doc, img?.url || img, {
+        fit: [220, 130],
+        align: "left",
+      });
+
+      if (drawn) doc.moveDown(0.3);
+    }
+  }
+
   if (Array.isArray(subQuestion?.options) && subQuestion.options.length > 0) {
     renderPdfOptions(doc, subQuestion.options);
   } else if (String(subQuestion?.type || "").toLowerCase() === "true_false") {
