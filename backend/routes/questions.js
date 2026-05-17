@@ -103,30 +103,82 @@ const normalizeSubjectId = (value = "") => {
   const raw = String(value || "").trim();
   if (!raw) return "";
 
-  const normalized = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const aliases = {
-    maths: "maths",
-    math: "maths",
-    math10: "maths",
-    science: "science",
-    science10: "science",
-    sci10: "science",
-    english: "english",
-    english10: "english",
-    eng10: "english",
-    reasoning: "reasoning",
-    reasoning10: "reasoning",
-    gk: "gk",
-    generalknowledge: "gk",
-    geography: "geography",
-    history: "history",
-    civics: "civics",
-    physics: "physics",
-    chemistry: "chemistry",
-    biology: "biology",
+  // Comprehensive mapping of subject names/abbreviations to standard IDs
+  const subjectNameToId = {
+    // Mathematics
+    "mathematics": "maths",
+    "math": "maths",
+    "maths": "maths",
+    "math10": "maths",
+    "maths10": "maths",
+    
+    // Science
+    "science": "science",
+    "science10": "science",
+    "sci": "science",
+    "sci10": "science",
+    
+    // English
+    "english": "english",
+    "english10": "english",
+    "eng": "english",
+    "eng10": "english",
+    
+    // Reasoning
+    "reasoning": "reasoning",
+    "reasoning10": "reasoning",
+    "logical reasoning": "reasoning",
+    "lr": "reasoning",
+    
+    // General Knowledge
+    "gk": "gk",
+    "general knowledge": "gk",
+    "generalknowledge": "gk",
+    
+    // Geography
+    "geography": "geography",
+    "geo": "geography",
+    
+    // History
+    "history": "history",
+    "hist": "history",
+    
+    // Civics
+    "civics": "civics",
+    "civic": "civics",
+    "civicss": "civics",
+    
+    // Physics
+    "physics": "physics",
+    "phys": "physics",
+    "phy": "physics",
+    
+    // Chemistry
+    "chemistry": "chemistry",
+    "chem": "chemistry",
+    
+    // Biology
+    "biology": "biology",
+    "bio": "biology",
+    "biol": "biology",
   };
 
-  return aliases[normalized] || raw;
+  // Normalize: lowercase and remove special characters
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+  
+  // First check exact match in subject name mapping
+  if (subjectNameToId[raw.toLowerCase()]) {
+    return subjectNameToId[raw.toLowerCase()];
+  }
+  
+  // Then check normalized version
+  if (subjectNameToId[normalized]) {
+    return subjectNameToId[normalized];
+  }
+  
+  // If no match found, return the normalized key (not raw)
+  // This ensures consistent IDs even for unknown subjects
+  return normalized || raw;
 };
 
 const bufferToDataUrl = (buffer, mimeType) => {
@@ -267,7 +319,8 @@ async function ensureTopicId(classId, subjectId, topicIdentifier) {
     return "";
   }
 
-  const nameLower = rawValue.toLowerCase();
+  const normalizeTopicKey = (s = "") => String(s).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const nameLower = normalizeTopicKey(rawValue);
 
   // If the value is already a valid Mongo _id, try to resolve it first.
   const isObjectId = /^[0-9a-fA-F]{24}$/.test(rawValue);
@@ -396,7 +449,8 @@ router.post("/create-bulk-upload", async (req, res) => {
       const rawValue = String(topicId || topicName || "").trim();
       if (!rawValue) return "";
 
-      const cacheKey = `${classId}|${subjectId}|${rawValue.toLowerCase()}`;
+      const normalizeKey = (s = "") => String(s).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      const cacheKey = `${classId}|${subjectId}|${normalizeKey(rawValue)}`;
       if (topicCache.has(cacheKey)) {
         return topicCache.get(cacheKey);
       }
@@ -411,9 +465,10 @@ router.post("/create-bulk-upload", async (req, res) => {
         // Ensure subQuestions is initialized for all questions
         const processedQuestion = {
           ...question,
+          subjectId: normalizeSubjectId(question.subjectId), // Normalize subject ID
           topicId: await normalizeTopic(
             question.classId,
-            question.subjectId,
+            normalizeSubjectId(question.subjectId), // Use normalized subject for topic lookup
               question.topicId,
               question.topicName
           ),
@@ -1000,7 +1055,8 @@ router.post(
         const rawValue = String(topicId || topicName || "").trim();
         if (!rawValue) return "";
 
-        const cacheKey = `${classId}|${subjectId}|${rawValue.toLowerCase()}`;
+        const normalizeKey = (s = "") => String(s).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+        const cacheKey = `${classId}|${subjectId}|${normalizeKey(rawValue)}`;
         if (topicCache.has(cacheKey)) {
           return topicCache.get(cacheKey);
         }

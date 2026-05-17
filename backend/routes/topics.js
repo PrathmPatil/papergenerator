@@ -19,7 +19,7 @@ router.get("/", async (req, res) => {
     }
 
     const normalizeName = (value) => String(value || "").trim();
-    const normalizeLower = (value) => normalizeName(value).toLowerCase();
+    const normalizeLower = (value) => normalizeName(value).toLowerCase().replace(/[^a-z0-9]/g, "");
 
     const [topicDocs, questionTopicIds] = await Promise.all([
       Topic.find({ classId, subjectId }).lean(),
@@ -102,7 +102,7 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "Topic name is too short" });
     }
 
-    const nameLower = cleanName.toLowerCase();
+    const nameLower = String(cleanName).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
     // If already exists, return it (idempotent)
     const existing = await Topic.findOne({ classId, subjectId, nameLower });

@@ -15,25 +15,61 @@ export const SUBJECTS = [
 ];
 
 const SUBJECT_ALIASES: Record<string, string> = {
+  // Mathematics
+  mathematics: "maths",
   maths: "maths",
   math: "maths",
   math10: "maths",
+  maths10: "maths",
+  
+  // Science
   science: "science",
   science10: "science",
+  sci: "science",
   sci10: "science",
+  
+  // English
   english: "english",
   english10: "english",
+  eng: "english",
   eng10: "english",
+  
+  // Reasoning
   reasoning: "reasoning",
   reasoning10: "reasoning",
+  logicalreasoning: "reasoning",
+  lr: "reasoning",
+  
+  // General Knowledge
   gk: "gk",
   generalknowledge: "gk",
+  
+  // Geography
   geography: "geography",
+  geo: "geography",
+  
+  // History
   history: "history",
+  hist: "history",
+  
+  // Civics
   civics: "civics",
+  civic: "civics",
+  civicss: "civics",
+  
+  // Physics
   physics: "physics",
+  phys: "physics",
+  phy: "physics",
+  
+  // Chemistry
   chemistry: "chemistry",
+  chem: "chemistry",
+  
+  // Biology
   biology: "biology",
+  bio: "biology",
+  biol: "biology",
 };
 
 const normalizeSubjectKey = (value: string) =>
@@ -43,11 +79,26 @@ export const normalizeSubjectId = (id: string) => {
   const raw = String(id || "").trim();
   if (!raw) return "";
 
+  // First check if exact match exists in SUBJECTS array
   const exact = SUBJECTS.find((subject) => subject.id === raw);
   if (exact) return exact.id;
 
+  // Normalize the input and check aliases
   const normalized = normalizeSubjectKey(raw);
-  return SUBJECT_ALIASES[normalized] || raw;
+  
+  // Check if normalized version is in aliases
+  if (SUBJECT_ALIASES[normalized]) {
+    return SUBJECT_ALIASES[normalized];
+  }
+  
+  // Also check lowercase version of raw input
+  if (SUBJECT_ALIASES[raw.toLowerCase()]) {
+    return SUBJECT_ALIASES[raw.toLowerCase()];
+  }
+  
+  // If still no match, return the normalized version (not raw input)
+  // This ensures consistent IDs even for unrecognized subjects
+  return normalized || raw;
 };
 
 export const getSubjectNameById = (id: string) => {
