@@ -94,9 +94,7 @@ export const createQuestionApi = async (payload: any, isFormData: boolean = fals
     url: "/api/questions/create",
     method: "POST",
     data: payload,
-    headers: isFormData
-      ? { "Content-Type": "multipart/form-data" }
-      : { "Content-Type": "application/json" },
+    isFormData: isFormData,
   });
   return response;
 };
@@ -107,9 +105,7 @@ export const createBulkQuestionsApi = async (payload: any, isFormData: boolean =
     url: "/api/questions/create-bulk-upload",
     method: "POST",
     data: payload,
-    headers: isFormData
-      ? { "Content-Type": "multipart/form-data" }
-      : { "Content-Type": "application/json" },
+    isFormData: isFormData,
   });
   return response;
 };
@@ -120,7 +116,7 @@ export const bulkImageUploadApi = async (payload: FormData) => {
     url: "/api/questions/bulk-image-upload",
     method: "POST",
     data: payload,
-    headers: { "Content-Type": "multipart/form-data" },
+    isFormData: true,
   });
   return response;
 };
@@ -134,7 +130,7 @@ export const bulkImageUploadWithTypeApi = async (
     url: `/api/questions/bulk-image-upload?questionType=${questionType}`,
     method: "POST",
     data: payload,
-    headers: { "Content-Type": "multipart/form-data" },
+    isFormData: true,
   });
   return response;
 };

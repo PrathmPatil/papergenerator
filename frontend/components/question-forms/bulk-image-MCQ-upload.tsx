@@ -34,6 +34,7 @@ export default function BulkImageMCQUpload({
           </p>
           <p>
             Required columns: classId, subjectId, topicId, type, difficulty, marks, negativeMarks, questionText, questionImage, optionAText, optionAImage, optionBText, optionBImage, optionCText, optionCImage, optionDText, optionDImage, correctAnswer.
+            OptionEText and OptionEImage are supported but optional.
           </p>
         </div>
       )}

@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useToast } from "@/hooks/use-toast";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -157,6 +158,7 @@ export interface IQuestion {
    COMPONENT
 ---------------------------------------- */
 export default function QuestionBankPage() {
+  const { toast } = useToast();
   const [questions, setQuestions] = useState<IQuestion[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchDebounce, setSearchDebounce] = useState("");
@@ -292,26 +294,42 @@ export default function QuestionBankPage() {
   };
 
   const confirmDelete = async () => {
-  if (!deletingId) return;
+    if (!deletingId) return;
 
-  try {
-    const res: any = await deleteQuestionApi(deletingId);
+    try {
+      setIsDeleting(true);
+      const res: any = await deleteQuestionApi(deletingId);
 
-    if (res?.success) {
-      // ✅ remove from UI also (fast update)
-      setQuestions((prev) => prev.filter((q) => q._id !== deletingId));
-      setDeletingId(null);
+      if (res?.success) {
+        // ✅ remove from UI also (fast update)
+        setQuestions((prev) => prev.filter((q) => q._id !== deletingId));
+        setDeletingId(null);
+        toast({
+          variant: "destructive",
+          title: "Question deleted",
+          description: "1 question removed from the list.",
+        });
 
-      // ✅ optional: reload from backend (best)
-      // fetchQuestions();  // or whatever your function is named
-    } else {
-      alert(res?.message || "Delete failed");
+        // ✅ optional: reload from backend (best)
+        // fetchQuestions();  // or whatever your function is named
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Delete failed",
+          description: res?.message || "Unable to delete the question.",
+        });
+      }
+    } catch (error: any) {
+      console.error("Delete failed:", error);
+      toast({
+        variant: "destructive",
+        title: "Delete failed",
+        description: "Unable to delete the question right now.",
+      });
+    } finally {
+      setIsDeleting(false);
     }
-  } catch (error: any) {
-    console.error("Delete failed:", error);
-    alert("Delete failed. Check console/network.");
-  }
-};
+  };
 
   const handleExport = (q: IQuestion) => {
     const element = document.createElement("a");
@@ -448,12 +466,16 @@ export default function QuestionBankPage() {
 
   const handleBulkDelete = async () => {
     if (selectedQuestionIds.length === 0) {
-      alert("Please select at least one question.");
+      toast({
+        variant: "destructive",
+        title: "No questions selected",
+        description: "Please select at least one question.",
+      });
       return;
     }
 
     const confirmed = window.confirm(
-      `Delete ${selectedQuestionIds.length} selected question${selectedQuestionIds.length === 1 ? "" : "s"}? This will move them to soft delete.`
+      `Delete ${selectedQuestionIds.length} selected question${selectedQuestionIds.length === 1 ? "" : "s"}?`
     );
 
     if (!confirmed) return;
@@ -463,15 +485,28 @@ export default function QuestionBankPage() {
       const res: any = await bulkDeleteQuestionsApi({ ids: selectedQuestionIds });
 
       if (!res?.success) {
-        alert(res?.message || "Bulk delete failed.");
+        toast({
+          variant: "destructive",
+          title: "Delete failed",
+          description: res?.message || "Unable to delete the selected questions.",
+        });
         return;
       }
 
       setSelectedQuestionIds([]);
+      toast({
+        variant: "destructive",
+        title: "Questions deleted",
+        description: `${res?.deletedCount ?? selectedQuestionIds.length} question${(res?.deletedCount ?? selectedQuestionIds.length) === 1 ? "" : "s"} removed from the list.`,
+      });
       await fetchQuestions();
     } catch (error: any) {
       console.error("Bulk delete failed", error);
-      alert("Bulk delete failed. Check console/network.");
+      toast({
+        variant: "destructive",
+        title: "Delete failed",
+        description: "Unable to delete the selected questions right now.",
+      });
     } finally {
       setIsBulkDeleting(false);
     }

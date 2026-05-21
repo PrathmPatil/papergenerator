@@ -1,3 +1,4 @@
+import { CLASSES, normalizeSubjectId } from "@/lib/data";
 
 interface ExcelMCQImageRow {
   classId: string;
@@ -10,10 +11,7 @@ interface ExcelMCQImageRow {
   difficulty?: string;
   marks?: number;
   negativeMarks?: number;
-
   questionText?: string;
-  questionImage?: string;
-
   optionAText?: string;
   optionAImage?: string;
   optionBText?: string;
@@ -22,8 +20,9 @@ interface ExcelMCQImageRow {
   optionCImage?: string;
   optionDText?: string;
   optionDImage?: string;
-
-  correctAnswer: "A" | "B" | "C" | "D";
+  optionEText?: string;
+  optionEImage?: string;
+  correctAnswer: "A" | "B" | "C" | "D" | "E";
 }
 
 type ExcelMCQRow = {
@@ -40,7 +39,8 @@ type ExcelMCQRow = {
   optionB?: string;
   optionC?: string;
   optionD?: string;
-  correctAnswer: "A" | "B" | "C" | "D";
+  optionE?: string;
+  correctAnswer: "A" | "B" | "C" | "D" | "E";
 };
 
 type ExcelParagraphRow = {
@@ -49,32 +49,163 @@ type ExcelParagraphRow = {
   topicId?: string;
   topicName?: string;
   difficulty?: string;
-  question_type: "paragraph";
+  questionType?: string;
+  question_type?: string;
+  paragraphGroupId?: string;
   paragraph_group_id?: string;
   groupId?: string;
+  paragraphId?: string;
   paragraph_id?: string;
+  passageId?: string;
   passage_id?: string;
-
-  instruction_text: string;
+  instructionText?: string;
+  instruction_text?: string;
   paragraph: string;
-
-  sub_question_id: string;
-  sub_question_type: "mcq" | "mcq_text" | "mcq_image" | "true_false" | "short_answer";
+  subQuestionId?: string;
+  sub_question_id?: string;
+  subQuestionType?: "mcq" | "mcq_text" | "mcq_image" | "true_false" | "short_answer";
+  sub_question_type?: "mcq" | "mcq_text" | "mcq_image" | "true_false" | "short_answer";
+  subQuestionText?: string;
   sub_question_text?: string;
-
+  optionA?: string;
   option_A?: string;
+  optionB?: string;
   option_B?: string;
+  optionC?: string;
   option_C?: string;
+  optionD?: string;
   option_D?: string;
-
-  correct_answer?: "A" | "B" | "C" | "D" | true | false | "true" | "false";
-
+  optionE?: string;
+  option_E?: string;
+  correctAnswer?: "A" | "B" | "C" | "D" | "E" | true | false | "true" | "false";
+  correct_answer?: "A" | "B" | "C" | "D" | "E" | true | false | "true" | "false";
   marks?: number | string;
+  negativeMarks?: number | string;
   negative_marks?: number | string;
 };
 
-export const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL;
+type ExcelRow = Record<string, any>;
 
+const normalizeExcelKey = (key: string) =>
+  String(key || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const EXCEL_KEY_ALIASES: Record<string, string> = {
+  class: "classId",
+  classid: "classId",
+  classlevel: "classId",
+  classname: "classId",
+  subject: "subjectId",
+  subjectid: "subjectId",
+  subjectname: "subjectId",
+  topic: "topicName",
+  topicid: "topicId",
+  topicname: "topicName",
+  type: "type",
+  questiontype: "questionType",
+  question_type: "questionType",
+  difficulty: "difficulty",
+  marks: "marks",
+  negativemarks: "negativeMarks",
+  text: "text",
+  questiontext: "questionText",
+  question: "questionText",
+  questionimage: "questionImage",
+  optionatext: "optionAText",
+  optionaimage: "optionAImage",
+  optionbtext: "optionBText",
+  optionbimage: "optionBImage",
+  optionctext: "optionCText",
+  optioncimage: "optionCImage",
+  optiondtext: "optionDText",
+  optiondimage: "optionDImage",
+  optionetext: "optionEText",
+  optioneimage: "optionEImage",
+  correctanswer: "correctAnswer",
+  correct_option: "correctAnswer",
+  paragraphgroupid: "paragraphGroupId",
+  groupid: "groupId",
+  paragraphid: "paragraphId",
+  passageid: "passageId",
+  instructiontext: "instructionText",
+  paragraph: "paragraph",
+  subquestionid: "subQuestionId",
+  subquestiontype: "subQuestionType",
+  subquestiontext: "subQuestionText",
+  optiona: "optionA",
+  optionb: "optionB",
+  optionc: "optionC",
+  optiond: "optionD",
+  option_a: "optionA",
+  option_b: "optionB",
+  option_c: "optionC",
+  option_d: "optionD",
+  correct_answer: "correctAnswer",
+  negative_marks: "negativeMarks",
+};
+
+const normalizeQuestionType = (value: unknown, fallback = "mcq_text") => {
+  const normalized = String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+  const typeAliases: Record<string, string> = {
+    mcq: "mcq_text",
+    mcqtext: "mcq_text",
+    textmcq: "mcq_text",
+    multiplechoice: "mcq_text",
+    multiplechoicequestion: "mcq_text",
+    paragraph: "paragraph",
+    passage: "paragraph",
+    imagewithsubquestions: "image_subquestions",
+    imagesubquestions: "image_subquestions",
+    mcqimage: "mcq_image",
+    imagemcq: "mcq_image",
+    shortanswer: "short_answer",
+    truefalse: "true_false",
+    matching: "matching",
+  };
+
+  return typeAliases[normalized] || String(value || fallback).trim().toLowerCase();
+};
+
+const normalizeDifficulty = (value: unknown) => {
+  const normalized = String(value || "easy").trim().toLowerCase();
+  return ["easy", "medium", "hard"].includes(normalized) ? normalized : "easy";
+};
+
+const normalizeCorrectAnswer = (value: unknown) => String(value || "").trim().toUpperCase();
+
+const normalizeExcelRow = (row: ExcelRow): ExcelRow => {
+  const normalizedRow: ExcelRow = {};
+
+  Object.entries(row || {}).forEach(([key, value]) => {
+    const normalizedKey = EXCEL_KEY_ALIASES[normalizeExcelKey(key)] ?? key;
+    normalizedRow[normalizedKey] = value;
+  });
+
+  return normalizedRow;
+};
+
+const normalizeClassId = (value: unknown) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const exactMatch = CLASSES.find((item) => item.id === raw || item.id === normalized);
+  if (exactMatch) return exactMatch.id;
+
+  const numericMatch = normalized.match(/^(?:class)?(\d{1,2})(?:st|nd|rd|th)?$/);
+  if (numericMatch) {
+    return `class_${Number(numericMatch[1])}`;
+  }
+
+  return normalized || raw;
+};
+export const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 export function debounce<T extends (...args: any[]) => any>(
   fn: T,
@@ -101,27 +232,37 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
   }
 
   return rows.map((row, index) => {
+    const normalizedRow = normalizeExcelRow(row);
     const {
       classId,
       subjectId,
       topicId,
       type,
+      questionType,
       difficulty,
       marks,
       negativeMarks,
       text,
+      questionText,
       optionA,
       optionB,
       optionC,
       optionD,
+      optionE,
       correctAnswer,
-    } = row;
+    } = normalizedRow;
 
-    if (!classId || !subjectId || !type || !text) {
+    const normalizedClassId = normalizeClassId(classId);
+    const normalizedSubjectId = normalizeSubjectId(String(subjectId || ""));
+    const normalizedType = normalizeQuestionType(type || questionType);
+    const questionBody = text || questionText || "";
+    const normalizedCorrectAnswer = normalizeCorrectAnswer(correctAnswer);
+
+    if (!normalizedClassId || !normalizedSubjectId || !normalizedType || !questionBody) {
       throw new Error(`Missing required fields at row ${index + 1}`);
     }
 
-    if (!["A", "B", "C", "D"].includes(correctAnswer)) {
+    if (!(["A", "B", "C", "D", "E"] as const).includes(normalizedCorrectAnswer as any)) {
       throw new Error(`Invalid correctAnswer at row ${index + 1}`);
     }
 
@@ -130,12 +271,13 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
       { id: "B", text: optionB },
       { id: "C", text: optionC },
       { id: "D", text: optionD },
+      { id: "E", text: optionE },
     ]
       .filter((opt) => opt.text)
       .map((opt) => ({
         id: opt.id,
         text: opt.text as string,
-        isCorrect: opt.id === correctAnswer,
+        isCorrect: opt.id === normalizedCorrectAnswer,
       }));
 
     if (options.length < 2) {
@@ -143,16 +285,16 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
     }
 
     return {
-      classId,
-      subjectId,
-      topicId: topicId || row.topicName || "",
-      type,
-      difficulty: difficulty || "easy",
+      classId: normalizedClassId,
+      subjectId: normalizedSubjectId,
+      topicId: topicId || normalizedRow.topicName || "",
+      type: normalizedType,
+      difficulty: normalizeDifficulty(difficulty),
       marks: Number(marks) || 1,
       negativeMarks: Number(negativeMarks) || 0,
-      text,
+      text: questionBody,
       options,
-      correctAnswer,
+      correctAnswer: normalizedCorrectAnswer,
     };
   });
 }
@@ -165,6 +307,7 @@ export function convertExcelRowsToImageMCQQuestions(
   }
 
   return rows.map((row, index) => {
+    const normalizedRow = normalizeExcelRow(row);
     const {
       classId,
       subjectId,
@@ -176,28 +319,29 @@ export function convertExcelRowsToImageMCQQuestions(
       questionText,
       questionImage,
       correctAnswer,
-    } = row;
+    } = normalizedRow;
 
-    if (!classId || !subjectId || !type) {
+    const normalizedClassId = normalizeClassId(classId);
+    const normalizedSubjectId = normalizeSubjectId(String(subjectId || ""));
+
+    if (!normalizedClassId || !normalizedSubjectId || !type) {
       throw new Error(`Missing required fields at row ${index + 1}`);
     }
 
-    if (!["A", "B", "C", "D"].includes(correctAnswer)) {
+    if (!["A", "B", "C", "D", "E"].includes(correctAnswer)) {
       throw new Error(`Invalid correctAnswer at row ${index + 1}`);
     }
 
     const buildOption = (id: "A" | "B" | "C" | "D") => {
-      const text = row[`option${id}Text` as keyof ExcelMCQImageRow];
-      const image = row[`option${id}Image` as keyof ExcelMCQImageRow];
+      const text = normalizedRow[`option${id}Text`] ?? normalizedRow[`option${id}`];
+      const image = normalizedRow[`option${id}Image`];
 
       if (!text && !image) return null;
 
       return {
         id,
         text: text || "",
-        image: image
-          ? { url: `/uploads/${image}` }
-          : null,
+        image: image ? { url: `/uploads/${image}` } : null,
         isCorrect: id === correctAnswer,
         showPreview: true,
       };
@@ -212,25 +356,20 @@ export function convertExcelRowsToImageMCQQuestions(
     }
 
     return {
-      classId,
-      subjectId,
-      topicId: topicId || row.topicName || "",
+      classId: normalizedClassId,
+      subjectId: normalizedSubjectId,
+      topicId: topicId || normalizedRow.topicName || "",
       type: "mcq_image",
       difficulty: difficulty || "easy",
       marks: Number(marks) || 1,
       negativeMarks: Number(negativeMarks) || 0,
-
       text: questionText || "",
-      image: questionImage
-        ? { url: `/uploads/${questionImage}` }
-        : null,
-
+      image: questionImage ? { url: `/uploads/${questionImage}` } : null,
       options,
       correctAnswer,
     };
   });
 }
-
 
 export function convertExcelRowsToParagraphQuestions(
   rows: ExcelParagraphRow[] = []
@@ -242,20 +381,23 @@ export function convertExcelRowsToParagraphQuestions(
   if (rows.length === 0) return [];
 
   const normalize = (value: unknown) => String(value || "").trim();
+  const normalizedRows: ExcelParagraphRow[] = rows.map(
+    (row) => normalizeExcelRow(row) as ExcelParagraphRow
+  );
 
   const groupRows = new Map<string, ExcelParagraphRow[]>();
-  rows.forEach((row, index) => {
+  normalizedRows.forEach((row, index) => {
     const groupId =
-      normalize(row.paragraph_group_id) ||
+      normalize(row.paragraphGroupId) ||
       normalize(row.groupId) ||
-      normalize(row.paragraph_id) ||
-      normalize(row.passage_id);
+      normalize(row.paragraphId) ||
+      normalize(row.passageId);
 
     const fallbackKey = [
       normalize(row.classId),
       normalize(row.subjectId),
       normalize(row.topicId),
-      normalize(row.instruction_text),
+      normalize(row.instructionText),
       normalize(row.paragraph),
     ].join("|");
 
@@ -268,42 +410,46 @@ export function convertExcelRowsToParagraphQuestions(
 
   const buildSubQuestion = (row: ExcelParagraphRow, index: number) => {
     const {
-      sub_question_id,
-      sub_question_type,
-      sub_question_text,
-      option_A,
-      option_B,
-      option_C,
-      option_D,
-      correct_answer,
+      subQuestionId,
+      subQuestionType,
+      subQuestionText,
+      optionA,
+      optionB,
+      optionC,
+      optionD,
+      optionE,
+      correctAnswer,
       marks,
-      negative_marks,
+      negativeMarks,
     } = row;
-    const normalizedSubQuestionType = String(sub_question_type || "")
-      .trim()
-      .toLowerCase();
 
-    if (!sub_question_id || !normalizedSubQuestionType) {
+    const normalizedSubQuestionType = normalizeQuestionType(subQuestionType || "mcq_text");
+    const normalizedCorrectAnswer = normalizeCorrectAnswer(correctAnswer);
+
+    if (!subQuestionId || !normalizedSubQuestionType) {
       throw new Error(`Missing sub-question fields at row ${index + 1}`);
     }
 
-    /* ---------- MCQ ---------- */
-    if (normalizedSubQuestionType === "mcq" || normalizedSubQuestionType === "mcq_text" || normalizedSubQuestionType === "mcq_image") {
-      if (!["A", "B", "C", "D"].includes(correct_answer as string)) {
+    if (
+      normalizedSubQuestionType === "mcq" ||
+      normalizedSubQuestionType === "mcq_text" ||
+      normalizedSubQuestionType === "mcq_image"
+    ) {
+      if (!["A", "B", "C", "D", "E"].includes(normalizedCorrectAnswer)) {
         throw new Error(`Invalid correct answer at row ${index + 1}`);
       }
 
       const options = [
-        { id: "A", text: option_A },
-        { id: "B", text: option_B },
-        { id: "C", text: option_C },
-        { id: "D", text: option_D },
+        { id: "A", text: optionA },
+        { id: "B", text: optionB },
+        { id: "C", text: optionC },
+        { id: "D", text: optionD },
       ]
         .filter((o) => o.text)
         .map((o) => ({
           id: o.id,
           text: o.text as string,
-          isCorrect: o.id === correct_answer,
+          isCorrect: o.id === normalizedCorrectAnswer,
         }));
 
       if (options.length < 2) {
@@ -311,46 +457,44 @@ export function convertExcelRowsToParagraphQuestions(
       }
 
       return {
-        id: sub_question_id,
+        id: subQuestionId,
         type: "mcq_text",
-        text: sub_question_text || "",
+        text: subQuestionText || "",
         options,
-        correctAnswer: correct_answer,
+        correctAnswer: normalizedCorrectAnswer,
         marks: Number(marks) || 1,
-        negativeMarks: Number(negative_marks) || 0,
+        negativeMarks: Number(negativeMarks) || 0,
       };
     }
 
-    /* ---------- TRUE / FALSE ---------- */
     if (normalizedSubQuestionType === "true_false") {
       if (
-        correct_answer !== true &&
-        correct_answer !== false &&
-        correct_answer !== "true" &&
-        correct_answer !== "false"
+        correctAnswer !== true &&
+        correctAnswer !== false &&
+        String(correctAnswer).toLowerCase() !== "true" &&
+        String(correctAnswer).toLowerCase() !== "false"
       ) {
         throw new Error(`Invalid true/false value at row ${index + 1}`);
       }
 
       return {
-        id: sub_question_id,
+        id: subQuestionId,
         type: "true_false",
-        text: sub_question_text || "",
-        correctAnswer: correct_answer === true || correct_answer === "true",
+        text: subQuestionText || "",
+        correctAnswer: correctAnswer === true || String(correctAnswer).toLowerCase() === "true",
         marks: Number(marks) || 1,
-        negativeMarks: Number(negative_marks) || 0,
+        negativeMarks: Number(negativeMarks) || 0,
       };
     }
 
-    /* ---------- SHORT ANSWER ---------- */
     if (normalizedSubQuestionType === "short_answer") {
       return {
-        id: sub_question_id,
+        id: subQuestionId,
         type: "short_answer",
-        text: sub_question_text || "",
-        correctAnswer: correct_answer || "",
+        text: subQuestionText || "",
+        correctAnswer: correctAnswer || "",
         marks: Number(marks) || 2,
-        negativeMarks: Number(negative_marks) || 0,
+        negativeMarks: Number(negativeMarks) || 0,
       };
     }
 
@@ -364,28 +508,35 @@ export function convertExcelRowsToParagraphQuestions(
       subjectId,
       topicId,
       difficulty,
-      question_type,
-      instruction_text,
+      questionType,
+      instructionText,
       paragraph,
     } = firstRow;
 
-    if (!classId || !subjectId || (question_type && question_type !== "paragraph")) {
+    const normalizedClassId = normalizeClassId(classId);
+    const normalizedSubjectId = normalizeSubjectId(String(subjectId || ""));
+
+    if (
+      !normalizedClassId ||
+      !normalizedSubjectId ||
+      (questionType && normalizeQuestionType(questionType, "paragraph") !== "paragraph")
+    ) {
       throw new Error(`Invalid paragraph question data in group ${groupIndex + 1}`);
     }
 
-    if (!instruction_text || !paragraph) {
+    if (!instructionText || !paragraph) {
       throw new Error(`Missing instruction text or paragraph in group ${groupIndex + 1}`);
     }
 
     const subQuestions = group.map((row, index) => buildSubQuestion(row, index));
 
     return {
-      classId,
-      subjectId,
-      topicId: topicId || row.topicName || "",
-      difficulty: difficulty || "easy",
+      classId: normalizedClassId,
+      subjectId: normalizedSubjectId,
+      topicId: topicId || firstRow.topicName || "",
+      difficulty: normalizeDifficulty(difficulty),
       type: "paragraph",
-      text: instruction_text,
+      text: instructionText,
       paragraph,
       subQuestions,
       marks: subQuestions.reduce((sum, q) => sum + q.marks, 0),
@@ -421,7 +572,6 @@ export const downloadFile = (
     xhr.send();
   });
 };
-
 
 export const dateConverterUTC = (dateString: string): string => {
   const date = new Date(dateString);

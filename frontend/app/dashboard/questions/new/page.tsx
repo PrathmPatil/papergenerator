@@ -57,8 +57,6 @@ import BulkImageMCQUpload from "@/components/question-forms/bulk-image-MCQ-uploa
 type Difficulty = "easy" | "medium" | "hard";
 type QuestionType = "mcq_text" | "mcq_image" | "paragraph" | "image_subquestions";
 
-const BULK_UPLOAD_BATCH_SIZE = 25;
-
 interface CreateQuestionPayload {
   type: QuestionType;
   classId: string;
@@ -157,16 +155,6 @@ export default function CreateQuestionPage() {
       ),
     [selectedClass]
   );
-
-  const chunkQuestions = (items: any[]) => {
-    const chunks: any[][] = [];
-
-    for (let index = 0; index < items.length; index += BULK_UPLOAD_BATCH_SIZE) {
-      chunks.push(items.slice(index, index + BULK_UPLOAD_BATCH_SIZE));
-    }
-
-    return chunks;
-  };
 
   const loadTopics = async (classId?: string, subjectId?: string) => {
     if (!classId || !subjectId) {
@@ -415,6 +403,8 @@ export default function CreateQuestionPage() {
       console.log("Bulk upload questions:", questions);
 
       let res: any;
+      const resolveCount = (response: any, key: string) =>
+        Number(response?.[key] ?? response?.data?.[key]) || 0;
 
       if (questionType === "mcq_image") {
         res = await bulkImageUploadApi(formData);
@@ -430,45 +420,43 @@ export default function CreateQuestionPage() {
         if (questions.length === 0) {
           throw new Error("No questions were found in the Excel file");
         }
+        res = await createBulkQuestionsApi(questions, false);
 
-        const questionChunks = chunkQuestions(questions);
-        const totals = {
-          createdCount: 0,
-          duplicateCount: 0,
-          skippedCount: 0,
-        };
-
-        for (const batch of questionChunks) {
-          const batchRes: any = await createBulkQuestionsApi(batch, false);
-
-          if (!batchRes.success) {
-            throw new Error(batchRes.message || "Bulk upload failed");
-          }
-
-          totals.createdCount += Number(batchRes.createdCount) || 0;
-          totals.duplicateCount += Number(batchRes.duplicateCount) || 0;
-          totals.skippedCount += Number(batchRes.skippedCount) || 0;
+        if (!res.success) {
+          throw new Error(res.message || "Bulk upload failed");
         }
-
-        res = {
-          success: true,
-          ...totals,
-        };
       }
 
-      const subQuestionCount = Number(res.subQuestionCount) || 0;
-      const uploadSummary =
-        questionType === "paragraph" && subQuestionCount > res.createdCount
-          ? `Uploaded ${res.createdCount} paragraph question(s) with ${subQuestionCount} sub-question(s)\n`
-          : questionType === "image_subquestions"
-          ? `Uploaded ${res.createdCount} image question(s) with ${subQuestionCount} sub-question(s)\n`
-          : `Uploaded ${res.createdCount} questions\n`;
+      const createdCount = resolveCount(res, "createdCount");
+      const duplicateCount = resolveCount(res, "duplicateCount");
+      const failedCount = resolveCount(res, "failedCount");
+      const subQuestionCount = resolveCount(res, "subQuestionCount");
+      const receivedCount = resolveCount(res, "receivedCount");
 
-      alert(
-        uploadSummary +
-          (res.duplicateCount ? `Duplicates skipped: ${res.duplicateCount}\n` : "") +
-          (res.failedCount ? `Failed: ${res.failedCount}` : "")
-      );
+      if (createdCount <= 0) {
+        if (duplicateCount > 0) {
+          alert(
+            `No new questions were uploaded. ${duplicateCount} duplicate question${duplicateCount === 1 ? " was" : "s were"} skipped.` +
+              (receivedCount ? `\nRows processed: ${receivedCount}` : "")
+          );
+        } else {
+          throw new Error(res?.message || "No questions were uploaded.");
+        }
+      } else {
+        const uploadSummary =
+          questionType === "paragraph" && subQuestionCount > createdCount
+            ? `Uploaded ${createdCount} paragraph question(s) with ${subQuestionCount} sub-question(s)\n`
+            : questionType === "image_subquestions"
+            ? `Uploaded ${createdCount} image question(s) with ${subQuestionCount} sub-question(s)\n`
+            : `Uploaded ${createdCount} questions\n`;
+
+        alert(
+          uploadSummary +
+            (receivedCount ? `Rows processed: ${receivedCount}\n` : "") +
+            (duplicateCount ? `Duplicates skipped: ${duplicateCount}\n` : "") +
+            (failedCount ? `Failed: ${failedCount}` : "")
+        );
+      }
 
       console.table(res.errors || []);
       await loadTopics(selectedClass || undefined, selectedSubject || undefined);
@@ -694,7 +682,10 @@ export default function CreateQuestionPage() {
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Large spreadsheets are split into batches automatically, so you can import as many rows as needed.
+                        Use the same column names as the template file. classId, subjectId, type, text, optionA-optionD, and correctAnswer are required; optionE is optional.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        The full Excel payload is sent in one bulk request.
                       </p>
                     </>
                   ) : (
@@ -737,7 +728,7 @@ export default function CreateQuestionPage() {
                         </p>
                         <p>
                           Required paragraph-level values per group: classId, subjectId, question_type,
-                          instruction_text, paragraph. Sub-question fields stay row-wise.
+                          instruction_text, paragraph. Sub-question fields stay row-wise. optionE is optional.
                         </p>
                       </div>
 
@@ -764,7 +755,7 @@ export default function CreateQuestionPage() {
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Large spreadsheets are split into batches automatically, so you can import as many rows as needed.
+                        The full Excel payload is sent in one bulk request.
                       </p>
                     </>
                   ) : (

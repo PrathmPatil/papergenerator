@@ -80,6 +80,24 @@ const normalizeSubjectId = (value = "") => {
   return normalized || raw;
 };
 
+const normalizeClassId = (value = "") => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const numericMatch = normalized.match(/^(?:class)?(\d{1,2})(?:st|nd|rd|th)?$/);
+
+  if (numericMatch) {
+    return `class_${Number(numericMatch[1])}`;
+  }
+
+  if (normalized === "jkg" || normalized === "skg") {
+    return normalized;
+  }
+
+  return normalized || raw;
+};
+
 export const normalizeQuestionPayload = (req, res, next) => {
   try {
     if (!req.body.payload) {
@@ -152,7 +170,7 @@ export const normalizeQuestionPayload = (req, res, next) => {
       media,
       options,
       correctAnswer,
-      classId: payload.classId || "",
+      classId: normalizeClassId(payload.classId),
       subjectId: normalizeSubjectId(payload.subjectId), // Normalize subject ID
       topicId: payload.topicId || "",
       topicName: payload.topicName || "",
