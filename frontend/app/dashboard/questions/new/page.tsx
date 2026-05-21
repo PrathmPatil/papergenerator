@@ -366,6 +366,11 @@ export default function CreateQuestionPage() {
       if (success !== true) {
         throw new Error(res?.message || res?.error || "Failed to create question");
       }
+      if (res?.duplicate) {
+        alert("Question already exists. Uploaded: 0, Skipped: 1");
+        return;
+      }
+      alert("Question uploaded successfully. Uploaded: 1, Skipped: 0");
       router.refresh();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Something went wrong");
@@ -429,14 +434,15 @@ export default function CreateQuestionPage() {
 
       const createdCount = resolveCount(res, "createdCount");
       const duplicateCount = resolveCount(res, "duplicateCount");
+      const skippedCount = resolveCount(res, "skippedCount") || duplicateCount;
       const failedCount = resolveCount(res, "failedCount");
       const subQuestionCount = resolveCount(res, "subQuestionCount");
       const receivedCount = resolveCount(res, "receivedCount");
 
       if (createdCount <= 0) {
-        if (duplicateCount > 0) {
+        if (skippedCount > 0) {
           alert(
-            `No new questions were uploaded. ${duplicateCount} duplicate question${duplicateCount === 1 ? " was" : "s were"} skipped.` +
+            `Uploaded: 0\nSkipped: ${skippedCount}` +
               (receivedCount ? `\nRows processed: ${receivedCount}` : "")
           );
         } else {
@@ -452,8 +458,8 @@ export default function CreateQuestionPage() {
 
         alert(
           uploadSummary +
+            `Skipped: ${skippedCount}\n` +
             (receivedCount ? `Rows processed: ${receivedCount}\n` : "") +
-            (duplicateCount ? `Duplicates skipped: ${duplicateCount}\n` : "") +
             (failedCount ? `Failed: ${failedCount}` : "")
         );
       }

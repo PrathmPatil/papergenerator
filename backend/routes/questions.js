@@ -323,26 +323,6 @@ const filterDuplicateQuestions = async (questions = []) => {
   return { uniqueQuestions, duplicateQuestions };
 };
 
-const filterDuplicateQuestionsBatchOnly = (questions = []) => {
-  const uniqueQuestions = [];
-  const duplicateQuestions = [];
-  const seenBatchFingerprints = new Set();
-
-  for (const question of questions) {
-    const fingerprint = buildQuestionDuplicateFingerprint(question);
-
-    if (seenBatchFingerprints.has(fingerprint)) {
-      duplicateQuestions.push(question);
-      continue;
-    }
-
-    seenBatchFingerprints.add(fingerprint);
-    uniqueQuestions.push(question);
-  }
-
-  return { uniqueQuestions, duplicateQuestions };
-};
-
 const resolveInsertedCount = (insertResult, fallback = 0) => {
   if (Array.isArray(insertResult)) {
     return insertResult.length;
@@ -551,6 +531,9 @@ router.post(
           success: true,
           duplicate: true,
           message: "Question already exists with the same fields",
+          createdCount: 0,
+          duplicateCount: 1,
+          skippedCount: 1,
           question: existingDuplicate,
         });
       }
@@ -689,14 +672,7 @@ router.post("/create-bulk-upload", async (req, res) => {
       })
     );
 
-    let { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(prepared);
-
-    // If DB-level duplicate matching flags everything as duplicate, retry with batch-only dedupe.
-    if (prepared.length > 0 && uniqueQuestions.length === 0) {
-      const batchOnly = filterDuplicateQuestionsBatchOnly(prepared);
-      uniqueQuestions = batchOnly.uniqueQuestions;
-      duplicateQuestions = batchOnly.duplicateQuestions;
-    }
+    const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(prepared);
 
     const inserted = uniqueQuestions.length
       ? await Question.insertMany(uniqueQuestions)
@@ -1468,13 +1444,7 @@ router.post(
           })
         );
 
-        let { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(groupedQuestions);
-
-        if (groupedQuestions.length > 0 && uniqueQuestions.length === 0) {
-          const batchOnly = filterDuplicateQuestionsBatchOnly(groupedQuestions);
-          uniqueQuestions = batchOnly.uniqueQuestions;
-          duplicateQuestions = batchOnly.duplicateQuestions;
-        }
+        const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(groupedQuestions);
 
         const inserted = uniqueQuestions.length
           ? await Question.insertMany(uniqueQuestions)
@@ -1521,13 +1491,7 @@ router.post(
         });
       }
 
-      let { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(questions);
-
-      if (questions.length > 0 && uniqueQuestions.length === 0) {
-        const batchOnly = filterDuplicateQuestionsBatchOnly(questions);
-        uniqueQuestions = batchOnly.uniqueQuestions;
-        duplicateQuestions = batchOnly.duplicateQuestions;
-      }
+      const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(questions);
 
       const inserted = uniqueQuestions.length
         ? await Question.insertMany(uniqueQuestions)
