@@ -8,6 +8,8 @@ export interface ApiRequest<T = any> {
   params?: Record<string, any>;
   headers?: Record<string, string>;
   isFormData?: boolean;
+  timeout?: number;
+  responseType?: AxiosRequestConfig["responseType"];
 }
 
 export async function apiClient<TResponse = any, TRequest = any>({
@@ -17,6 +19,8 @@ export async function apiClient<TResponse = any, TRequest = any>({
   params,
   headers = {},
   isFormData = false,
+  timeout,
+  responseType,
 }: ApiRequest<TRequest>): Promise<{
   success: boolean;
   message: string;
@@ -34,6 +38,8 @@ export async function apiClient<TResponse = any, TRequest = any>({
       method,
       data,
       params,
+      timeout,
+      responseType,
       headers: {
         ...(token && { Authorization: `Bearer ${token}` }),
         ...(isFormData ? {} : { "Content-Type": "application/json" }),
@@ -57,6 +63,13 @@ export async function apiClient<TResponse = any, TRequest = any>({
 
     // 🔥 Network error
     if (err.request) {
+      if (err.code === "ECONNABORTED") {
+        return {
+          success: false,
+          message: "Upload is taking longer than expected. Please try again with fewer rows or contact support if it keeps happening.",
+        };
+      }
+
       return {
         success: false,
         message: "Network error. Please check your internet connection.",

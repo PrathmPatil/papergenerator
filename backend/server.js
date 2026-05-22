@@ -21,8 +21,9 @@ const app = express();
 app.set("trust proxy", 1);
 
 // ⭐ REQUIRED for form-data + JSON
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+const requestBodyLimit = process.env.REQUEST_BODY_LIMIT || "100mb";
+app.use(express.json({ limit: requestBodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: requestBodyLimit }));
 
 app.use(cors());
 app.use("/uploads", express.static("uploads"));
@@ -46,6 +47,17 @@ app.use("/api/topics", verifyToken, topicRoutes);
 app.use("/api/papers",verifyToken, paperRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/setting",userSettingRoutes)
+
+app.use((err, req, res, next) => {
+  if (err?.type === "entity.too.large") {
+    return res.status(413).json({
+      success: false,
+      message: `Upload is too large. Current request body limit is ${requestBodyLimit}.`,
+    });
+  }
+
+  return next(err);
+});
 
 app.post("/ping", (req, res) => {
   console.log("🔥 PING HIT");

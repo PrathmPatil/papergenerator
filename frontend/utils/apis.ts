@@ -1,6 +1,8 @@
 import { IQuestion } from "@/app/dashboard/questions/page";
 import { apiClient } from "./apiClient";
 
+const BULK_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+
 // http://localhost:5000/api/hello
 export const helloApi = async () => {
   const response = await apiClient({
@@ -106,6 +108,7 @@ export const createBulkQuestionsApi = async (payload: any, isFormData: boolean =
     method: "POST",
     data: payload,
     isFormData: isFormData,
+    timeout: BULK_UPLOAD_TIMEOUT_MS,
   });
   return response;
 };
@@ -117,6 +120,7 @@ export const bulkImageUploadApi = async (payload: FormData) => {
     method: "POST",
     data: payload,
     isFormData: true,
+    timeout: BULK_UPLOAD_TIMEOUT_MS,
   });
   return response;
 };
@@ -131,6 +135,7 @@ export const bulkImageUploadWithTypeApi = async (
     method: "POST",
     data: payload,
     isFormData: true,
+    timeout: BULK_UPLOAD_TIMEOUT_MS,
   });
   return response;
 };

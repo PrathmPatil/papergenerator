@@ -165,6 +165,11 @@ const normalizeQuestionType = (value: unknown, fallback = "mcq_text") => {
     mcqimage: "mcq_image",
     imagemcq: "mcq_image",
     shortanswer: "short_answer",
+    descriptive: "short_answer",
+    descriptiveanswer: "short_answer",
+    desc: "short_answer",
+    longanswer: "short_answer",
+    essay: "short_answer",
     truefalse: "true_false",
     matching: "matching",
   };
@@ -257,13 +262,25 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
     const normalizedType = normalizeQuestionType(type || questionType);
     const questionBody = text || questionText || "";
     const normalizedCorrectAnswer = normalizeCorrectAnswer(correctAnswer);
+    const freeTextCorrectAnswer = String(correctAnswer || "").trim();
 
     if (!normalizedClassId || !normalizedSubjectId || !normalizedType || !questionBody) {
       throw new Error(`Missing required fields at row ${index + 1}`);
     }
 
-    if (!(["A", "B", "C", "D", "E"] as const).includes(normalizedCorrectAnswer as any)) {
-      throw new Error(`Invalid correctAnswer at row ${index + 1}`);
+    if (normalizedType === "short_answer") {
+      return {
+        classId: normalizedClassId,
+        subjectId: normalizedSubjectId,
+        topicId: topicId || normalizedRow.topicName || "",
+        type: normalizedType,
+        difficulty: normalizeDifficulty(difficulty),
+        marks: Number(marks) || 1,
+        negativeMarks: Number(negativeMarks) || 0,
+        text: questionBody,
+        options: [],
+        correctAnswer: freeTextCorrectAnswer,
+      };
     }
 
     const options = [
@@ -279,6 +296,13 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
         text: opt.text as string,
         isCorrect: opt.id === normalizedCorrectAnswer,
       }));
+
+    if (
+      normalizedType === "mcq_text" &&
+      !(["A", "B", "C", "D", "E"] as const).includes(normalizedCorrectAnswer as any)
+    ) {
+      throw new Error(`Invalid correctAnswer at row ${index + 1}`);
+    }
 
     if (options.length < 2) {
       throw new Error(`At least 2 options required at row ${index + 1}`);

@@ -77,7 +77,7 @@ router.post("/test", (req, res) => {
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 25 * 1024 * 1024,
+    fileSize: Number(process.env.UPLOAD_FILE_SIZE_LIMIT_MB || 100) * 1024 * 1024,
   },
 });
 
@@ -301,6 +301,40 @@ const filterDuplicateQuestions = async (questions = []) => {
   const uniqueQuestions = [];
   const duplicateQuestions = [];
   const seenBatchFingerprints = new Set();
+  const candidateCache = new Map();
+
+  const getCandidateCacheKey = (question = {}) =>
+    [
+      question.classId || "",
+      question.subjectId || "",
+      question.topicId || "__empty__",
+      question.type || "",
+    ].join("|");
+
+  const getExistingCandidates = async (question = {}) => {
+    const cacheKey = getCandidateCacheKey(question);
+    if (candidateCache.has(cacheKey)) {
+      return candidateCache.get(cacheKey);
+    }
+
+    const topicId = question.topicId || "";
+    const topicFilter = topicId ? topicId : { $in: ["", null] };
+    const candidates = await Question.find({
+      classId: question.classId,
+      subjectId: question.subjectId,
+      topicId: topicFilter,
+      type: question.type,
+      isDeleted: { $ne: true },
+    }).lean();
+
+    const fingerprints = new Map();
+    candidates.forEach((candidate) => {
+      fingerprints.set(buildQuestionDuplicateFingerprint(candidate), candidate);
+    });
+
+    candidateCache.set(cacheKey, fingerprints);
+    return fingerprints;
+  };
 
   for (const question of questions) {
     const fingerprint = buildQuestionDuplicateFingerprint(question);
@@ -310,7 +344,8 @@ const filterDuplicateQuestions = async (questions = []) => {
       continue;
     }
 
-    const existingDuplicate = await findDuplicateQuestion(question);
+    const existingCandidates = await getExistingCandidates(question);
+    const existingDuplicate = existingCandidates.get(fingerprint);
     if (existingDuplicate) {
       duplicateQuestions.push({ ...question, duplicateOf: existingDuplicate._id?.toString() });
       continue;
@@ -321,6 +356,25 @@ const filterDuplicateQuestions = async (questions = []) => {
   }
 
   return { uniqueQuestions, duplicateQuestions };
+};
+
+const chunkArray = (items = [], size = 500) => {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+};
+
+const insertQuestionsInChunks = async (questions = [], chunkSize = 500) => {
+  const insertedDocs = [];
+
+  for (const chunk of chunkArray(questions, chunkSize)) {
+    const inserted = await Question.insertMany(chunk, { ordered: false });
+    insertedDocs.push(...inserted);
+  }
+
+  return insertedDocs;
 };
 
 const resolveInsertedCount = (insertResult, fallback = 0) => {
@@ -418,6 +472,11 @@ const normalizeQuestionType = (value, fallback = "mcq_text") => {
     imagewithsubquestions: "image_subquestions",
     imagesubquestions: "image_subquestions",
     shortanswer: "short_answer",
+    descriptive: "short_answer",
+    descriptiveanswer: "short_answer",
+    desc: "short_answer",
+    longanswer: "short_answer",
+    essay: "short_answer",
     truefalse: "true_false",
     matching: "matching",
   };
@@ -611,8 +670,12 @@ router.post("/create-bulk-upload", async (req, res) => {
           String(row.text || row.questionText || row.question || "").trim();
         const normalizedType = normalizeQuestionType(row.type || row.questionType || row.question_type);
         const correctAnswer = normalizeCorrectAnswer(row.correctAnswer);
+        const freeTextCorrectAnswer = String(row.correctAnswer || "").trim();
+        const isMcqText = normalizedType === "mcq_text";
 
-        const inferredOptions = Array.isArray(row.options)
+        const inferredOptions = !isMcqText
+          ? []
+          : Array.isArray(row.options)
           ? row.options.map((option) => ({
               ...option,
               id: String(option.id || "").trim().toUpperCase(),
@@ -653,8 +716,8 @@ router.post("/create-bulk-upload", async (req, res) => {
           type: normalizedType,
           difficulty: normalizeDifficulty(row.difficulty),
           text: normalizedText,
-          options: inferredOptions,
-          correctAnswer,
+          options: isMcqText ? inferredOptions : [],
+          correctAnswer: isMcqText ? correctAnswer : freeTextCorrectAnswer,
           topicId: await normalizeTopic(
             classId,
             subjectId,
@@ -675,7 +738,7 @@ router.post("/create-bulk-upload", async (req, res) => {
     const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(prepared);
 
     const inserted = uniqueQuestions.length
-      ? await Question.insertMany(uniqueQuestions)
+      ? await insertQuestionsInChunks(uniqueQuestions)
       : [];
     const createdCount = resolveInsertedCount(inserted, 0);
     const insertedDocs = inserted;
@@ -1447,7 +1510,7 @@ router.post(
         const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(groupedQuestions);
 
         const inserted = uniqueQuestions.length
-          ? await Question.insertMany(uniqueQuestions)
+          ? await insertQuestionsInChunks(uniqueQuestions)
           : [];
         const createdCount = resolveInsertedCount(inserted, 0);
         const insertedDocs = inserted;
@@ -1494,7 +1557,7 @@ router.post(
       const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(questions);
 
       const inserted = uniqueQuestions.length
-        ? await Question.insertMany(uniqueQuestions)
+        ? await insertQuestionsInChunks(uniqueQuestions)
         : [];
       const createdCount = resolveInsertedCount(inserted, 0);
       const insertedDocs = inserted;
