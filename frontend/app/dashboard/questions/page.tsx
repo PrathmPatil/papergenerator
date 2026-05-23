@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -183,6 +184,8 @@ export default function QuestionBankPage() {
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [editQuestionOpen, setEditQuestionOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<IQuestion | null>(null);
+  const [editQuestionText, setEditQuestionText] = useState("");
+  const [editOptions, setEditOptions] = useState<IOption[]>([]);
   const [editMarks, setEditMarks] = useState<string>("");
   const [editDifficulty, setEditDifficulty] = useState<DifficultyLevel>("easy");
   const [isUpdatingSingle, setIsUpdatingSingle] = useState(false);
@@ -374,9 +377,38 @@ export default function QuestionBankPage() {
 
   const handleOpenEditModal = (q: IQuestion) => {
     setEditingQuestion(q);
+    setEditQuestionText(String(q.text ?? ""));
+    setEditOptions(
+      Array.isArray(q.options)
+        ? q.options.map((option, index) => ({
+            ...option,
+            id: option.id || String.fromCharCode(65 + index),
+            text: option.text || "",
+            mediaUrl: option.mediaUrl || "",
+            isCorrect: Boolean(option.isCorrect),
+          }))
+        : []
+    );
     setEditMarks(String(q.marks ?? ""));
     setEditDifficulty((q.difficulty as DifficultyLevel) || "easy");
     setEditQuestionOpen(true);
+  };
+
+  const handleEditOptionTextChange = (optionIndex: number, text: string) => {
+    setEditOptions((prev) =>
+      prev.map((option, index) =>
+        index === optionIndex ? { ...option, text } : option
+      )
+    );
+  };
+
+  const handleEditCorrectOptionChange = (optionIndex: number) => {
+    setEditOptions((prev) =>
+      prev.map((option, index) => ({
+        ...option,
+        isCorrect: index === optionIndex,
+      }))
+    );
   };
 
   const handleUpdateSingleQuestion = async () => {
@@ -391,9 +423,44 @@ export default function QuestionBankPage() {
       return;
     }
 
+    const trimmedQuestionText = editQuestionText.trim();
+    if (!trimmedQuestionText) {
+      alert("Question text is required.");
+      return;
+    }
+
+    const shouldUpdateOptions = editOptions.length > 0;
+    const normalizedOptions = editOptions.map((option, index) => ({
+      id: option.id || String.fromCharCode(65 + index),
+      text: String(option.text || "").trim(),
+      mediaUrl: option.mediaUrl || "",
+      isCorrect: Boolean(option.isCorrect),
+    }));
+
+    if (
+      shouldUpdateOptions &&
+      normalizedOptions.some((option) => !option.text && !option.mediaUrl)
+    ) {
+      alert("Each option must have text or an image.");
+      return;
+    }
+
+    const selectedCorrectOption = normalizedOptions.find((option) => option.isCorrect);
+    if (shouldUpdateOptions && !selectedCorrectOption) {
+      alert("Please select the correct option.");
+      return;
+    }
+
     try {
       setIsUpdatingSingle(true);
       const res: any = await updateQuestionApi(editingQuestion._id, {
+        text: trimmedQuestionText,
+        ...(shouldUpdateOptions
+          ? {
+              options: normalizedOptions,
+              correctAnswer: selectedCorrectOption?.id,
+            }
+          : {}),
         marks: parsedMarks,
         difficulty: editDifficulty,
       });
@@ -406,7 +473,18 @@ export default function QuestionBankPage() {
       setQuestions((prev) =>
         prev.map((q) =>
           q._id === editingQuestion._id
-            ? { ...q, marks: parsedMarks, difficulty: editDifficulty }
+            ? {
+                ...q,
+                text: trimmedQuestionText,
+                ...(shouldUpdateOptions
+                  ? {
+                      options: normalizedOptions,
+                      correctAnswer: selectedCorrectOption?.id,
+                    }
+                  : {}),
+                marks: parsedMarks,
+                difficulty: editDifficulty,
+              }
             : q
         )
       );
@@ -1154,11 +1232,51 @@ export default function QuestionBankPage() {
           <DialogHeader>
             <DialogTitle>Edit Question</DialogTitle>
             <DialogDescription>
-              Edit marks and difficulty for selected question.
+              Edit question text, marks, and difficulty for selected question.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Question Text</label>
+              <Textarea
+                value={editQuestionText}
+                onChange={(e) => setEditQuestionText(e.target.value)}
+                placeholder="Enter question text"
+                className="min-h-[120px]"
+              />
+            </div>
+
+            {editOptions.length > 0 && (
+              <div className="space-y-3">
+                <label className="text-sm font-medium">Options</label>
+                {editOptions.map((option, index) => (
+                  <div
+                    key={`${option.id || index}-${index}`}
+                    className="grid grid-cols-[auto_1fr] gap-3 items-start"
+                  >
+                    <Checkbox
+                      checked={Boolean(option.isCorrect)}
+                      onCheckedChange={() => handleEditCorrectOptionChange(index)}
+                      aria-label={`Mark option ${option.id || index + 1} as correct`}
+                    />
+                    <div className="space-y-1">
+                      <Input
+                        value={option.text || ""}
+                        onChange={(e) => handleEditOptionTextChange(index, e.target.value)}
+                        placeholder={`Option ${option.id || index + 1}`}
+                      />
+                      {option.mediaUrl && (
+                        <p className="text-xs text-muted-foreground">
+                          Image option preserved
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div>
               <label className="text-sm font-medium">Marks</label>
               <Input

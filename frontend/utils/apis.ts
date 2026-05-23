@@ -197,6 +197,14 @@ export const deleteQuestionApi = async (id: string) => {
 export const updateQuestionApi = async (
   id: string,
   payload: {
+    text?: string;
+    options?: {
+      id?: string;
+      text?: string;
+      mediaUrl?: string;
+      isCorrect?: boolean;
+    }[];
+    correctAnswer?: string;
     marks?: number;
     difficulty?: "easy" | "medium" | "hard";
   }

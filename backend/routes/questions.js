@@ -1069,16 +1069,70 @@ router.post("/", async (req, res) => {
 //   }
 // });
 
-// UPDATE QUESTION META (marks / difficulty)
+// UPDATE QUESTION META (text / options / marks / difficulty)
 router.put("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
     if (id === "bulk-update" || id === "bulk-delete") {
       return next();
     }
-    const { marks, difficulty } = req.body || {};
+    const { text, options, correctAnswer, marks, difficulty } = req.body || {};
 
     const update = {};
+
+    if (text !== undefined) {
+      const normalizedText = String(text).trim();
+      if (!normalizedText) {
+        return res.status(400).json({
+          success: false,
+          message: "question text is required",
+        });
+      }
+      update.text = normalizedText;
+    }
+
+    if (options !== undefined) {
+      if (!Array.isArray(options)) {
+        return res.status(400).json({
+          success: false,
+          message: "options must be an array",
+        });
+      }
+
+      const normalizedOptions = options.map((option, index) => ({
+        id: String(option?.id || String.fromCharCode(65 + index)).trim().toUpperCase(),
+        text: String(option?.text || "").trim(),
+        mediaUrl: String(option?.mediaUrl || "").trim(),
+        isCorrect: option?.isCorrect === true,
+      }));
+
+      if (normalizedOptions.length > 0 && normalizedOptions.length < 2) {
+        return res.status(400).json({
+          success: false,
+          message: "At least 2 options are required",
+        });
+      }
+
+      if (normalizedOptions.some((option) => !option.text && !option.mediaUrl)) {
+        return res.status(400).json({
+          success: false,
+          message: "Each option must have text or an image",
+        });
+      }
+
+      const correctOptions = normalizedOptions.filter((option) => option.isCorrect);
+      if (normalizedOptions.length > 0 && correctOptions.length !== 1) {
+        return res.status(400).json({
+          success: false,
+          message: "Exactly one correct option is required",
+        });
+      }
+
+      update.options = normalizedOptions;
+      update.correctAnswer = correctOptions[0]?.id;
+    } else if (correctAnswer !== undefined) {
+      update.correctAnswer = String(correctAnswer || "").trim();
+    }
 
     if (marks !== undefined) {
       const parsedMarks = Number(marks);
@@ -1105,7 +1159,7 @@ router.put("/:id", async (req, res, next) => {
     if (Object.keys(update).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Nothing to update. Provide marks and/or difficulty",
+        message: "Nothing to update. Provide text, options, marks, and/or difficulty",
       });
     }
 
