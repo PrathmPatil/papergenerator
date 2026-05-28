@@ -27,6 +27,9 @@ dist
 build
 node_modules
 .next
+*.tsbuildinfo
+tsc-output.txt
+tsc-quick-output.txt
 .env.local
 .env.test.local
 .env.development.local

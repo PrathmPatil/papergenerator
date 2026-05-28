@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { useUser } from "@/lib/user-context";
 import { RECENT_PAPERS } from "@/lib/mock-data";
 import { dateConverterUTC } from "@/hooks/common";
-import { toast } from "@/hooks/use-toast";
 
 import {
   FileText,
@@ -25,7 +24,7 @@ import {
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { fetchAllPapersApi } from "@/utils/apis";
 import { FullScreenLoading } from "@/components/loading";
@@ -36,6 +35,7 @@ export default function Dashboard() {
   const [papers, setPapers] = useState<any[]>([]);
   const [count, setCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const fetchedForUserRef = useRef<string | null>(null);
 
   const handlePaperClick = (paperId: string) => {
     router.push(`/dashboard/papers/${paperId}`);
@@ -43,6 +43,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user) return;
+    if (fetchedForUserRef.current === user.id) return;
+    fetchedForUserRef.current = user.id;
 
     const fetchPapers = async () => {
       try {
@@ -50,16 +52,11 @@ export default function Dashboard() {
 
         const res = await fetchAllPapersApi(query);
 
-        const { success, papers, message, count } = res;
-        console.log(res)
+        const { success, papers, count } = res;
 
         if (success) {
           setPapers(papers || []);
           setCount(count);
-          toast({
-            title: "Success",
-            description: message,
-          });
         }
       } catch (error) {
         console.error("Failed to fetch papers:", error);

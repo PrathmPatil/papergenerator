@@ -204,6 +204,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     async function updateTheme() {
+      if (!user?.id) return;
+
       try {
         const res = await updateThemeApi(user?.id || "", {theme});
         console.log(res);
@@ -218,7 +220,7 @@ export default function SettingsPage() {
     }
 
     updateTheme();
-  },[theme])
+  },[theme, user?.id])
 
   useEffect(() => {
     if (user) {

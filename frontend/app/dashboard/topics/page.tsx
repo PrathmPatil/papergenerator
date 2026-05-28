@@ -31,6 +31,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { CLASSES, getClassNameById, getSubjectNameById, SUBJECTS } from "@/lib/data";
 import { createTopicApi, deleteTopicApi, fetchTopicsApi, updateTopicApi } from "@/utils/apis";
+import { showConfirm, showInfo } from "@/components/app-dialog-provider";
 
 type TopicRow = {
   _id?: string;
@@ -128,7 +129,10 @@ export default function TopicsPage() {
 
       const exportTopics: TopicRow[] = Array.isArray(res?.topics) ? res.topics : topics;
       if (exportTopics.length === 0) {
-        alert("No topics found for the selected filters.");
+        showInfo({
+          title: "No topics found",
+          description: "No topics match the selected filters.",
+        });
         return;
       }
 
@@ -279,7 +283,11 @@ export default function TopicsPage() {
       pdf.save(`topics-${safeName || "report"}.pdf`);
     } catch (error) {
       console.error("Topics PDF export failed", error);
-      alert("Failed to download PDF. Please try again.");
+      showInfo({
+        title: "PDF download failed",
+        description: "Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsDownloadingPdf(false);
     }
@@ -383,7 +391,12 @@ export default function TopicsPage() {
     const id = topic._id || topic.id;
     if (!id) return;
 
-    const confirmed = window.confirm(`Delete topic "${topic.name}"?`);
+    const confirmed = await showConfirm({
+      title: "Delete topic?",
+      description: `Delete topic "${topic.name}"? This cannot be undone.`,
+      confirmText: "Delete",
+      variant: "destructive",
+    });
     if (!confirmed) return;
 
     try {

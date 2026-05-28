@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { useUser } from "@/lib/user-context"
 import { loginUserApi } from "@/utils/apis"
+import { AppFooter } from "@/components/app-footer"
 
 interface FormErrors {
   email?: string
@@ -100,56 +101,64 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-center text-2xl">Login</CardTitle>
-        </CardHeader>
+    <div className="flex min-h-screen flex-col bg-muted/30">
+      <div className="flex flex-1 items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="items-center gap-3">
+            <img
+              src="/app-icon.png"
+              alt="PaperGenerator"
+              className="h-16 w-16 rounded-2xl object-cover shadow-sm"
+            />
+            <CardTitle className="text-center text-2xl">Login</CardTitle>
+          </CardHeader>
 
-        <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="flex flex-col gap-1">
-              <Label>Email</Label>
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value)
-                  setErrors((prev) => ({ ...prev, email: undefined }))
-                }}
-                placeholder="john@example.com"
-              />
-              {errors.email && (
-                <p className="text-sm text-red-500">{errors.email}</p>
+          <CardContent>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="flex flex-col gap-1">
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value)
+                    setErrors((prev) => ({ ...prev, email: undefined }))
+                  }}
+                  placeholder="john@example.com"
+                />
+                {errors.email && (
+                  <p className="text-sm text-red-500">{errors.email}</p>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <Label>Password</Label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    setErrors((prev) => ({ ...prev, password: undefined }))
+                  }}
+                  placeholder="••••••••"
+                />
+                {errors.password && (
+                  <p className="text-sm text-red-500">{errors.password}</p>
+                )}
+              </div>
+
+              {errors.general && (
+                <p className="text-sm text-red-500">{errors.general}</p>
               )}
-            </div>
 
-            <div className="flex flex-col gap-1">
-              <Label>Password</Label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value)
-                  setErrors((prev) => ({ ...prev, password: undefined }))
-                }}
-                placeholder="••••••••"
-              />
-              {errors.password && (
-                <p className="text-sm text-red-500">{errors.password}</p>
-              )}
-            </div>
-
-            {errors.general && (
-              <p className="text-sm text-red-500">{errors.general}</p>
-            )}
-
-            <Button className="w-full" disabled={loading}>
-              {loading ? "Logging in..." : "Login"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+              <Button className="w-full" disabled={loading}>
+                {loading ? "Logging in..." : "Login"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+      <AppFooter />
     </div>
   )
 }

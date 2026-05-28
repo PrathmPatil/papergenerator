@@ -50,6 +50,7 @@ import { fetchAllPapersApi, deletePaperApi } from "@/utils/apis";
 
 import { CLASSES, getClassNameById } from "@/lib/data";
 import { debounce } from "@/hooks/common";
+import { showInfo } from "@/components/app-dialog-provider";
 
 /* ================= TYPES ================= */
 
@@ -137,7 +138,11 @@ export default function PaperBankPage() {
     setDeletingId(null);
   } catch (e) {
     console.error(e);
-    alert("Failed to delete paper");
+    showInfo({
+      title: "Delete failed",
+      description: "Failed to delete paper. Please try again.",
+      variant: "destructive",
+    });
   }
 };
 

@@ -7,6 +7,7 @@ import { Providers } from "./providers";
 import { ToastProvider } from "@/components/ui/toast";
 import { Teachers } from "./teacher";
 import { Toaster } from "@/components/ui/toaster";
+import { AppDialogProvider } from "@/components/app-dialog-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,22 +20,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PG App",
-  description: "Created with Swami Infotech",
-  generator: "PG.app",
+  title: "PaperGenerator",
+  description: "PaperGenerator, powered by Swami Infotech",
+  generator: "Swami Infotech",
   icons: {
     icon: [
       {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
+        url: "/app-icon.png",
+        type: "image/png",
       },
     ],
     apple: "/apple-icon.png",
@@ -52,7 +45,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ToastProvider>
-          <Providers>{children}</Providers>
+          <AppDialogProvider>
+            <Providers>{children}</Providers>
+          </AppDialogProvider>
           <Analytics />
         </ToastProvider>
         <Toaster />

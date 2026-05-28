@@ -1,26 +1,42 @@
 import express from "express";
-import { verifyToken } from "../middleware/tokenVerification.middleware.js";
+import { authorizeUser, verifyToken } from "../middleware/tokenVerification.middleware.js";
 import User from "../models/User.js";
 import UserSetting from "../models/UserSetting.js";
 
 const router = express.Router();
 
-router.get("/:userId/settings", verifyToken, async (req, res) => {
+router.get("/:userId/settings", verifyToken, authorizeUser, async (req, res) => {
   try {
+    const user = await User.findById(req.params.userId).select("-password");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-    const user = await User.findById(req.params.userId);
-    res.json({ success: true, data: user });
+    const settings = await UserSetting.findOne({ userId: req.params.userId });
+    res.json({ success: true, data: { user, settings } });
   } catch (err) {
     res.status(403).json({ success: false, message: err.message });
   }
 });
 
-router.put("/:userId/notifications", verifyToken, async (req, res) => {
+router.put("/:userId/notifications", verifyToken, authorizeUser, async (req, res) => {
   try {
+    const existing = await UserSetting.findOne({ userId: req.params.userId });
+    const notifications = {
+      ...(existing?.notifications?.toObject?.() || {}),
+      ...req.body,
+    };
 
-    await UserSetting.findByIdAndUpdate(req.params.userId, {
-      notifications: req.body,
-    });
+    await UserSetting.findOneAndUpdate(
+      { userId: req.params.userId },
+      {
+        $set: {
+          userId: req.params.userId,
+          notifications,
+        },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
 
     res.json({ success: true, message: "Notifications updated" });
   } catch (err) {
@@ -29,12 +45,26 @@ router.put("/:userId/notifications", verifyToken, async (req, res) => {
 });
 
 
-router.put("/:userId/theme", verifyToken, async (req, res) => {
+router.put("/:userId/theme", verifyToken, authorizeUser, async (req, res) => {
   try {
+    const theme = String(req.body.theme || "").toLowerCase();
+    if (!["light", "dark", "auto"].includes(theme)) {
+      return res.status(400).json({
+        success: false,
+        message: "Theme must be one of light, dark, auto",
+      });
+    }
 
-    await UserSetting.findByIdAndUpdate(req.params.userId, {
-      theme: req.body.theme,
-    });
+    await UserSetting.findOneAndUpdate(
+      { userId: req.params.userId },
+      {
+        $set: {
+          userId: req.params.userId,
+          theme,
+        },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
 
     res.json({ success: true, message: "Theme updated" });
   } catch (err) {

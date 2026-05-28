@@ -3,7 +3,7 @@ import express from "express";
 const router = express.Router();
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { verifyAdmin, verifyToken } from "../middleware/tokenVerification.middleware.js";
+import { authorizeUser, verifyAdmin, verifyToken } from "../middleware/tokenVerification.middleware.js";
 
 const normalizeRole = (role) => {
   const value = String(role || "").trim().toLowerCase();
@@ -49,6 +49,13 @@ router.post("/register",verifyToken, async (req, res) => {
       return res.status(403).json({
         success: false,
         message: "You are not allowed to create this role",
+      });
+    }
+
+    if (!password || String(password).length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters",
       });
     }
 
@@ -144,7 +151,15 @@ router.post("/login", async (req, res) => {
         message: "Invalid email or password",
       });
     }
-    console.log(process.env.JWT_SECRET)
+
+    if (!process.env.JWT_SECRET) {
+      console.error("JWT_SECRET is not configured");
+      return res.status(500).json({
+        success: false,
+        message: "Authentication is not configured",
+      });
+    }
+
     // send the token 
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -380,10 +395,10 @@ router.put("/:id/is-deleted", verifyToken, async (req, res) => {
 });
 
 
-router.put("/:userId/profile", verifyToken, async (req, res) => {
+router.put("/:userId/profile", verifyToken, authorizeUser, async (req, res) => {
   try {
 
-    const { name, email, phone, institution } = req.body;
+    const { name, phone, institution } = req.body;
 
     await User.findByIdAndUpdate(req.params.userId, {
       phone,
@@ -398,7 +413,7 @@ router.put("/:userId/profile", verifyToken, async (req, res) => {
 });
 
 // get profile
-router.get("/profile/:id",verifyToken, async (req, res) => {
+router.get("/profile/:id", verifyToken, authorizeUser, async (req, res) => {
   const { id } = req.params;
   try {
     const user = await User.findById(id).select("-password");
@@ -418,16 +433,26 @@ router.get("/profile/:id",verifyToken, async (req, res) => {
 });
 
 
-router.put("/:userId/password", verifyToken, async (req, res) => {
+router.put("/:userId/password", verifyToken, authorizeUser, async (req, res) => {
   try {
 
     const { currentPassword, newPassword } = req.body;
 
     const user = await User.findById(req.params.userId).select("+password");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (!newPassword || String(newPassword).length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 8 characters",
+      });
+    }
 
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: "Incorrect current password" });
+      return res.status(400).json({ success: false, message: "Incorrect current password" });
     }
 
     user.password = await bcrypt.hash(newPassword, 10);

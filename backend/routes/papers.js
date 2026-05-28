@@ -210,6 +210,7 @@ import Question from "../models/Question.js";
 import PaperTemplate from "../models/PaperTemplate.js";
 import PDFDocument from "pdfkit";
 import Paper from "../models/Paper.js";
+import { requireStaff } from "../middleware/tokenVerification.middleware.js";
 const router = express.Router();
 
 const toLocalUploadPath = (url = "") => {
@@ -423,7 +424,7 @@ const renderPdfSubQuestion = (doc, subQuestion = {}, index = 0) => {
 ====================================
 */
 
-router.post("/generate/manual", async (req, res) => {
+router.post("/generate/manual", requireStaff, async (req, res) => {
   try {
     const { templateId, selectedQuestions, paperId } = req.body;
 
@@ -476,7 +477,7 @@ router.post("/generate/manual", async (req, res) => {
     // EDIT EXISTING PAPER
     // ============================
     if (paperId) {
-      paper = await Paper.findById(paperId);
+      paper = await Paper.findOne({ _id: paperId, isDeleted: false });
       if (!paper) return res.status(404).json({ error: "Paper not found" });
 
       paper.sections = sections;
@@ -513,12 +514,12 @@ router.post("/generate/manual", async (req, res) => {
 });
 
 // update the paper
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
     const { title } = req.body;
 
-    const paper = await Paper.findById(id);
+    const paper = await Paper.findOne({ _id: id, isDeleted: false });
     if (!paper) return res.status(404).json({ error: "Paper not found" });
 
     paper.title = title;
@@ -536,7 +537,7 @@ router.put("/:id", async (req, res) => {
  CREATE PAPER TEMPLATE
 ====================================
 */
-router.post("/template/create", async (req, res) => {
+router.post("/template/create", requireStaff, async (req, res) => {
   try {
     const {
       title,
@@ -593,7 +594,7 @@ router.post("/template/create", async (req, res) => {
   }
 });
 
-router.post("/generate", async (req, res) => {
+router.post("/generate", requireStaff, async (req, res) => {
   try {
     const { templateId } = req.body;
 
@@ -661,7 +662,7 @@ router.get("/edit/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const data = {};
-    const paper = await Paper.findById(id);
+    const paper = await Paper.findOne({ _id: id, isDeleted: false });
 
     if (!paper) {
       return res
@@ -748,7 +749,7 @@ router.post("/", async (req, res) => {
 router.get("/check/:title", async (req, res) => {
   try {
     const { title } = req.params;
-    const paper = await Paper.findOne({ title });
+    const paper = await Paper.findOne({ title, isDeleted: false });
     if (paper)
       return res.json({
         success: false,
@@ -769,11 +770,11 @@ router.get("/check/:title", async (req, res) => {
 
 
 // SOFT DELETE PAPER
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const paper = await Paper.findById(id);
+    const paper = await Paper.findOne({ _id: id, isDeleted: false });
     if (!paper) return res.status(404).json({ success: false, message: "Paper not found" });
 
     // already deleted? (optional)
@@ -785,7 +786,7 @@ router.delete("/:id", async (req, res) => {
     paper.deletedAt = new Date();
 
     // If verifyToken sets req.user, keep this. Otherwise remove safely.
-    if (req.user?._id) paper.deletedBy = req.user._id;
+    if (req.user?.id) paper.deletedBy = req.user.id;
 
     await paper.save();
 
@@ -806,7 +807,7 @@ router.get("/export/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const paperDoc = await Paper.findById(id);
+    const paperDoc = await Paper.findOne({ _id: id, isDeleted: false });
     const paper = await enrichPaperSnapshots(paperDoc);
 
     if (!paper) {
@@ -933,7 +934,7 @@ router.get("/export/:id", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
-    const paperDoc = await Paper.findById(req.params.id);
+    const paperDoc = await Paper.findOne({ _id: req.params.id, isDeleted: false });
     const paper = await enrichPaperSnapshots(paperDoc);
     res.json({ success: true, paper });
   } catch (err) {

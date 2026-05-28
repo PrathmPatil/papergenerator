@@ -40,6 +40,7 @@ import {
 } from "@/utils/apis";
 import dynamic from "next/dynamic";
 import { mapPaperToPreviewConfig } from "@/lib/utils";
+import { showInfo } from "@/components/app-dialog-provider";
 
 
 const PaperPreview = dynamic(
@@ -355,7 +356,7 @@ const totalAllocated = selectedSubjects.reduce(
     if (currentStep === 3) {
       const validationError = validateDistributionBeforeNext();
       if (validationError) {
-        alert(validationError);
+        showInfo({ title: "Validation required", description: validationError, variant: "destructive" });
         return;
       }
 
@@ -598,7 +599,7 @@ const totalAllocated = selectedSubjects.reduce(
       );
       setTopicInputs((prev) => ({ ...prev, [activeSubject]: "" }));
     } catch (error) {
-      alert(
+      showInfo(
         error instanceof Error ? error.message : "Failed to create the topic"
       );
       console.error(error);
@@ -699,11 +700,11 @@ const totalAllocated = selectedSubjects.reduce(
         setFetchedQuestions(res.questions || []);
         setCurrentStep(4);
       } else {
-        alert(res.message || "Failed to fetch questions");
+        showInfo({ title: "Failed to fetch questions", description: res.message || "Failed to fetch questions", variant: "destructive" });
       }
       // buildStepFour(data);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Something went wrong");
+      showInfo({ title: "Something went wrong", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
     } finally {
       setIsGenerating(false);
     }
@@ -713,7 +714,7 @@ const totalAllocated = selectedSubjects.reduce(
 const handleSave = async () => {
   try {
     if (!template?._id) {
-      alert("Template not found!");
+      showInfo({ title: "Template not found", description: "Template not found.", variant: "destructive" });
       return;
     }
 
@@ -748,10 +749,10 @@ const handleSave = async () => {
       return;
     }
 
-    alert("Paper generated, but preview data missing.");
+    showInfo({ title: "Preview unavailable", description: "Paper generated, but preview data is missing.", variant: "destructive" });
   } catch (error) {
     console.error(error);
-    alert("Failed to generate paper");
+    showInfo({ title: "Generation failed", description: "Failed to generate paper.", variant: "destructive" });
   }
 };
 

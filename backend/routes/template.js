@@ -38,8 +38,8 @@
  */
 
 
-import PaperTemplate from "../models/PaperTemplate";
-import Question from "../models/Question";
+import PaperTemplate from "../models/PaperTemplate.js";
+import Question from "../models/Question.js";
 import express from "express";
 const router = express.Router();
 

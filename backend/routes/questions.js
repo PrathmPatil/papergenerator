@@ -65,12 +65,11 @@ import path from "path";
 import Question from "../models/Question.js";
 import Topic from "../models/Topic.js";
 import { normalizeQuestionPayload } from "../middleware/normalizeImageQuestion.middleware.js";
+import { normalizeClassId, normalizeSubjectId } from "../utils/normalization.js";
 import XLSX from "xlsx";
 import unzipper from "unzipper";
 
 router.post("/test", (req, res) => {
-  console.log("🔥 TEST ROUTE HIT");
-  console.log("BODY:", req.body);
   res.json({ message: "OK" });
 });
 
@@ -97,102 +96,6 @@ const detectMimeTypeByFileName = (fileName = "") => {
   };
 
   return mimeByExt[ext] || "application/octet-stream";
-};
-
-const normalizeSubjectId = (value = "") => {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-
-  // Comprehensive mapping of subject names/abbreviations to standard IDs
-  const subjectNameToId = {
-    // Mathematics
-    "mathematics": "maths",
-    "math": "maths",
-    "maths": "maths",
-    "math10": "maths",
-    "maths10": "maths",
-    
-    // Science
-    "science": "science",
-    "science10": "science",
-    "sci": "science",
-    "sci10": "science",
-    
-    // English
-    "english": "english",
-    "english10": "english",
-    "eng": "english",
-    "eng10": "english",
-    
-    // Reasoning
-    "reasoning": "reasoning",
-    "reasoning10": "reasoning",
-    "logical reasoning": "reasoning",
-    "lr": "reasoning",
-    
-    // General Knowledge
-    "gk": "gk",
-    "general knowledge": "gk",
-    "generalknowledge": "gk",
-    
-    // Geography
-    "geography": "geography",
-    "geo": "geography",
-    
-    // History
-    "history": "history",
-    "hist": "history",
-    
-    // Civics
-    "civics": "civics",
-    "civic": "civics",
-    "civicss": "civics",
-    
-    // Physics
-    "physics": "physics",
-    "phys": "physics",
-    "phy": "physics",
-    
-    // Chemistry
-    "chemistry": "chemistry",
-    "chem": "chemistry",
-    
-    // Biology
-    "biology": "biology",
-    "bio": "biology",
-    "biol": "biology",
-  };
-
-  // Normalize: lowercase and remove special characters
-  const normalized = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
-  
-  // First check exact match in subject name mapping
-  if (subjectNameToId[raw.toLowerCase()]) {
-    return subjectNameToId[raw.toLowerCase()];
-  }
-  
-  // Then check normalized version
-  if (subjectNameToId[normalized]) {
-    return subjectNameToId[normalized];
-  }
-  
-  // If no match found, return the normalized key (not raw)
-  // This ensures consistent IDs even for unknown subjects
-  return normalized || raw;
-};
-
-const normalizeClassId = (value = "") => {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-
-  const normalized = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const numericMatch = normalized.match(/^(?:class)?(\d{1,2})(?:st|nd|rd|th)?$/);
-
-  if (numericMatch) {
-    return `class_${Number(numericMatch[1])}`;
-  }
-
-  return normalized || raw;
 };
 
 const bufferToDataUrl = (buffer, mimeType) => {
@@ -1400,16 +1303,24 @@ router.put("/bulk-delete", async (req, res) => {
       });
     }
 
-    const result = await Question.deleteMany(
+    const result = await Question.updateMany(
       {
         _id: { $in: uniqueIds },
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
       },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: req.user?.id || null,
+        },
+      }
     );
 
     return res.json({
       success: true,
       message: "Questions deleted successfully",
-      deletedCount: result.deletedCount,
+      deletedCount: result.modifiedCount,
     });
   } catch (err) {
     return res.status(500).json({
@@ -1423,9 +1334,22 @@ router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await Question.deleteOne({ _id: id });
+    const result = await Question.findOneAndUpdate(
+      {
+        _id: id,
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+      },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: req.user?.id || null,
+        },
+      },
+      { new: true }
+    );
 
-    if (result.deletedCount === 0) {
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: "Question not found",
@@ -1435,7 +1359,7 @@ router.delete("/:id", async (req, res) => {
     return res.json({
       success: true,
       message: "Question deleted successfully",
-      deletedCount: result.deletedCount,
+      deletedCount: 1,
     });
   } catch (err) {
     return res.status(500).json({

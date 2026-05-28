@@ -47,11 +47,32 @@ export const verifyAdmin = (req, res, next) => {
   next();
 };
 
+export const requireRoles = (...allowedRoles) => {
+  const normalizedAllowedRoles = allowedRoles
+    .flat()
+    .map((role) => String(role || "").toLowerCase());
+
+  return (req, res, next) => {
+    const role = String(req.user?.role || "").toLowerCase();
+
+    if (!normalizedAllowedRoles.includes(role)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to perform this action",
+      });
+    }
+
+    next();
+  };
+};
+
+export const requireStaff = requireRoles("master", "administrative", "teacher");
+
 /* =========================
    Authorize Same User OR Admin
 ========================= */
 export const authorizeUser = (req, res, next) => {
-  const { userId } = req.params;
+  const userId = req.params.userId || req.params.id;
   const role = String(req.user?.role || "").toLowerCase();
   const isAdminRole = role === "master" || role === "administrative";
 

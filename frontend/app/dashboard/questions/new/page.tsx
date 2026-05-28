@@ -49,6 +49,7 @@ import {
   downloadFile,
 } from "@/hooks/common";
 import BulkImageMCQUpload from "@/components/question-forms/bulk-image-MCQ-upload";
+import { showInfo } from "@/components/app-dialog-provider";
 
 /* ------------------------------------------------------------------ */
 /* Types */
@@ -164,7 +165,7 @@ export default function CreateQuestionPage() {
       })
       .join("\n");
 
-    alert(
+    showInfo(
       "New topic found in Excel.\n\n" +
         "Please add the topic from the Topics menu, then upload the Excel again.\n\n" +
         topicLines +
@@ -210,17 +211,17 @@ export default function CreateQuestionPage() {
     const topicName = topicNameInput.trim();
 
     if (!selectedClass) {
-      alert("Please select class first");
+      showInfo("Please select class first");
       return;
     }
 
     if (!selectedSubject) {
-      alert("Please select subject first");
+      showInfo("Please select subject first");
       return;
     }
 
     if (!topicName) {
-      alert("Please enter a topic name");
+      showInfo("Please enter a topic name");
       return;
     }
 
@@ -242,7 +243,7 @@ export default function CreateQuestionPage() {
       setTopicNameInput("");
     } catch (error) {
       console.error("Failed to create topic", error);
-      alert("Failed to create topic");
+      showInfo({ title: "Topic creation failed", description: "Failed to create topic", variant: "destructive" });
     } finally {
       setCreatingTopic(false);
     }
@@ -266,12 +267,12 @@ export default function CreateQuestionPage() {
     try {
       setIsLoading(true);
       if (!selectedClass) {
-        alert("Please select class");
+        showInfo("Please select class");
         setIsLoading(false);
         return;
       }
       if (!selectedSubject) {
-        alert("Please select subject");
+        showInfo("Please select subject");
         setIsLoading(false);
         return;
       }
@@ -285,13 +286,13 @@ export default function CreateQuestionPage() {
       };
       console.log(questionType, mcqData, paragraphData);
       if (questionType === "mcq_text" && !mcqData) {
-        alert("Please fill question details");
+        showInfo("Please fill question details");
         setIsLoading(false);
         return;
       }
 
       if (questionType === "mcq_image" && !mcqData) {
-        alert("Please fill image MCQ details");
+        showInfo("Please fill image MCQ details");
         setIsLoading(false);
         return;
       }
@@ -300,13 +301,13 @@ export default function CreateQuestionPage() {
         questionType === "image_subquestions" &&
         (!imageSubQuestionsData?.subQuestions || imageSubQuestionsData.subQuestions.length === 0)
       ) {
-        alert("Please add at least one sub-question");
+        showInfo("Please add at least one sub-question");
         setIsLoading(false);
         return;
       }
 
       if (questionType === "image_subquestions" && !imageSubQuestionsData?.questionImage) {
-        alert("Please upload a question image");
+        showInfo("Please upload a question image");
         setIsLoading(false);
         return;
       }
@@ -393,13 +394,13 @@ export default function CreateQuestionPage() {
         throw new Error(res?.message || res?.error || "Failed to create question");
       }
       if (res?.duplicate) {
-        alert("Question already exists. Uploaded: 0, Skipped: 1");
+        showInfo("Question already exists. Uploaded: 0, Skipped: 1");
         return;
       }
-      alert("Question uploaded successfully. Uploaded: 1, Skipped: 0");
+      showInfo({ title: "Question uploaded", description: "Uploaded: 1, Skipped: 0" });
       router.refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Something went wrong");
+      showInfo({ title: "Upload failed", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -418,12 +419,12 @@ export default function CreateQuestionPage() {
       }
       if (questionType === "mcq_image" || questionType === "image_subquestions") {
          if (!uploadedFile) {
-          alert("Please upload excel file");
+          showInfo("Please upload excel file");
           setIsLoading(false);
           return;
         }
         if (!zipFile) {
-          alert("Please upload zip file containing images");
+          showInfo("Please upload zip file containing images");
           setIsLoading(false);
           return;
         }
@@ -479,7 +480,7 @@ export default function CreateQuestionPage() {
 
       if (createdCount <= 0) {
         if (skippedCount > 0) {
-          alert(
+          showInfo(
             `Uploaded: 0\nSkipped: ${skippedCount}` +
               (receivedCount ? `\nRows processed: ${receivedCount}` : "")
           );
@@ -494,7 +495,7 @@ export default function CreateQuestionPage() {
             ? `Uploaded ${createdCount} image question(s) with ${subQuestionCount} sub-question(s)\n`
             : `Uploaded ${createdCount} questions\n`;
 
-        alert(
+        showInfo(
           uploadSummary +
             `Skipped: ${skippedCount}\n` +
             (receivedCount ? `Rows processed: ${receivedCount}\n` : "") +
@@ -506,7 +507,7 @@ export default function CreateQuestionPage() {
       await loadTopics(selectedClass || undefined, selectedSubject || undefined);
       router.refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Something went wrong");
+      showInfo({ title: "Upload failed", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -517,7 +518,7 @@ export default function CreateQuestionPage() {
   /* ------------------------------------------------------------------ */
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-10">
+    <div className="mx-auto max-w-7xl space-y-6 pb-10">
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link href="/dashboard/questions">
@@ -674,28 +675,28 @@ export default function CreateQuestionPage() {
         </Card>
 
         {/* Question Content */}
-        <Card className="md:col-span-2">
+        <Card className="min-w-0 md:col-span-2">
           <CardHeader>
             <CardTitle>Question Content</CardTitle>
           </CardHeader>
 
-          <CardContent>
+          <CardContent className="min-w-0">
             {
               <Tabs
                 value={questionType}
                 onValueChange={(v) => setQuestionType(v as QuestionType)}
               >
-                <TabsList className="grid grid-cols-4 mb-6">
-                  <TabsTrigger value="mcq_text" className="cursor-pointer">
+                <TabsList className="mb-6 grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-4">
+                  <TabsTrigger value="mcq_text" className="min-h-10 cursor-pointer whitespace-normal text-center leading-tight">
                     Text MCQ
                   </TabsTrigger>
-                  <TabsTrigger value="mcq_image" className="cursor-pointer">
+                  <TabsTrigger value="mcq_image" className="min-h-10 cursor-pointer whitespace-normal text-center leading-tight">
                     Image MCQ
                   </TabsTrigger>
-                  <TabsTrigger value="paragraph" className="cursor-pointer">
+                  <TabsTrigger value="paragraph" className="min-h-10 cursor-pointer whitespace-normal text-center leading-tight">
                     Paragraph
                   </TabsTrigger>
-                  <TabsTrigger value="image_subquestions" className="cursor-pointer">
+                  <TabsTrigger value="image_subquestions" className="min-h-10 cursor-pointer whitespace-normal text-center leading-tight">
                     Image + Sub-Questions
                   </TabsTrigger>
                 </TabsList>

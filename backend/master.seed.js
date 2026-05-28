@@ -3,21 +3,34 @@ import User from "./models/User.js";
 
 export const seedMasterUser = async () => {
   try {
-    const existingMaster = await User.findOne({ email: "master@gmail.com" });
+    const masterEmail = process.env.MASTER_USER_EMAIL;
+    const masterPassword = process.env.MASTER_USER_PASSWORD;
+
+    if (!masterEmail || !masterPassword) {
+      console.warn("Skipping master user seed. Configure MASTER_USER_EMAIL and MASTER_USER_PASSWORD to enable it.");
+      return;
+    }
+
+    if (masterPassword.length < 8) {
+      console.warn("Skipping master user seed. MASTER_USER_PASSWORD must be at least 8 characters.");
+      return;
+    }
+
+    const existingMaster = await User.findOne({ email: masterEmail });
 
     if (existingMaster) {
       return;
     }
 
-    const hashedPassword = await bcrypt.hash("Master@123", 10);
+    const hashedPassword = await bcrypt.hash(masterPassword, 10);
 
     await User.create({
-      name: "Master",
-      email: "master@gmail.com",
+      name: process.env.MASTER_USER_NAME || "Master",
+      email: masterEmail,
       password: hashedPassword,
       role: "master",
-      institution: "PVPIT",
-      phone: "7030362818",
+      institution: process.env.MASTER_USER_INSTITUTION || "",
+      phone: process.env.MASTER_USER_PHONE || "",
       isActive: true,
       isDeleted: false,
     });

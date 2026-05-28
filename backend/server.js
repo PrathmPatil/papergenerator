@@ -7,10 +7,12 @@ import mongoose from "mongoose";
 import questionRoutes from "./routes/questions.js";
 import topicRoutes from "./routes/topics.js";
 import paperRoutes from "./routes/papers.js";
+import templateRoutes from "./routes/template.js";
+import pdfConversionRoutes from "./routes/pdfConversion.js";
 import userRoutes from "./routes/users.js";
 import userSettingRoutes from "./routes/userSetting.js"
 import { swaggerDocs } from "./swagger.js";
-import { verifyToken } from "./middleware/tokenVerification.middleware.js";
+import { requireStaff, verifyToken } from "./middleware/tokenVerification.middleware.js";
 import { seedMasterUser } from "./master.seed.js";
 import { apiRateLimiter, authRateLimiter } from "./middleware/rateLimit.middleware.js";
 
@@ -19,6 +21,7 @@ dotenv.config();
 
 const app = express();
 app.set("trust proxy", 1);
+const port = Number(process.env.PORT || process.env.BACKEND_PORT || 5000);
 
 // ⭐ REQUIRED for form-data + JSON
 const requestBodyLimit = process.env.REQUEST_BODY_LIMIT || "100mb";
@@ -35,16 +38,19 @@ app.use("/api/users/register", authRateLimiter);
 // Apply shared API rate limiting for all API routes.
 app.use("/api", apiRateLimiter);
 
-// Debug all incoming requests
-app.use((req, res, next) => {
-  console.log("➡", req.method, req.url);
-  next();
-});
+if (process.env.LOG_REQUESTS === "true") {
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+  });
+}
 
 // ⭐ REGISTER ROUTES
-app.use("/api/questions",verifyToken, questionRoutes);
-app.use("/api/topics", verifyToken, topicRoutes);
+app.use("/api/questions", verifyToken, requireStaff, questionRoutes);
+app.use("/api/topics", verifyToken, requireStaff, topicRoutes);
 app.use("/api/papers",verifyToken, paperRoutes);
+app.use("/api/templates", verifyToken, requireStaff, templateRoutes);
+app.use("/api/pdf-conversion", verifyToken, requireStaff, pdfConversionRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/setting",userSettingRoutes)
 
@@ -60,8 +66,6 @@ app.use((err, req, res, next) => {
 });
 
 app.post("/ping", (req, res) => {
-  console.log("🔥 PING HIT");
-  console.log(req.body);
   res.json({ ok: true });
 });
 
@@ -80,6 +84,6 @@ mongoose
 
 swaggerDocs(app);  
 
-app.listen(5000, () => {
-  console.log("Server running at http://localhost:5000");
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
 });

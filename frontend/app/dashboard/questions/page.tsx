@@ -62,6 +62,7 @@ import {
 } from "@/lib/data";
 import { baseURL, debounce } from "@/hooks/common";
 import { deleteQuestionApi, bulkUpdateQuestionsApi, bulkDeleteQuestionsApi, updateQuestionApi } from "@/utils/apis";
+import { showConfirm, showInfo } from "@/components/app-dialog-provider";
 /* ----------------------------------------
    TYPES
 ---------------------------------------- */
@@ -320,9 +321,11 @@ export default function QuestionBankPage() {
 
   const handleDownloadFilteredPdf = async () => {
     if (filterClass === "all" || filterSubject === "all") {
-      const confirmed = window.confirm(
-        "Class or Subject is set to All. This PDF may include many questions. Do you want to continue?"
-      );
+      const confirmed = await showConfirm({
+        title: "Large PDF export",
+        description: "Class or Subject is set to All. This PDF may include many questions. Do you want to continue?",
+        confirmText: "Download",
+      });
       if (!confirmed) return;
     }
 
@@ -334,7 +337,10 @@ export default function QuestionBankPage() {
       );
 
       if (!res?.success || !Array.isArray(res.questions) || res.questions.length === 0) {
-        alert("No questions found for the selected filters.");
+        showInfo({
+          title: "No questions found",
+          description: "No questions match the selected filters.",
+        });
         return;
       }
 
@@ -941,7 +947,11 @@ export default function QuestionBankPage() {
       pdf.save(`question-bank-${safeName || "report"}.pdf`);
     } catch (error) {
       console.error("Question bank PDF export failed", error);
-      alert("Failed to download PDF. Please try again.");
+      showInfo({
+        title: "PDF download failed",
+        description: "Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsDownloadingPdf(false);
     }
@@ -1149,19 +1159,19 @@ export default function QuestionBankPage() {
 
   const handleUpdateSingleQuestion = async () => {
     if (!editingQuestion?._id) {
-      alert("Question id is missing.");
+      showInfo({ title: "Missing question", description: "Question id is missing.", variant: "destructive" });
       return;
     }
 
     const parsedMarks = Number(editMarks);
     if (!Number.isFinite(parsedMarks) || parsedMarks < 0) {
-      alert("Marks must be a valid non-negative number.");
+      showInfo({ title: "Invalid marks", description: "Marks must be a valid non-negative number.", variant: "destructive" });
       return;
     }
 
     const trimmedQuestionText = editQuestionText.trim();
     if (!trimmedQuestionText) {
-      alert("Question text is required.");
+      showInfo({ title: "Question text required", description: "Question text is required.", variant: "destructive" });
       return;
     }
 
@@ -1177,13 +1187,13 @@ export default function QuestionBankPage() {
       shouldUpdateOptions &&
       normalizedOptions.some((option) => !option.text && !option.mediaUrl)
     ) {
-      alert("Each option must have text or an image.");
+      showInfo({ title: "Invalid options", description: "Each option must have text or an image.", variant: "destructive" });
       return;
     }
 
     const selectedCorrectOption = normalizedOptions.find((option) => option.isCorrect);
     if (shouldUpdateOptions && !selectedCorrectOption) {
-      alert("Please select the correct option.");
+      showInfo({ title: "Correct option required", description: "Please select the correct option.", variant: "destructive" });
       return;
     }
 
@@ -1203,7 +1213,7 @@ export default function QuestionBankPage() {
       });
 
       if (!res?.success) {
-        alert(res?.message || "Failed to update question.");
+        showInfo({ title: "Update failed", description: res?.message || "Failed to update question.", variant: "destructive" });
         return;
       }
 
@@ -1233,7 +1243,7 @@ export default function QuestionBankPage() {
       setEditingQuestion(null);
     } catch (error) {
       console.error("Single question update failed", error);
-      alert("Failed to update question.");
+      showInfo({ title: "Update failed", description: "Failed to update question.", variant: "destructive" });
     } finally {
       setIsUpdatingSingle(false);
     }
@@ -1276,7 +1286,7 @@ export default function QuestionBankPage() {
 
   const handleOpenBulkEdit = () => {
     if (selectedQuestionIds.length === 0) {
-      alert("Please select at least one question.");
+      showInfo({ title: "No questions selected", description: "Please select at least one question.", variant: "destructive" });
       return;
     }
     resetBulkForm();
@@ -1293,9 +1303,12 @@ export default function QuestionBankPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete ${selectedQuestionIds.length} selected question${selectedQuestionIds.length === 1 ? "" : "s"}?`
-    );
+    const confirmed = await showConfirm({
+      title: "Delete selected questions?",
+      description: `Delete ${selectedQuestionIds.length} selected question${selectedQuestionIds.length === 1 ? "" : "s"}?`,
+      confirmText: "Delete",
+      variant: "destructive",
+    });
 
     if (!confirmed) return;
 
@@ -1337,12 +1350,12 @@ export default function QuestionBankPage() {
     const nextTopicId = bulkTopicId === "unchanged" ? undefined : bulkTopicId === "none" ? "" : bulkTopicId;
 
     if (parsedMarks === undefined && !nextDifficulty && nextTopicId === undefined) {
-      alert("Please set marks, difficulty, and/or topic to update.");
+      showInfo({ title: "Nothing to update", description: "Please set marks, difficulty, and/or topic to update.", variant: "destructive" });
       return;
     }
 
     if (parsedMarks !== undefined && (!Number.isFinite(parsedMarks) || parsedMarks < 0)) {
-      alert("Marks must be a valid non-negative number.");
+      showInfo({ title: "Invalid marks", description: "Marks must be a valid non-negative number.", variant: "destructive" });
       return;
     }
 
@@ -1364,7 +1377,7 @@ export default function QuestionBankPage() {
       const res = await bulkUpdateQuestionsApi(payload);
 
       if (!res?.success) {
-        alert(res?.message || "Bulk update failed.");
+        showInfo({ title: "Bulk update failed", description: res?.message || "Bulk update failed.", variant: "destructive" });
         return;
       }
 
@@ -1395,7 +1408,7 @@ export default function QuestionBankPage() {
       resetBulkForm();
     } catch (error: any) {
       console.error("Bulk update failed", error);
-      alert("Bulk update failed. Check console/network.");
+      showInfo({ title: "Bulk update failed", description: "Check console/network and try again.", variant: "destructive" });
     } finally {
       setIsBulkUpdating(false);
     }

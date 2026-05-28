@@ -10,9 +10,6 @@ const getRequestKey = (method?: string, url?: string) =>
 const axiosInstance: AxiosInstance = axios.create({
   baseURL,
   timeout,
-  headers: {
-    "Content-Type": "application/json",
-  },
 });
 
 // Request interceptor – attach token

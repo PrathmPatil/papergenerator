@@ -1,14 +1,18 @@
 "use client"
 
+import { useState } from "react"
 import {
   Users,
   BookOpen,
   Tags,
   FileText,
   Settings,
+  UploadCloud,
   LayoutDashboard,
   GraduationCap,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -30,6 +34,7 @@ import {
 export function AppSidebar() {
   const pathname = usePathname()
   const { user, logout } = useUser()
+  const [collapsed, setCollapsed] = useState(false)
 
   if (!user) return null
 
@@ -40,6 +45,7 @@ export function AppSidebar() {
     { name: "Topics", href: "/dashboard/topics", icon: Tags },
     { name: "Paper Generator", href: "/dashboard/generate", icon: FileText },
     { name: "Papers", href: "/dashboard/papers", icon: GraduationCap },
+    { name: "PDF Converter", href: "/dashboard/pdf-converter", icon: UploadCloud },
    // { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
     { name: "User Management", href: "/dashboard/users", icon: Users },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
@@ -64,11 +70,50 @@ export function AppSidebar() {
   }
 
   return (
-    <div className="flex h-full w-64 flex-col border-r bg-card text-card-foreground">
-      <div className="flex h-14 items-center border-b px-4">
-        <span className="text-lg font-bold tracking-tight text-primary">
-          PaperGenerator
-        </span>
+    <div
+      className={cn(
+        "flex h-full shrink-0 flex-col border-r bg-card text-card-foreground transition-all duration-300",
+        collapsed ? "w-16 min-w-16 max-w-16" : "w-64 min-w-64 max-w-64"
+      )}
+    >
+      <div
+        className={cn(
+          "relative flex h-14 items-center border-b px-3",
+          collapsed ? "justify-center" : "justify-between"
+        )}
+      >
+        <div
+          className={cn(
+            "flex min-w-0 items-center",
+            collapsed ? "justify-center" : "gap-2"
+          )}
+        >
+          <img
+            src="/app-icon.png"
+            alt="PaperGenerator"
+            className="h-8 w-8 shrink-0 rounded-lg object-cover"
+          />
+          {!collapsed && (
+            <span className="truncate text-lg font-bold tracking-tight text-primary">
+              PaperGenerator
+            </span>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn("h-8 w-8", collapsed && "absolute left-14 z-10 border bg-background shadow-sm")}
+          onClick={() => setCollapsed((value) => !value)}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed ? (
+            <PanelLeftOpen className="h-4 w-4" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" />
+          )}
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto py-4">
@@ -77,42 +122,54 @@ export function AppSidebar() {
             <Link
               key={link.href}
               href={link.href}
+              title={collapsed ? link.name : undefined}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                "flex items-center rounded-md py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                collapsed ? "justify-center px-2" : "gap-3 px-3",
                 pathname === link.href
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground"
               )}
             >
-              <link.icon className="h-4 w-4" />
-              {link.name}
+              <link.icon className="h-4 w-4 shrink-0" />
+              {!collapsed && <span className="truncate">{link.name}</span>}
             </Link>
           ))}
         </nav>
       </div>
 
-      <div className="border-t p-4">
-        <div className="mb-4 flex items-center gap-3">
+      <div className={cn("border-t", collapsed ? "p-2" : "p-4")}>
+        <div
+          className={cn(
+            "mb-4 flex items-center",
+            collapsed ? "justify-center" : "gap-3"
+          )}
+        >
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-            {user.name.charAt(0)}
+            {user.name?.charAt(0) || "U"}
           </div>
-          <div className="overflow-hidden">
-            <p className="truncate text-sm font-medium">{user.name}</p>
-            <p className="truncate text-xs text-muted-foreground capitalize">
-              {user.role}
-            </p>
-          </div>
+          {!collapsed && (
+            <div className="overflow-hidden">
+              <p className="truncate text-sm font-medium">{user.name}</p>
+              <p className="truncate text-xs text-muted-foreground capitalize">
+                {user.role}
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* 🔥 SIGN OUT CONFIRMATION */}
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button
               variant="outline"
-              className="w-full justify-start gap-2 bg-transparent"
+              className={cn(
+                "w-full bg-transparent",
+                collapsed ? "justify-center px-0" : "justify-start gap-2"
+              )}
+              title={collapsed ? "Sign Out" : undefined}
             >
               <LogOut className="h-4 w-4" />
-              Sign Out
+              {!collapsed && "Sign Out"}
             </Button>
           </AlertDialogTrigger>
 

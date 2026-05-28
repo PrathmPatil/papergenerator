@@ -14,6 +14,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { PaperPreview, exportAsPDF, printPaper } from "@/components/paper-preview"
 import { exportPaperPdfApi } from "@/utils/apis"
 import { mapPaperToPreviewConfig } from "@/lib/utils"
+import { showInfo } from "@/components/app-dialog-provider"
 
 /* ---------------- TYPES ---------------- */
 
@@ -62,7 +63,7 @@ const convertToPaperConfig = (paper: Paper) => ({
 const getImageSrc = (url?: string) => {
   if (!url) return ""
   if (/^data:/i.test(url) || /^https?:\/\//i.test(url)) return url
-  return `${baseURL}${url}`
+  return `${baseURL || ""}${url}`
 }
 
 /* ---------------- COMPONENT ---------------- */
@@ -77,9 +78,7 @@ export default function PaperDetailsPage() {
 
   const downloadPDF = async () => {
     try {
-      const res: any = await exportPaperPdfApi(paperId);
-
-      const blob = res.date; // your apiClient returns data directly, so blob is here
+      const blob = await exportPaperPdfApi(paperId);
 
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -95,7 +94,11 @@ export default function PaperDetailsPage() {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Download failed:", err);
-      alert("Download failed. Check Network/Console.");
+      showInfo({
+        title: "Download failed",
+        description: "Please check the network request and try again.",
+        variant: "destructive",
+      });
     }
   };
 

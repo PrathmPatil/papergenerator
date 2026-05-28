@@ -39,6 +39,7 @@ import {
   createPaperTemplateApi,
 } from "@/utils/apis";
 import type { ClassLevel, Sections, Topic } from "@/lib/types";
+import { showInfo } from "@/components/app-dialog-provider";
 
 const STEPS = [
   { id: 1, title: "Basic Details" },
@@ -334,7 +335,7 @@ export default function EditPaperPage() {
     if (currentStep === 3) {
       const validationError = validateDistributionBeforeNext();
       if (validationError) {
-        alert(validationError);
+        showInfo({ title: "Validation required", description: validationError, variant: "destructive" });
         return;
       }
 
@@ -370,7 +371,7 @@ export default function EditPaperPage() {
         return;
       }
 
-      alert(res?.error || "Failed to save configuration");
+      showInfo({ title: "Save failed", description: res?.error || "Failed to save configuration", variant: "destructive" });
       return;
     }
 
@@ -462,7 +463,7 @@ export default function EditPaperPage() {
         setCurrentStep(1);
       } catch (error) {
         console.error(error);
-        alert("Failed to load paper for editing");
+        showInfo({ title: "Load failed", description: "Failed to load paper for editing", variant: "destructive" });
       } finally {
         setLoading(false);
       }
@@ -599,7 +600,7 @@ export default function EditPaperPage() {
       setSelectedTopics((prev) => (prev.includes(topic.id) ? prev : [...prev, topic.id]));
       setTopicInputs((prev) => ({ ...prev, [activeSubject]: "" }));
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed to create the topic");
+      showInfo({ title: "Topic creation failed", description: error instanceof Error ? error.message : "Failed to create the topic", variant: "destructive" });
       console.error(error);
     } finally {
       setTopicLoading(false);
@@ -609,7 +610,7 @@ export default function EditPaperPage() {
   const handleSave = async () => {
     try {
       if (!paper?._id || !template?._id) {
-        alert("Paper/template not loaded");
+        showInfo({ title: "Paper not loaded", description: "Paper/template not loaded", variant: "destructive" });
         return;
       }
 
@@ -627,17 +628,17 @@ export default function EditPaperPage() {
       setIsGenerating(true);
       const res: any = await generatePaperApiManual(payload);
       if (!res?.success || !res?.paper) {
-        alert(res?.error || "Failed to generate paper");
+        showInfo({ title: "Generation failed", description: res?.error || "Failed to generate paper", variant: "destructive" });
         return;
       }
 
       setPaper(res.paper);
       setPreviewConfig(mapPaperToPreviewConfig(res.paper));
       setCurrentStep(5);
-      alert("Paper updated successfully!");
+      showInfo({ title: "Paper updated", description: "Paper updated successfully." });
     } catch (error) {
       console.error("Error while saving paper:", error);
-      alert("Failed to update paper");
+      showInfo({ title: "Update failed", description: "Failed to update paper", variant: "destructive" });
     } finally {
       setIsGenerating(false);
     }
@@ -648,7 +649,7 @@ export default function EditPaperPage() {
       printPaper(previewConfig);
       return;
     }
-    alert("Please generate the paper first before printing.");
+    showInfo({ title: "Preview required", description: "Please generate the paper first before printing." });
   };
 
   if (loading) {

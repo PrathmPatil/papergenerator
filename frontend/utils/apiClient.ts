@@ -12,6 +12,14 @@ export interface ApiRequest<T = any> {
   responseType?: AxiosRequestConfig["responseType"];
 }
 
+export type ApiResponse<T = any> = {
+  success: boolean;
+  message: string;
+  data?: T;
+  errors?: any;
+  [key: string]: any;
+};
+
 export async function apiClient<TResponse = any, TRequest = any>({
   url,
   method = "GET",
@@ -21,12 +29,7 @@ export async function apiClient<TResponse = any, TRequest = any>({
   isFormData = false,
   timeout,
   responseType,
-}: ApiRequest<TRequest>): Promise<{
-  success: boolean;
-  message: string;
-  data?: TResponse;
-  errors?: any;
-}> {
+}: ApiRequest<TRequest>): Promise<ApiResponse<TResponse>> {
   try {
     const token =
       typeof window !== "undefined"
@@ -46,6 +49,11 @@ export async function apiClient<TResponse = any, TRequest = any>({
         ...headers,
       },
     };
+
+    if (isFormData) {
+      delete config.headers?.["Content-Type"];
+      delete config.headers?.["content-type"];
+    }
 
     const response = await axiosInstance(config);
 

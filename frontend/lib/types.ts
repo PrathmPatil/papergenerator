@@ -7,6 +7,8 @@ export type User = {
   name: string
   email: string
   role: UserRole
+  phone?: string
+  institution?: string
   avatar?: string
 }
 
@@ -84,7 +86,7 @@ export interface SingleAnswerQuestion extends QuestionBase {
 export interface ParagraphQuestion extends QuestionBase {
   type: "paragraph"
   paragraphText: string
-  subQuestions: (MCQQuestion | SingleAnswerQuestion)[]
+  subQuestions: (MCQQuestion | SingleAnswerQuestion | ShortAnswerQuestion | TrueFalseQuestion)[]
 }
 
 export interface ImageSubQuestionsQuestion extends QuestionBase {
@@ -164,6 +166,29 @@ export interface GeneratedPaper {
   config: PaperConfig
   questions: Question[]
   sectionsBreakdown: SectionBreakdown[]
+}
+
+export interface Paper {
+  id: string
+  title: string
+  code?: string
+  class?: string
+  date?: string
+  duration?: string
+  totalMarks: number
+  negativeMarks?: string
+  instructions?: string[]
+  sections: Array<{
+    id: string
+    name: string
+    marks: number
+    questions: Array<{
+      id: string
+      text: string
+      marks: number
+      type: string
+    }>
+  }>
 }
 
 export interface SectionBreakdown {

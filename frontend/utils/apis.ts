@@ -2,6 +2,61 @@ import { IQuestion } from "@/app/dashboard/questions/page";
 import { apiClient } from "./apiClient";
 
 const BULK_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+const PDF_CONVERSION_TIMEOUT_MS = 10 * 60 * 1000;
+
+export interface PdfConversionResponse {
+  job_id: string;
+  status: "completed" | "failed" | string;
+  original_filename: string;
+  created_at?: string;
+  files?: {
+    input_pdf?: string;
+    output_docx?: string;
+    images?: string[];
+  };
+  links?: {
+    details?: string;
+    input_pdf?: string;
+    output_docx?: string;
+    images?: string;
+  };
+  error?: string;
+}
+
+export interface PdfConversionImageListResponse {
+  job_id: string;
+  images: {
+    name: string;
+    url: string;
+  }[];
+}
+
+export interface PdfConversionListResponse {
+  conversions: PdfConversionResponse[];
+}
+
+const ensureDownloadBlob = async (blob: Blob, fallbackMessage: string) => {
+  const contentType = String(blob.type || "").toLowerCase();
+
+  if (contentType.includes("application/json") || contentType.includes("text/")) {
+    const text = await blob.text();
+    try {
+      const payload = JSON.parse(text);
+      throw new Error(payload.message || payload.error || fallbackMessage);
+    } catch (error: any) {
+      if (error instanceof SyntaxError) {
+        throw new Error(text || fallbackMessage);
+      }
+      throw error;
+    }
+  }
+
+  if (blob.size === 0) {
+    throw new Error(fallbackMessage);
+  }
+
+  return blob;
+};
 
 // http://localhost:5000/api/hello
 export const helloApi = async () => {
@@ -112,7 +167,7 @@ export async function fetchAllQuestionsApi(
     data: filters,
   });
 
-  return res;
+  return res as unknown as FetchQuestionsResponse;
 }
 
 // /api/questions/create
@@ -455,11 +510,103 @@ export const updateThemeApi = async (id: string, payload: any) => {
 }
 
 // GET /api/papers/export/:id  (download pdf)
-export const exportPaperPdfApi = async (id: string) => {
+export const exportPaperPdfApi = async (id: string): Promise<Blob> => {
   const response = await apiClient({
     url: `/api/papers/export/${id}`,
     method: "GET",
     responseType: "blob", // ✅ IMPORTANT
   });
-  return response; // this will be Blob response
+  return response as unknown as Blob;
+};
+
+export const convertPdfToDocxApi = async (pdfFile: File): Promise<PdfConversionResponse> => {
+  const formData = new FormData();
+  formData.append("pdf", pdfFile);
+
+  const response = await apiClient<PdfConversionResponse>({
+    url: "/api/pdf-conversion/convert",
+    method: "POST",
+    data: formData,
+    isFormData: true,
+    timeout: PDF_CONVERSION_TIMEOUT_MS,
+  });
+
+  return response as unknown as PdfConversionResponse;
+};
+
+export const fetchPdfConversionApi = async (jobId: string): Promise<PdfConversionResponse> => {
+  const response = await apiClient<PdfConversionResponse>({
+    url: `/api/pdf-conversion/${jobId}`,
+    method: "GET",
+  });
+
+  return response as unknown as PdfConversionResponse;
+};
+
+export const fetchPdfConversionsApi = async (limit: number = 25): Promise<PdfConversionListResponse> => {
+  const response = await apiClient<PdfConversionListResponse>({
+    url: "/api/pdf-conversion",
+    method: "GET",
+    params: { limit },
+  });
+
+  return response as unknown as PdfConversionListResponse;
+};
+
+export const fetchPdfConversionImagesApi = async (
+  jobId: string
+): Promise<PdfConversionImageListResponse> => {
+  const response = await apiClient<PdfConversionImageListResponse>({
+    url: `/api/pdf-conversion/${jobId}/images`,
+    method: "GET",
+  });
+
+  return response as unknown as PdfConversionImageListResponse;
+};
+
+export const downloadPdfConversionDocxApi = async (jobId: string): Promise<Blob> => {
+  const response = await apiClient({
+    url: `/api/pdf-conversion/${jobId}/docx`,
+    method: "GET",
+    responseType: "blob",
+    timeout: PDF_CONVERSION_TIMEOUT_MS,
+  });
+
+  return ensureDownloadBlob(response as unknown as Blob, "DOCX download failed.");
+};
+
+export const downloadPdfConversionPdfApi = async (jobId: string): Promise<Blob> => {
+  const response = await apiClient({
+    url: `/api/pdf-conversion/${jobId}/pdf`,
+    method: "GET",
+    responseType: "blob",
+    timeout: PDF_CONVERSION_TIMEOUT_MS,
+  });
+
+  return ensureDownloadBlob(response as unknown as Blob, "PDF download failed.");
+};
+
+export const downloadPdfConversionImageApi = async (
+  jobId: string,
+  imageName: string
+): Promise<Blob> => {
+  const response = await apiClient({
+    url: `/api/pdf-conversion/${jobId}/images/${encodeURIComponent(imageName)}`,
+    method: "GET",
+    responseType: "blob",
+    timeout: PDF_CONVERSION_TIMEOUT_MS,
+  });
+
+  return ensureDownloadBlob(response as unknown as Blob, "Image download failed.");
+};
+
+export const downloadPdfConversionImagesZipApi = async (jobId: string): Promise<Blob> => {
+  const response = await apiClient({
+    url: `/api/pdf-conversion/${jobId}/images.zip`,
+    method: "GET",
+    responseType: "blob",
+    timeout: PDF_CONVERSION_TIMEOUT_MS,
+  });
+
+  return ensureDownloadBlob(response as unknown as Blob, "Images ZIP download failed.");
 };
