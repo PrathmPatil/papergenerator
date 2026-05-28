@@ -562,6 +562,66 @@ async function ensureTopicId(classId, subjectId, topicIdentifier) {
   }
 }
 
+const buildUnknownTopicResponse = (unknownTopics = []) => ({
+  success: false,
+  code: "UNKNOWN_TOPICS",
+  message:
+    "New topic found in Excel. Please add the topic from the Topic menu, then upload the Excel again.",
+  unknownTopics,
+});
+
+async function findUnknownTopicsFromRows(rows = []) {
+  const uniqueTopicRequests = new Map();
+
+  rows.forEach((sourceRow, index) => {
+    const row = normalizeExcelRow(sourceRow);
+    const classId = normalizeClassId(row.classId);
+    const subjectId = normalizeSubjectId(row.subjectId);
+    const rawTopic = String(row.topicId || row.topicName || "").trim();
+
+    if (!classId || !subjectId || !rawTopic) return;
+
+    const topicKey = String(rawTopic).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    const requestKey = `${classId}|${subjectId}|${topicKey}`;
+
+    if (!uniqueTopicRequests.has(requestKey)) {
+      uniqueTopicRequests.set(requestKey, {
+        classId,
+        subjectId,
+        topicName: rawTopic,
+        rows: [],
+      });
+    }
+
+    uniqueTopicRequests.get(requestKey).rows.push(index + 1);
+  });
+
+  const unknownTopics = [];
+
+  for (const request of uniqueTopicRequests.values()) {
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(request.topicName);
+    const topicKey = String(request.topicName).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    const existing = isObjectId
+      ? await Topic.findOne({
+          _id: request.topicName,
+          classId: request.classId,
+          subjectId: request.subjectId,
+        }).lean()
+      : await Topic.findOne({
+          classId: request.classId,
+          subjectId: request.subjectId,
+          nameLower: topicKey,
+        }).lean();
+
+    if (!existing) {
+      unknownTopics.push(request);
+    }
+  }
+
+  return unknownTopics;
+}
+
 /*
 ====================================
  CREATE QUESTION (TEXT + IMAGE)
@@ -645,6 +705,10 @@ router.post("/create-bulk-upload", async (req, res) => {
     }
 
     const topicCache = new Map();
+    const unknownTopics = await findUnknownTopicsFromRows(questions);
+    if (unknownTopics.length > 0) {
+      return res.status(409).json(buildUnknownTopicResponse(unknownTopics));
+    }
 
     const normalizeTopic = async (classId, subjectId, topicId, topicName) => {
       const rawValue = String(topicId || topicName || "").trim();
@@ -894,9 +958,23 @@ router.post("/", async (req, res) => {
     }
 
     if (topicId) {
-      filter.topicId = topicId.includes(",")
-        ? { $in: topicId.split(",").map((t) => t.trim()) }
-        : topicId;
+      const requestedTopicIds = topicId.split(",").map((t) => t.trim()).filter(Boolean);
+      const topicFilterValues = new Set(requestedTopicIds);
+
+      const topicDocs = await Topic.find({
+        $or: [
+          { _id: { $in: requestedTopicIds.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)) } },
+          { nameLower: { $in: requestedTopicIds.map((id) => normalizeExcelKey(id)) } },
+        ],
+      }).lean();
+
+      topicDocs.forEach((topic) => {
+        topicFilterValues.add(topic._id.toString());
+        topicFilterValues.add(topic.name);
+        topicFilterValues.add(topic.nameLower);
+      });
+
+      filter.topicId = { $in: Array.from(topicFilterValues) };
     }
 
     // -----------------------------
@@ -1076,9 +1154,31 @@ router.put("/:id", async (req, res, next) => {
     if (id === "bulk-update" || id === "bulk-delete") {
       return next();
     }
-    const { text, options, correctAnswer, marks, difficulty } = req.body || {};
+    const { text, options, correctAnswer, marks, difficulty, topicId } = req.body || {};
 
     const update = {};
+
+    if (topicId !== undefined) {
+      const rawTopicId = String(topicId || "").trim();
+      if (!rawTopicId) {
+        update.topicId = "";
+      } else {
+        const topic = /^[0-9a-fA-F]{24}$/.test(rawTopicId)
+          ? await Topic.findById(rawTopicId).lean()
+          : await Topic.findOne({ nameLower: normalizeExcelKey(rawTopicId) }).lean();
+
+        if (!topic) {
+          return res.status(400).json({
+            success: false,
+            message: "Selected topic was not found",
+          });
+        }
+
+        update.topicId = topic._id.toString();
+        update.classId = topic.classId;
+        update.subjectId = topic.subjectId;
+      }
+    }
 
     if (text !== undefined) {
       const normalizedText = String(text).trim();
@@ -1159,7 +1259,7 @@ router.put("/:id", async (req, res, next) => {
     if (Object.keys(update).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Nothing to update. Provide text, options, marks, and/or difficulty",
+        message: "Nothing to update. Provide text, options, marks, difficulty, and/or topic",
       });
     }
 
@@ -1192,10 +1292,10 @@ router.put("/:id", async (req, res, next) => {
   }
 });
 
-// BULK UPDATE QUESTION META (marks / difficulty)
+// BULK UPDATE QUESTION META (marks / difficulty / topic)
 router.put("/bulk-update", async (req, res) => {
   try {
-    const { ids, marks, difficulty } = req.body || {};
+    const { ids, marks, difficulty, topicId } = req.body || {};
 
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
@@ -1228,10 +1328,32 @@ router.put("/bulk-update", async (req, res) => {
       update.difficulty = normalizedDifficulty;
     }
 
+    if (topicId !== undefined) {
+      const rawTopicId = String(topicId || "").trim();
+      if (!rawTopicId) {
+        update.topicId = "";
+      } else {
+        const topic = /^[0-9a-fA-F]{24}$/.test(rawTopicId)
+          ? await Topic.findById(rawTopicId).lean()
+          : await Topic.findOne({ nameLower: normalizeExcelKey(rawTopicId) }).lean();
+
+        if (!topic) {
+          return res.status(400).json({
+            success: false,
+            message: "Selected topic was not found",
+          });
+        }
+
+        update.topicId = topic._id.toString();
+        update.classId = topic.classId;
+        update.subjectId = topic.subjectId;
+      }
+    }
+
     if (Object.keys(update).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Nothing to update. Provide marks and/or difficulty",
+        message: "Nothing to update. Provide marks, difficulty, and/or topic",
       });
     }
 
@@ -1372,6 +1494,10 @@ router.post(
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
       const normalizedRows = rows.map(normalizeExcelRow);
+      const unknownTopics = await findUnknownTopicsFromRows(normalizedRows);
+      if (unknownTopics.length > 0) {
+        return res.status(409).json(buildUnknownTopicResponse(unknownTopics));
+      }
 
       const topicCache = new Map();
       const questionType = req.query.questionType || "mcq_image";

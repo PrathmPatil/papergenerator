@@ -27,7 +27,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { cn, formatTopicTitle, mapPaperToPreviewConfig } from "@/lib/utils";
-import { CLASSES, SUBJECTS } from "@/lib/data";
+import { CLASSES, SUBJECTS, normalizeSubjectId } from "@/lib/data";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { PaperPreview, printPaper } from "@/components/paper-preview";
 import PaperGenerationTemplate from "@/components/paper-generation-template";
@@ -155,7 +155,10 @@ export default function EditPaperPage() {
     ? activeTopicSubject
     : selectedSubjects[0] || "";
 
-  const topicsForActiveSubject = availableTopics.filter((t) => t.subjectId === activeSubject);
+  const getTopicSubjectId = (topic: Pick<Topic, "subjectId">) =>
+    normalizeSubjectId(topic.subjectId);
+
+  const topicsForActiveSubject = availableTopics.filter((t) => getTopicSubjectId(t) === activeSubject);
   const activeSubjectName = SUBJECTS.find((s) => s.id === activeSubject)?.name || "subject";
 
   const getSectionRules = (subjectId: string) => {
@@ -169,7 +172,7 @@ export default function EditPaperPage() {
   };
 
   const getSelectedTopicsForSubject = (subjectId: string) =>
-    availableTopics.filter((topic) => topic.subjectId === subjectId && selectedTopics.includes(topic.id));
+    availableTopics.filter((topic) => getTopicSubjectId(topic) === subjectId && selectedTopics.includes(topic.id));
 
   const getSubjectMarks = (subjectId: string) =>
     sections.find((s) => s.subjectId === subjectId)?.marks || 0;
@@ -493,7 +496,7 @@ export default function EditPaperPage() {
               resultTopics.push(
                 ...res.topics.map((topic: any) => ({
                   id: topic._id || topic.id,
-                  subjectId: topic.subjectId,
+                  subjectId: normalizeSubjectId(topic.subjectId || subjectId),
                   name: topic.name,
                 }))
               );
@@ -502,7 +505,7 @@ export default function EditPaperPage() {
         );
 
         setAvailableTopics((prev) => {
-          const keep = prev.filter((topic) => selectedSubjects.includes(topic.subjectId));
+          const keep = prev.filter((topic) => selectedSubjects.includes(getTopicSubjectId(topic)));
           const merged = [...keep, ...resultTopics];
           const next = Array.from(new Map(merged.map((topic) => [topic.id, topic])).values());
           return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
@@ -525,7 +528,7 @@ export default function EditPaperPage() {
           return true;
         }
 
-        return selectedSubjects.includes(topic.subjectId);
+        return selectedSubjects.includes(getTopicSubjectId(topic));
       });
 
       return JSON.stringify(nextTopics) === JSON.stringify(prevTopics) ? prevTopics : nextTopics;
@@ -584,7 +587,7 @@ export default function EditPaperPage() {
 
       const topic: Topic = {
         id: res.topic._id || res.topic.id,
-        subjectId: res.topic.subjectId,
+        subjectId: normalizeSubjectId(res.topic.subjectId || activeSubject),
         name: res.topic.name,
       };
 
@@ -751,7 +754,7 @@ export default function EditPaperPage() {
                         const subject = SUBJECTS.find((s) => s.id === subjectId);
                         if (!subject) return null;
 
-                        const selectedCount = availableTopics.filter((topic) => topic.subjectId === subjectId && selectedTopics.includes(topic.id)).length;
+                        const selectedCount = availableTopics.filter((topic) => getTopicSubjectId(topic) === subjectId && selectedTopics.includes(topic.id)).length;
 
                         return (
                           <button

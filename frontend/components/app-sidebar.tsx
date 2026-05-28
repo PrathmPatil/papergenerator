@@ -3,8 +3,8 @@
 import {
   Users,
   BookOpen,
+  Tags,
   FileText,
-  Upload,
   Settings,
   LayoutDashboard,
   GraduationCap,
@@ -37,6 +37,7 @@ export function AppSidebar() {
 
   const fullAccessLinks = [
     { name: "Question Bank", href: "/dashboard/questions", icon: BookOpen },
+    { name: "Topics", href: "/dashboard/topics", icon: Tags },
     { name: "Paper Generator", href: "/dashboard/generate", icon: FileText },
     { name: "Papers", href: "/dashboard/papers", icon: GraduationCap },
    // { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },

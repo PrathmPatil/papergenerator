@@ -36,13 +36,38 @@ export const fetchQuestionsApi = async (filters: {
 };
 
 export const fetchTopicsApi = async (filters: {
-  classId: string;
-  subjectId: string;
+  classId?: string;
+  subjectId?: string;
+  search?: string;
 }) => {
   const response = await apiClient({
     url: "/api/topics",
     method: "GET",
     params: filters,
+  });
+  return response;
+};
+
+export const updateTopicApi = async (
+  id: string,
+  payload: {
+    name?: string;
+    classId?: string;
+    subjectId?: string;
+  }
+) => {
+  const response = await apiClient({
+    url: `/api/topics/${id}`,
+    method: "PUT",
+    data: payload,
+  });
+  return response;
+};
+
+export const deleteTopicApi = async (id: string) => {
+  const response = await apiClient({
+    url: `/api/topics/${id}`,
+    method: "DELETE",
   });
   return response;
 };
@@ -207,6 +232,7 @@ export const updateQuestionApi = async (
     correctAnswer?: string;
     marks?: number;
     difficulty?: "easy" | "medium" | "hard";
+    topicId?: string;
   }
 ) => {
   const response = await apiClient({
@@ -221,6 +247,7 @@ export const bulkUpdateQuestionsApi = async (payload: {
   ids: string[];
   marks?: number;
   difficulty?: "easy" | "medium" | "hard";
+  topicId?: string;
 }) => {
   const response = await apiClient({
     url: "/api/questions/bulk-update",

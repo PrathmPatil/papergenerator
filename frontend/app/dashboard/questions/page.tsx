@@ -53,7 +53,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import { fetchAllQuestionsApi } from "@/utils/apis";
+import { fetchAllQuestionsApi, fetchTopicsApi } from "@/utils/apis";
 import {
   CLASSES,
   getClassNameById,
@@ -74,9 +74,19 @@ interface QuestionFilterPayload {
   search?: string;
   classId?: string;
   subjectId?: string;
+  topicId?: string;
   type?: string;
   difficulty?: string;
 }
+
+type TopicOption = {
+  _id?: string;
+  id?: string;
+  name: string;
+  classId: string;
+  subjectId: string;
+  nameLower?: string;
+};
 
 // Common enums
 export type QuestionType =
@@ -165,14 +175,19 @@ export default function QuestionBankPage() {
   const [searchDebounce, setSearchDebounce] = useState("");
   const [filterClass, setFilterClass] = useState("all");
   const [filterSubject, setFilterSubject] = useState("all");
+  const [filterTopic, setFilterTopic] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [filterDifficulty, setFilterDifficulty] = useState("all");
+  const [topics, setTopics] = useState<TopicOption[]>([]);
+  const [topicsLoading, setTopicsLoading] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   const [selectedQuestion, setSelectedQuestion] = useState<IQuestion | null>(
     null
   );
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -180,6 +195,7 @@ export default function QuestionBankPage() {
   const [bulkDifficulty, setBulkDifficulty] = useState<
     "unchanged" | DifficultyLevel
   >("unchanged");
+  const [bulkTopicId, setBulkTopicId] = useState("unchanged");
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [editQuestionOpen, setEditQuestionOpen] = useState(false);
@@ -188,6 +204,7 @@ export default function QuestionBankPage() {
   const [editOptions, setEditOptions] = useState<IOption[]>([]);
   const [editMarks, setEditMarks] = useState<string>("");
   const [editDifficulty, setEditDifficulty] = useState<DifficultyLevel>("easy");
+  const [editTopicId, setEditTopicId] = useState("");
   const [isUpdatingSingle, setIsUpdatingSingle] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -214,21 +231,727 @@ export default function QuestionBankPage() {
     searchDebounce,
     filterClass,
     filterSubject,
+    filterTopic,
     filterType,
     filterDifficulty,
     currentPage,
     recordsPerPage,
   ]);
 
+  useEffect(() => {
+    const loadTopics = async () => {
+      try {
+        setTopicsLoading(true);
+        const res: any = await fetchTopicsApi({
+          ...(filterClass !== "all" ? { classId: filterClass } : {}),
+          ...(filterSubject !== "all" ? { subjectId: filterSubject } : {}),
+        });
+        setTopics(Array.isArray(res?.topics) ? res.topics : []);
+      } catch (error) {
+        console.error("Failed to load topics", error);
+        setTopics([]);
+      } finally {
+        setTopicsLoading(false);
+      }
+    };
+
+    loadTopics();
+  }, [filterClass, filterSubject]);
+
+  useEffect(() => {
+    if (filterTopic === "all") return;
+    const hasTopic = topics.some((topic) => String(topic._id || topic.id) === filterTopic);
+    if (!hasTopic) {
+      setFilterTopic("all");
+    }
+  }, [filterTopic, topics]);
+
+  const getTopicNameById = (topicId?: string) => {
+    const rawTopicId = String(topicId || "").trim();
+    if (!rawTopicId) return "No topic";
+
+    const normalizeTopicName = (value: string) =>
+      String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    const normalizedTopicId = normalizeTopicName(rawTopicId);
+    const topic = topics.find((item) => {
+      const id = String(item._id || item.id || "");
+      return (
+        id === rawTopicId ||
+        item.name === rawTopicId ||
+        item.nameLower === normalizedTopicId ||
+        normalizeTopicName(item.name) === normalizedTopicId
+      );
+    });
+
+    return topic?.name || rawTopicId;
+  };
+
+  const buildQuestionFilterPayload = (overrides: Record<string, any> = {}) => ({
+    search: searchDebounce || undefined,
+    classId: filterClass !== "all" ? filterClass : undefined,
+    subjectId: filterSubject !== "all" ? filterSubject : undefined,
+    topicId: filterTopic !== "all" ? filterTopic : undefined,
+    type: filterType !== "all" ? filterType : undefined,
+    difficulty: filterDifficulty !== "all" ? filterDifficulty : undefined,
+    ...overrides,
+  });
+
+  const addWrappedText = (
+    pdf: any,
+    text: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    lineHeight: number,
+    pageHeight: number
+  ) => {
+    const lines = pdf.splitTextToSize(text, maxWidth);
+    lines.forEach((line: string) => {
+      if (y > pageHeight - 15) {
+        pdf.addPage();
+        y = 18;
+      }
+      pdf.text(line, x, y);
+      y += lineHeight;
+    });
+    return y;
+  };
+
+  const handleDownloadFilteredPdf = async () => {
+    if (filterClass === "all" || filterSubject === "all") {
+      const confirmed = window.confirm(
+        "Class or Subject is set to All. This PDF may include many questions. Do you want to continue?"
+      );
+      if (!confirmed) return;
+    }
+
+    try {
+      setIsDownloadingPdf(true);
+      const pdfLimit = Math.max(totalRecords || recordsPerPage || 1000, 1000);
+      const res: any = await fetchAllQuestionsApi(
+        buildQuestionFilterPayload({ page: 1, limit: pdfLimit })
+      );
+
+      if (!res?.success || !Array.isArray(res.questions) || res.questions.length === 0) {
+        alert("No questions found for the selected filters.");
+        return;
+      }
+
+      const { jsPDF } = await import("jspdf");
+      const pdf = new jsPDF("l", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const marginX = 10;
+      const maxWidth = pageWidth - marginX * 2;
+      let y = 12;
+
+      const className = filterClass === "all" ? "All Classes" : getClassNameById(filterClass);
+      const subjectName =
+        filterSubject === "all" ? "All Subjects" : getSubjectNameById(filterSubject);
+      const topicName = filterTopic === "all" ? "All Topics" : getTopicNameById(filterTopic);
+      const typeName = filterType === "all" ? "All Types" : filterType.replace(/_/g, " ");
+      const difficultyName =
+        filterDifficulty === "all" ? "All Difficulty" : filterDifficulty;
+
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(14);
+      pdf.text("Question Bank", marginX, y);
+      y += 7;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      y = addWrappedText(pdf, `Class: ${className} | Subject: ${subjectName} | Topic: ${topicName}`, marginX, y, maxWidth, 4, pageHeight);
+      y = addWrappedText(pdf, `Type: ${typeName} | Difficulty: ${difficultyName}`, marginX, y, maxWidth, 4, pageHeight);
+      if (searchDebounce) {
+        y = addWrappedText(pdf, `Search: ${searchDebounce}`, marginX, y, maxWidth, 4, pageHeight);
+      }
+      y = addWrappedText(
+        pdf,
+        `Total Questions: ${res.questions.length}`,
+        marginX,
+        y,
+        maxWidth,
+        4,
+        pageHeight
+      );
+      y += 2;
+
+      const columns = [
+        { key: "no", label: "No.", width: 10 },
+        { key: "question", label: "Question", width: 142 },
+        { key: "options", label: "Options", width: 103 },
+        { key: "correct", label: "Correct", width: 22 },
+      ];
+      const tableWidth = columns.reduce((sum, column) => sum + column.width, 0);
+      const rowLineHeight = 3.8;
+      const cellPadding = 1.6;
+      const headerHeight = 8;
+      const minRowHeight = 8;
+      const pageTop = 12;
+      const pageBottom = 10;
+
+      type PdfImage = {
+        dataUrl: string;
+        width: number;
+        height: number;
+        label?: string;
+      };
+
+      const toPdfText = (value: unknown) =>
+        String(value ?? "")
+          .replace(/<[^>]*>/g, " ")
+          .replace(/&nbsp;/gi, " ")
+          .replace(/&amp;/gi, "&")
+          .replace(/&lt;/gi, "<")
+          .replace(/&gt;/gi, ">")
+          .replace(/\r\n?/g, "\n")
+          .replace(/[ \t\f\v]+/g, " ")
+          .trim();
+
+      const wrapTextForCell = (value: unknown, width: number) => {
+        const maxTextWidth = Math.max(1, width - cellPadding * 2);
+        const text = toPdfText(value);
+        if (!text) return [""];
+
+        return text
+          .split(/\n+/)
+          .flatMap((line) => pdf.splitTextToSize(line, maxTextWidth))
+          .map((line: string) => String(line || "").trimEnd());
+      };
+
+      const drawCellText = (
+        lines: string[],
+        x: number,
+        top: number,
+        width: number
+      ) => {
+        lines.forEach((line, index) => {
+          if (!line) return;
+          pdf.text(
+            line,
+            x + cellPadding,
+            top + cellPadding + 2.4 + index * rowLineHeight,
+            { maxWidth: width - cellPadding * 2 }
+          );
+        });
+      };
+
+      const getOptionText = (option: any, id: string) => {
+        if (!option) return "";
+        if (typeof option === "string" || typeof option === "number") {
+          return String(option);
+        }
+
+        const values = [
+          option.text,
+          option.value,
+          option.optionText,
+          option.label,
+          option.answer,
+        ];
+
+        return values.map((value) => String(value || "").trim()).find(Boolean) || "";
+      };
+
+      const getMediaSrc = (url?: string) => {
+        const value = String(url || "").trim();
+        if (!value) return "";
+        if (/^data:/i.test(value) || /^https?:\/\//i.test(value)) return value;
+        if (baseURL) return `${String(baseURL).replace(/\/$/, "")}${value.startsWith("/") ? "" : "/"}${value}`;
+        if (typeof window !== "undefined" && value.startsWith("/")) {
+          return `${window.location.origin}${value}`;
+        }
+        return value;
+      };
+
+      const readBlobAsDataUrl = (blob: Blob) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(blob);
+        });
+
+      const getImageDimensions = (dataUrl: string) =>
+        new Promise<{ width: number; height: number }>((resolve) => {
+          const image = new Image();
+          image.onload = () => {
+            resolve({
+              width: image.naturalWidth || image.width || 1,
+              height: image.naturalHeight || image.height || 1,
+            });
+          };
+          image.onerror = () => resolve({ width: 1, height: 1 });
+          image.src = dataUrl;
+        });
+
+      const normalizeImageDataUrlForPdf = (dataUrl: string) =>
+        new Promise<string>((resolve) => {
+          if (/^data:image\/(?:png|jpe?g)/i.test(dataUrl)) {
+            resolve(dataUrl);
+            return;
+          }
+
+          const image = new Image();
+          image.onload = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth || image.width || 1;
+            canvas.height = image.naturalHeight || image.height || 1;
+            const context = canvas.getContext("2d");
+            if (!context) {
+              resolve(dataUrl);
+              return;
+            }
+            context.drawImage(image, 0, 0);
+            resolve(canvas.toDataURL("image/png"));
+          };
+          image.onerror = () => resolve(dataUrl);
+          image.src = dataUrl;
+        });
+
+      const loadPdfImage = async (url?: string, label?: string): Promise<PdfImage | null> => {
+        const src = getMediaSrc(url);
+        if (!src) return null;
+
+        try {
+          const rawDataUrl = /^data:/i.test(src)
+            ? src
+            : await fetch(src).then(async (response) => {
+                if (!response.ok) throw new Error(`Image request failed: ${response.status}`);
+                return readBlobAsDataUrl(await response.blob());
+              });
+          const dataUrl = await normalizeImageDataUrlForPdf(rawDataUrl);
+          const dimensions = await getImageDimensions(dataUrl);
+          return { dataUrl, label, ...dimensions };
+        } catch (error) {
+          console.warn("Question bank PDF image skipped", { src, error });
+          return null;
+        }
+      };
+
+      const getQuestionMedia = (source: any) => {
+        const media = Array.isArray(source?.media) ? source.media : [];
+        const questionImages = media
+          .filter((item: any) => !String(item?.alt || "").toLowerCase().startsWith("option_"))
+          .map((item: any) => ({ url: item?.url, label: "" }));
+
+        if (source?.mediaUrl) {
+          questionImages.push({ url: source.mediaUrl, label: "" });
+        }
+
+        return questionImages;
+      };
+
+      const getOptionMedia = (source: any) => {
+        const options = Array.isArray(source?.options) ? source.options : [];
+        const media = Array.isArray(source?.media) ? source.media : [];
+
+        return (["A", "B", "C", "D"] as const)
+          .flatMap((id) => {
+            const optionIndex = id.charCodeAt(0) - 65;
+            const option =
+              options.find((item: any) => String(item?.id || "").trim().toUpperCase() === id) ||
+              options[optionIndex];
+            const optionMedia = media.find(
+              (item: any) => String(item?.alt || "").trim().toLowerCase() === `option_${id.toLowerCase()}`
+            );
+            const url = option?.mediaUrl || option?.image?.url || option?.url || optionMedia?.url;
+            return url ? [{ url, label: id }] : [];
+          });
+      };
+
+      const loadPdfImages = async (items: { url?: string; label?: string }[]) => {
+        const images = await Promise.all(
+          items.map((item) => loadPdfImage(item.url, item.label))
+        );
+        return images.filter(Boolean) as PdfImage[];
+      };
+
+      const getPdfImageFormat = (dataUrl: string) => {
+        if (/^data:image\/jpe?g/i.test(dataUrl)) return "JPEG";
+        return "PNG";
+      };
+
+      const getOptionValue = (source: any, id: "A" | "B" | "C" | "D") => {
+        const options = Array.isArray(source?.options) ? source.options : [];
+        const optionIndex = id.charCodeAt(0) - 65;
+        const matchingOption =
+          options.find((item: any) => String(item?.id || "").trim().toUpperCase() === id) ||
+          options[optionIndex];
+
+        const optionText = getOptionText(matchingOption, id);
+        if (optionText) return optionText;
+
+        const fallbackKeys = [
+          `option${id}`,
+          `option_${id}`,
+          `option${id}Text`,
+          `option_${id}_text`,
+          `option${id.toLowerCase()}`,
+          `option_${id.toLowerCase()}`,
+        ];
+
+        return (
+          fallbackKeys
+            .map((key) => String(source?.[key] || "").trim())
+            .find(Boolean) || id
+        );
+      };
+
+      const getCorrectAnswer = (question: IQuestion | ISubQuestion) => {
+        const options = Array.isArray(question.options) ? question.options : [];
+        const correctOptions = options
+          .filter((option) => option.isCorrect)
+          .map((option) => String(option.id || "").toUpperCase())
+          .filter(Boolean);
+
+        if (correctOptions.length > 0) return correctOptions.join(", ");
+        if (question.correctAnswer !== undefined && question.correctAnswer !== null) {
+          return String(question.correctAnswer);
+        }
+        return "";
+      };
+
+      const drawTableHeader = () => {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(7.5);
+        pdf.setTextColor(0, 0, 0);
+        pdf.setDrawColor(0, 0, 0);
+        let x = marginX;
+        columns.forEach((column) => {
+          pdf.setFillColor(245, 245, 245);
+          pdf.rect(x, y, column.width, headerHeight, "F");
+          pdf.rect(x, y, column.width, headerHeight, "S");
+          pdf.text(column.label, x + cellPadding, y + 5);
+          x += column.width;
+        });
+        y += headerHeight;
+      };
+
+      const ensureSpace = (height: number) => {
+        if (y + height <= pageHeight - pageBottom) return;
+        pdf.addPage();
+        y = pageTop;
+        drawTableHeader();
+      };
+
+      const drawTopicTitle = (name: string) => {
+        ensureSpace(11);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(9);
+        pdf.setTextColor(0, 0, 0);
+        pdf.setDrawColor(0, 0, 0);
+        pdf.setFillColor(220, 230, 242);
+        pdf.rect(marginX, y, tableWidth, 7, "F");
+        pdf.text(`Topic: ${name}`, marginX + 2, y + 4.8);
+        y += 7;
+        drawTableHeader();
+      };
+
+      const drawQuestionRow = (row: {
+        no: string;
+        question: string;
+        options: string;
+        correct: string;
+        questionImages?: PdfImage[];
+        optionImages?: PdfImage[];
+      }) => {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(7);
+        pdf.setTextColor(0, 0, 0);
+        pdf.setDrawColor(0, 0, 0);
+
+        const cellValues = [row.no, row.question, row.options, row.correct];
+        const wrappedCells = cellValues.map((value, index) =>
+          wrapTextForCell(value, columns[index].width)
+        );
+        const totalLines = Math.max(...wrappedCells.map((lines) => lines.length), 1);
+        let lineOffset = 0;
+        const hasImages = Boolean(row.questionImages?.length || row.optionImages?.length);
+
+        const getImageLayoutHeight = (
+          images: PdfImage[] = [],
+          width: number,
+          maxImageHeight: number
+        ) => {
+          if (images.length === 0) return 0;
+
+          const columnsPerRow = images.length === 1 ? 1 : 2;
+          const gap = 2;
+          const labelHeight = 3.4;
+          const slotWidth = (width - cellPadding * 2 - gap * (columnsPerRow - 1)) / columnsPerRow;
+          const rowHeights: number[] = [];
+
+          images.forEach((image, index) => {
+            const scale = Math.min(slotWidth / image.width, maxImageHeight / image.height, 1);
+            const renderedHeight = Math.max(6, image.height * scale);
+            const itemHeight = renderedHeight + (image.label ? labelHeight : 0);
+            const rowIndex = Math.floor(index / columnsPerRow);
+            rowHeights[rowIndex] = Math.max(rowHeights[rowIndex] || 0, itemHeight);
+          });
+
+          return rowHeights.reduce((sum, height) => sum + height, 0) + gap * Math.max(0, rowHeights.length - 1);
+        };
+
+        const drawImagesInCell = (
+          images: PdfImage[] = [],
+          x: number,
+          top: number,
+          width: number,
+          maxImageHeight: number
+        ) => {
+          if (images.length === 0) return;
+
+          const columnsPerRow = images.length === 1 ? 1 : 2;
+          const gap = 2;
+          const labelHeight = 3.4;
+          const slotWidth = (width - cellPadding * 2 - gap * (columnsPerRow - 1)) / columnsPerRow;
+          const rowHeights: number[] = [];
+          const layouts = images.map((image, index) => {
+            const scale = Math.min(slotWidth / image.width, maxImageHeight / image.height, 1);
+            const renderedWidth = Math.max(6, image.width * scale);
+            const renderedHeight = Math.max(6, image.height * scale);
+            const itemHeight = renderedHeight + (image.label ? labelHeight : 0);
+            const rowIndex = Math.floor(index / columnsPerRow);
+            rowHeights[rowIndex] = Math.max(rowHeights[rowIndex] || 0, itemHeight);
+            return { image, index, renderedWidth, renderedHeight, rowIndex };
+          });
+
+          layouts.forEach((layout) => {
+            const colIndex = layout.index % columnsPerRow;
+            const rowTop =
+              top +
+              rowHeights.slice(0, layout.rowIndex).reduce((sum, height) => sum + height + gap, 0);
+            const slotX = x + cellPadding + colIndex * (slotWidth + gap);
+
+            let imageTop = rowTop;
+            if (layout.image.label) {
+              pdf.setFont("helvetica", "bold");
+              pdf.setFontSize(6.6);
+              pdf.text(`${layout.image.label})`, slotX, rowTop + 2.5);
+              imageTop += labelHeight;
+            }
+
+            pdf.addImage(
+              layout.image.dataUrl,
+              getPdfImageFormat(layout.image.dataUrl),
+              slotX,
+              imageTop,
+              layout.renderedWidth,
+              layout.renderedHeight
+            );
+          });
+        };
+
+        if (hasImages) {
+          const textHeights = wrappedCells.map((lines) =>
+            Math.max(minRowHeight, lines.length * rowLineHeight + cellPadding * 2 + 1.2)
+          );
+          const questionTextHeight =
+            wrappedCells[1].filter(Boolean).length * rowLineHeight + 1.2;
+          const optionTextHeight =
+            wrappedCells[2].filter(Boolean).length * rowLineHeight + 1.2;
+          const questionImageHeight = getImageLayoutHeight(
+            row.questionImages,
+            columns[1].width,
+            45
+          );
+          const optionImageHeight = getImageLayoutHeight(row.optionImages, columns[2].width, 28);
+          const questionCellHeight =
+            cellPadding * 2 + questionTextHeight + (questionImageHeight ? 2 + questionImageHeight : 0);
+          const optionCellHeight =
+            cellPadding * 2 + optionTextHeight + (optionImageHeight ? 2 + optionImageHeight : 0);
+          const rowHeight = Math.max(
+            minRowHeight,
+            textHeights[0],
+            questionCellHeight,
+            optionCellHeight,
+            textHeights[3]
+          );
+
+          ensureSpace(rowHeight);
+
+          let x = marginX;
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(7);
+          wrappedCells.forEach((lines, index) => {
+            pdf.rect(x, y, columns[index].width, rowHeight);
+            drawCellText(lines, x, y, columns[index].width);
+            x += columns[index].width;
+          });
+
+          drawImagesInCell(
+            row.questionImages,
+            marginX + columns[0].width,
+            y + cellPadding + questionTextHeight + 2,
+            columns[1].width,
+            45
+          );
+          drawImagesInCell(
+            row.optionImages,
+            marginX + columns[0].width + columns[1].width,
+            y + cellPadding + optionTextHeight + 2,
+            columns[2].width,
+            28
+          );
+
+          y += rowHeight;
+          return;
+        }
+
+        while (lineOffset < totalLines) {
+          const availableHeight = pageHeight - pageBottom - y;
+          if (availableHeight < minRowHeight + headerHeight) {
+            pdf.addPage();
+            y = pageTop;
+            drawTableHeader();
+          }
+
+          const linesPerPage = Math.max(
+            1,
+            Math.floor((pageHeight - pageBottom - y - cellPadding * 2 - 1.2) / rowLineHeight)
+          );
+          const lineLimit = Math.min(linesPerPage, totalLines - lineOffset);
+          const cellChunks = wrappedCells.map((lines) =>
+            lines.slice(lineOffset, lineOffset + lineLimit)
+          );
+          const chunkLines = Math.max(...cellChunks.map((lines) => lines.length), 1);
+          const rowHeight = Math.max(
+            minRowHeight,
+            chunkLines * rowLineHeight + cellPadding * 2 + 1.2
+          );
+
+          let x = marginX;
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(7);
+          cellChunks.forEach((lines, index) => {
+            pdf.rect(x, y, columns[index].width, rowHeight);
+            drawCellText(lines, x, y, columns[index].width);
+            x += columns[index].width;
+          });
+
+          y += rowHeight;
+          lineOffset += lineLimit;
+
+          if (lineOffset < totalLines) {
+            pdf.addPage();
+            y = pageTop;
+            drawTableHeader();
+          }
+        }
+      };
+
+      const getOptionsText = (source: any) =>
+        (["A", "B", "C", "D"] as const)
+          .map((id) => {
+            const value = getOptionValue(source, id);
+            return value && value !== id ? `${id}) ${value}` : "";
+          })
+          .filter(Boolean)
+          .join("\n");
+
+      const getQuestionPdfText = (
+        question: IQuestion,
+        subQuestion?: ISubQuestion,
+        subQuestionNumber?: string,
+        includeSharedParagraph = true
+      ) => {
+        const parts = [
+          includeSharedParagraph ? String(question.text || "").trim() : "",
+          includeSharedParagraph ? String(question.paragraph || "").trim() : "",
+          subQuestion
+            ? `Sub-question: ${String(subQuestion.text || "Untitled").trim()}`
+            : "",
+        ].filter(Boolean);
+
+        return parts.join("\n\n");
+      };
+
+      const groupedQuestions = new Map<string, IQuestion[]>();
+      res.questions.forEach((question: IQuestion) => {
+        const groupName = getTopicNameById(question.topicId);
+        if (!groupedQuestions.has(groupName)) {
+          groupedQuestions.set(groupName, []);
+        }
+        groupedQuestions.get(groupName)!.push(question);
+      });
+
+      for (const [groupTopicName, topicQuestions] of groupedQuestions) {
+        if (y > pageHeight - 28) {
+          pdf.addPage();
+          y = 12;
+        }
+        drawTopicTitle(groupTopicName);
+
+        let topicQuestionNumber = 1;
+        for (const question of topicQuestions) {
+          if (Array.isArray(question.subQuestions) && question.subQuestions.length > 0) {
+            const hasParagraphText = Boolean(String(question.paragraph || "").trim());
+
+            for (const [subIndex, subQuestion] of question.subQuestions.entries()) {
+              const subQuestionNumber = `${topicQuestionNumber}.${subIndex + 1}`;
+              const includeSharedParagraph = !hasParagraphText || subIndex === 0;
+              const questionImages = await loadPdfImages([
+                ...(subIndex === 0 ? getQuestionMedia(question) : []),
+                ...getQuestionMedia(subQuestion),
+              ]);
+              const optionImages = await loadPdfImages(getOptionMedia(subQuestion));
+
+              drawQuestionRow({
+                no: subQuestionNumber,
+                question: getQuestionPdfText(
+                  question,
+                  subQuestion,
+                  subQuestionNumber,
+                  includeSharedParagraph
+                ),
+                options: getOptionsText(subQuestion),
+                correct: getCorrectAnswer(subQuestion),
+                questionImages,
+                optionImages,
+              });
+            }
+            topicQuestionNumber += 1;
+            continue;
+          }
+
+          const questionImages = await loadPdfImages(getQuestionMedia(question));
+          const optionImages = await loadPdfImages(getOptionMedia(question));
+
+          drawQuestionRow({
+            no: String(topicQuestionNumber),
+            question: getQuestionPdfText(question) || "Untitled question",
+            options: getOptionsText(question),
+            correct: getCorrectAnswer(question),
+            questionImages,
+            optionImages,
+          });
+          topicQuestionNumber += 1;
+        }
+
+        y += 3;
+      }
+
+      const safeName = [className, subjectName, topicName]
+        .join("-")
+        .replace(/[^a-z0-9]+/gi, "-")
+        .replace(/^-|-$/g, "")
+        .toLowerCase();
+      pdf.save(`question-bank-${safeName || "report"}.pdf`);
+    } catch (error) {
+      console.error("Question bank PDF export failed", error);
+      alert("Failed to download PDF. Please try again.");
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
   const fetchQuestions = async () => {
     setIsLoading(true);
 
     const payload = {
-      search: searchDebounce || undefined,
-      classId: filterClass !== "all" ? filterClass : undefined,
-      subjectId: filterSubject !== "all" ? filterSubject : undefined,
-      type: filterType !== "all" ? filterType : undefined,
-      difficulty: filterDifficulty !== "all" ? filterDifficulty : undefined,
+      ...buildQuestionFilterPayload(),
       page: currentPage,
       limit: recordsPerPage,
     };
@@ -363,6 +1086,7 @@ export default function QuestionBankPage() {
     setSearchDebounce("");
     setFilterClass("all");
     setFilterSubject("all");
+    setFilterTopic("all");
     setFilterType("all");
     setFilterDifficulty("all");
   };
@@ -391,6 +1115,18 @@ export default function QuestionBankPage() {
     );
     setEditMarks(String(q.marks ?? ""));
     setEditDifficulty((q.difficulty as DifficultyLevel) || "easy");
+    const topicId = String(q.topicId || "");
+    const normalizedTopicId = topicId.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    const topic = topics.find((item) => {
+      const id = String(item._id || item.id || "");
+      return (
+        id === topicId ||
+        item.name === topicId ||
+        item.nameLower === normalizedTopicId ||
+        String(item.name || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "") === normalizedTopicId
+      );
+    });
+    setEditTopicId(String(topic?._id || topic?.id || topicId));
     setEditQuestionOpen(true);
   };
 
@@ -463,6 +1199,7 @@ export default function QuestionBankPage() {
           : {}),
         marks: parsedMarks,
         difficulty: editDifficulty,
+        topicId: editTopicId,
       });
 
       if (!res?.success) {
@@ -484,6 +1221,9 @@ export default function QuestionBankPage() {
                   : {}),
                 marks: parsedMarks,
                 difficulty: editDifficulty,
+                topicId: res?.question?.topicId ?? editTopicId,
+                classId: res?.question?.classId || q.classId,
+                subjectId: res?.question?.subjectId || q.subjectId,
               }
             : q
         )
@@ -531,6 +1271,7 @@ export default function QuestionBankPage() {
   const resetBulkForm = () => {
     setBulkMarks("");
     setBulkDifficulty("unchanged");
+    setBulkTopicId("unchanged");
   };
 
   const handleOpenBulkEdit = () => {
@@ -593,9 +1334,10 @@ export default function QuestionBankPage() {
   const handleBulkUpdate = async () => {
     const parsedMarks = bulkMarks.trim() === "" ? undefined : Number(bulkMarks);
     const nextDifficulty = bulkDifficulty === "unchanged" ? undefined : bulkDifficulty;
+    const nextTopicId = bulkTopicId === "unchanged" ? undefined : bulkTopicId === "none" ? "" : bulkTopicId;
 
-    if (parsedMarks === undefined && !nextDifficulty) {
-      alert("Please set marks and/or difficulty to update.");
+    if (parsedMarks === undefined && !nextDifficulty && nextTopicId === undefined) {
+      alert("Please set marks, difficulty, and/or topic to update.");
       return;
     }
 
@@ -610,12 +1352,14 @@ export default function QuestionBankPage() {
         ids: string[];
         marks?: number;
         difficulty?: DifficultyLevel;
+        topicId?: string;
       } = {
         ids: selectedQuestionIds,
       };
 
       if (parsedMarks !== undefined) payload.marks = parsedMarks;
       if (nextDifficulty) payload.difficulty = nextDifficulty;
+      if (nextTopicId !== undefined) payload.topicId = nextTopicId;
 
       const res = await bulkUpdateQuestionsApi(payload);
 
@@ -631,6 +1375,17 @@ export default function QuestionBankPage() {
             ...q,
             marks: parsedMarks !== undefined ? parsedMarks : q.marks,
             difficulty: nextDifficulty || q.difficulty,
+            topicId: nextTopicId !== undefined ? nextTopicId : q.topicId,
+            ...(nextTopicId
+              ? {
+                  classId:
+                    topics.find((topic) => String(topic._id || topic.id) === nextTopicId)?.classId ||
+                    q.classId,
+                  subjectId:
+                    topics.find((topic) => String(topic._id || topic.id) === nextTopicId)?.subjectId ||
+                    q.subjectId,
+                }
+              : {}),
           };
         })
       );
@@ -654,11 +1409,21 @@ export default function QuestionBankPage() {
           <h2 className="text-3xl font-bold">Question Bank</h2>
           <p className="text-muted-foreground">Manage and organize questions</p>
         </div>
-        <Link href="/dashboard/questions/new">
-          <Button className="cursor-pointer">
-            <Plus className="mr-2 h-4 w-4" /> Add Question
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleDownloadFilteredPdf}
+            disabled={isDownloadingPdf || isLoading}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {isDownloadingPdf ? "Preparing..." : "Download PDF"}
           </Button>
-        </Link>
+          <Link href="/dashboard/questions/new">
+            <Button className="cursor-pointer">
+              <Plus className="mr-2 h-4 w-4" /> Add Question
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* STATS */}
@@ -685,7 +1450,7 @@ export default function QuestionBankPage() {
             <X className="h-4 w-4" /> clear filters
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid md:grid-cols-5 gap-3">
+        <CardContent className="grid md:grid-cols-6 gap-3">
           <div>
             <h3>search</h3>
             <Input
@@ -699,7 +1464,13 @@ export default function QuestionBankPage() {
           </div>
           <div>
             <h3>Class</h3>
-            <Select value={filterClass} onValueChange={setFilterClass}>
+            <Select
+              value={filterClass}
+              onValueChange={(value) => {
+                setFilterClass(value);
+                setFilterTopic("all");
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Class" />
               </SelectTrigger>
@@ -715,7 +1486,13 @@ export default function QuestionBankPage() {
           </div>
           <div>
             <h3>Subject</h3>
-            <Select value={filterSubject} onValueChange={setFilterSubject}>
+            <Select
+              value={filterSubject}
+              onValueChange={(value) => {
+                setFilterSubject(value);
+                setFilterTopic("all");
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Subject" />
               </SelectTrigger>
@@ -728,6 +1505,25 @@ export default function QuestionBankPage() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div>
+            <h3>Topic</h3>
+            <Select value={filterTopic} onValueChange={setFilterTopic}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Topic" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {topics.map((topic) => (
+                  <SelectItem key={String(topic._id || topic.id)} value={String(topic._id || topic.id)}>
+                    {topic.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {topicsLoading && (
+              <p className="mt-1 text-xs text-muted-foreground">Loading topics...</p>
+            )}
           </div>
           <div>
             <h3>Type</h3>
@@ -777,7 +1573,7 @@ export default function QuestionBankPage() {
               onClick={handleOpenBulkEdit}
               disabled={selectedQuestionIds.length === 0 || isBulkDeleting}
             >
-              <Edit className="mr-2 h-4 w-4" /> Bulk Edit Marks & Difficulty
+              <Edit className="mr-2 h-4 w-4" /> Bulk Edit
             </Button>
             <Button
               variant="destructive"
@@ -794,7 +1590,7 @@ export default function QuestionBankPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    {[...Array(6)].map((_, i) => (
+                    {[...Array(9)].map((_, i) => (
                       <TableHead key={i}>
                         <div className="skeleton h-4 w-full" />
                       </TableHead>
@@ -805,7 +1601,7 @@ export default function QuestionBankPage() {
                 <TableBody>
                   {[...Array(10)].map((_, rowIndex) => (
                     <TableRow key={rowIndex}>
-                      {[...Array(6)].map((_, colIndex) => (
+                      {[...Array(9)].map((_, colIndex) => (
                         <TableCell key={colIndex}>
                           <div className="skeleton h-4 w-full" />
                         </TableCell>
@@ -833,6 +1629,7 @@ export default function QuestionBankPage() {
                     <TableHead>Type</TableHead>
                     <TableHead>Class</TableHead>
                     <TableHead>Subject</TableHead>
+                    <TableHead>Topic</TableHead>
                     <TableHead>Marks</TableHead>
                     <TableHead>Difficulty</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -862,6 +1659,7 @@ export default function QuestionBankPage() {
                         <TableCell>
                           {getSubjectNameById(q?.subjectId)}
                         </TableCell>
+                        <TableCell>{getTopicNameById(q.topicId)}</TableCell>
                         <TableCell>{q.marks}</TableCell>
                         <TableCell>
                           <Badge
@@ -915,7 +1713,7 @@ export default function QuestionBankPage() {
                 </TableBody>
                 <TableFooter>
                   <TableRow>
-                    <TableHead colSpan={8} className="text-right">
+                    <TableHead colSpan={9} className="text-right">
                       <div className="w-full flex items-center justify-between p-4">
                         <span className="text-sm text-muted-foreground">
                           Showing {(currentPage - 1) * recordsPerPage + 1}–
@@ -991,6 +1789,7 @@ export default function QuestionBankPage() {
                 <p>Type: {selectedQuestion.type}</p>
                 <p>Class: {getClassNameById(selectedQuestion.classId)}</p>
                 <p>Subject: {getSubjectNameById(selectedQuestion.subjectId)}</p>
+                <p>Topic: {getTopicNameById(selectedQuestion.topicId)}</p>
                 <p>Marks: {selectedQuestion.marks}</p>
                 <p>Difficulty: {selectedQuestion.difficulty}</p>
               </div>
@@ -1008,7 +1807,7 @@ export default function QuestionBankPage() {
                     .map((img) => (
                       <img
                         key={img._id || img.url || "question-media"}
-                        src={/^(data:|https?:\/\/)/.test(img.url) ? img.url : `${baseURL || ""}${img.url || ""}`}
+                        src={/^(data:|https?:\/\/)/.test(String(img.url || "")) ? img.url : `${baseURL || ""}${img.url || ""}`}
                         alt={img.alt}
                         className="max-h-40 rounded border"
                       />
@@ -1044,7 +1843,7 @@ export default function QuestionBankPage() {
                         {/* OPTION IMAGE */}
                         {optionImage && (
                           <img
-                            src={/^(data:|https?:\/\/)/.test(optionImage.url) ? optionImage.url : `${baseURL || ""}${optionImage.url || ""}`}
+                            src={/^(data:|https?:\/\/)/.test(String(optionImage.url || "")) ? optionImage.url : `${baseURL || ""}${optionImage.url || ""}`}
                             alt={optionImage.alt}
                             className="max-h-24 rounded border"
                           />
@@ -1174,9 +1973,9 @@ export default function QuestionBankPage() {
       <Dialog open={bulkEditOpen} onOpenChange={setBulkEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Bulk Edit Questions</DialogTitle>
+            <DialogTitle>Bulk Edit</DialogTitle>
             <DialogDescription>
-              Update marks and/or difficulty for {selectedQuestionIds.length} selected questions.
+              Update marks, difficulty, and/or topic for {selectedQuestionIds.length} selected questions.
             </DialogDescription>
           </DialogHeader>
 
@@ -1210,6 +2009,24 @@ export default function QuestionBankPage() {
               </Select>
             </div>
 
+            <div>
+              <label className="text-sm font-medium">Topic (optional)</label>
+              <Select value={bulkTopicId} onValueChange={setBulkTopicId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose topic" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unchanged">Keep existing</SelectItem>
+                  <SelectItem value="none">No topic</SelectItem>
+                  {topics.map((topic) => (
+                    <SelectItem key={String(topic._id || topic.id)} value={String(topic._id || topic.id)}>
+                      {topic.name} ({getClassNameById(topic.classId)}, {getSubjectNameById(topic.subjectId)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
@@ -1232,7 +2049,7 @@ export default function QuestionBankPage() {
           <DialogHeader>
             <DialogTitle>Edit Question</DialogTitle>
             <DialogDescription>
-              Edit question text, marks, and difficulty for selected question.
+              Edit question text, topic, marks, and difficulty for selected question.
             </DialogDescription>
           </DialogHeader>
 
@@ -1276,6 +2093,23 @@ export default function QuestionBankPage() {
                 ))}
               </div>
             )}
+
+            <div>
+              <label className="text-sm font-medium">Topic</label>
+              <Select value={editTopicId || "none"} onValueChange={(value) => setEditTopicId(value === "none" ? "" : value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose topic" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No topic</SelectItem>
+                  {topics.map((topic) => (
+                    <SelectItem key={String(topic._id || topic.id)} value={String(topic._id || topic.id)}>
+                      {topic.name} ({getClassNameById(topic.classId)}, {getSubjectNameById(topic.subjectId)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             <div>
               <label className="text-sm font-medium">Marks</label>

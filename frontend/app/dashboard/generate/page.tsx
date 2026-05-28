@@ -27,7 +27,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { ClassLevel, Section, Sections, Topic } from "@/lib/types";
 import { cn, formatTopicTitle } from "@/lib/utils";
-import { CLASSES, SUBJECTS } from "../../../lib/data";
+import { CLASSES, SUBJECTS, normalizeSubjectId } from "../../../lib/data";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
   createPaperTemplateApi,
@@ -138,15 +138,18 @@ export default function GeneratePaperPage() {
     : selectedSubjects[0] || "";
 
   const topicsForActiveSubject = availableTopics.filter(
-    (t) => t.subjectId === activeSubject
+    (t) => normalizeSubjectId(t.subjectId) === activeSubject
   );
 
   const activeSubjectName =
     SUBJECTS.find((s) => s.id === activeSubject)?.name || "subject";
 
+  const getTopicSubjectId = (topic: Pick<Topic, "subjectId">) =>
+    normalizeSubjectId(topic.subjectId);
+
   const getSelectedTopicsForSubject = (subjectId: string) => {
     return availableTopics.filter(
-      (topic) => topic.subjectId === subjectId && selectedTopics.includes(topic.id)
+      (topic) => getTopicSubjectId(topic) === subjectId && selectedTopics.includes(topic.id)
     );
   };
 
@@ -421,7 +424,7 @@ const totalAllocated = selectedSubjects.reduce(
         setSelectedTopics((prevTopics) =>
           prevTopics.filter((topicId) => {
             const topic = availableTopics.find((t) => t.id === topicId);
-            return topic?.subjectId !== id;
+            return topic ? getTopicSubjectId(topic) !== id : false;
           })
         );
 
@@ -450,7 +453,7 @@ const totalAllocated = selectedSubjects.reduce(
     setSelectedTopics((prevTopics) => {
       const nextTopics = prevTopics.filter((topicId) => {
         const topic = availableTopics.find((t) => t.id === topicId);
-        return topic ? selectedSubjects.includes(topic.subjectId) : false;
+        return topic ? selectedSubjects.includes(getTopicSubjectId(topic)) : false;
       });
 
       if (
@@ -532,7 +535,7 @@ const totalAllocated = selectedSubjects.reduce(
               resultTopics.push(
                 ...res.topics.map((topic: any) => ({
                   id: topic._id || topic.id,
-                  subjectId: topic.subjectId,
+                  subjectId: normalizeSubjectId(topic.subjectId || subjectId),
                   name: topic.name,
                 }))
               );
@@ -542,7 +545,7 @@ const totalAllocated = selectedSubjects.reduce(
 
         setAvailableTopics((prev) => {
           const keep = prev.filter((topic) =>
-            selectedSubjects.includes(topic.subjectId)
+            selectedSubjects.includes(getTopicSubjectId(topic))
           );
           const merged = [...keep, ...resultTopics];
           return Array.from(
@@ -579,7 +582,7 @@ const totalAllocated = selectedSubjects.reduce(
 
       const topic: Topic = {
         id: res.topic._id || res.topic.id,
-        subjectId: res.topic.subjectId,
+        subjectId: normalizeSubjectId(res.topic.subjectId || activeSubject),
         name: res.topic.name,
       };
 
@@ -922,7 +925,7 @@ const handleSave = async () => {
 
                         const selectedCount = availableTopics.filter(
                           (topic) =>
-                            topic.subjectId === subjectId &&
+                            getTopicSubjectId(topic) === subjectId &&
                             selectedTopics.includes(topic.id)
                         ).length;
 

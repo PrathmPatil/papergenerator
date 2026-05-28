@@ -146,6 +146,32 @@ export default function CreateQuestionPage() {
   const [paragraphData, setParagraphData] = useState<any>(null);
   const [imageSubQuestionsData, setImageSubQuestionsData] = useState<any>(null);
 
+  const showUnknownTopicAlert = (response: any) => {
+    const unknownTopics = Array.isArray(response?.unknownTopics)
+      ? response.unknownTopics
+      : Array.isArray(response?.data?.unknownTopics)
+      ? response.data.unknownTopics
+      : [];
+
+    const topicLines = unknownTopics
+      .slice(0, 8)
+      .map((topic: any) => {
+        const className = CLASSES.find((item) => item.id === topic.classId)?.name || topic.classId;
+        const subjectName =
+          SUBJECTS.find((item) => item.id === topic.subjectId)?.name || topic.subjectId;
+        const rows = Array.isArray(topic.rows) ? topic.rows.join(", ") : "";
+        return `${topic.topicName} (${className}, ${subjectName}${rows ? `, rows ${rows}` : ""})`;
+      })
+      .join("\n");
+
+    alert(
+      "New topic found in Excel.\n\n" +
+        "Please add the topic from the Topics menu, then upload the Excel again.\n\n" +
+        topicLines +
+        (unknownTopics.length > 8 ? `\n...and ${unknownTopics.length - 8} more` : "")
+    );
+  };
+
   const filteredSubjects = useMemo(
     () =>
       SUBJECTS.filter((s) =>
@@ -414,11 +440,19 @@ export default function CreateQuestionPage() {
       if (questionType === "mcq_image") {
         res = await bulkImageUploadApi(formData);
         if (!res.success) {
+          if (res?.code === "UNKNOWN_TOPICS") {
+            showUnknownTopicAlert(res);
+            return;
+          }
           throw new Error(res.message || "Bulk upload failed");
         }
       } else if (questionType === "image_subquestions") {
         res = await bulkImageUploadWithTypeApi(formData, "image_subquestions");
         if (!res.success) {
+          if (res?.code === "UNKNOWN_TOPICS") {
+            showUnknownTopicAlert(res);
+            return;
+          }
           throw new Error(res.message || "Bulk upload failed");
         }
       } else {
@@ -428,6 +462,10 @@ export default function CreateQuestionPage() {
         res = await createBulkQuestionsApi(questions, false);
 
         if (!res.success) {
+          if (res?.code === "UNKNOWN_TOPICS") {
+            showUnknownTopicAlert(res);
+            return;
+          }
           throw new Error(res.message || "Bulk upload failed");
         }
       }
