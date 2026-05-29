@@ -127,6 +127,115 @@ router.post("/convert", upload.single("pdf"), async (req, res) => {
   }
 });
 
+router.post("/docx-to-excel", upload.single("docx"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Upload a DOCX file using the 'docx' form field.",
+      });
+    }
+
+    const fileName = req.file.originalname || "questions.docx";
+    if (!fileName.toLowerCase().endsWith(".docx")) {
+      return res.status(400).json({
+        success: false,
+        message: "Only DOCX files are supported.",
+      });
+    }
+
+    const formData = new FormData();
+    formData.append("docx", new Blob([req.file.buffer], { type: req.file.mimetype }), fileName);
+    ["classId", "subjectId", "topicName", "difficulty", "marks", "negativeMarks"].forEach((field) => {
+      if (req.body?.[field] !== undefined) {
+        formData.append(field, String(req.body[field]));
+      }
+    });
+
+    const serviceResponse = await fetch(`${getPdfServiceBaseUrl()}/api/docx-to-excel`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!serviceResponse.ok) {
+      return sendServiceJson(serviceResponse, res);
+    }
+
+    const contentType = serviceResponse.headers.get("content-type");
+    const contentDisposition = serviceResponse.headers.get("content-disposition");
+    const buffer = Buffer.from(await serviceResponse.arrayBuffer());
+
+    if (contentType) res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Length", buffer.length);
+    res.setHeader(
+      "Content-Disposition",
+      contentDisposition || `attachment; filename="${fileName.replace(/\.docx$/i, "")}-excel-import-files.zip"`
+    );
+    return res.status(200).send(buffer);
+  } catch (error) {
+    return res.status(502).json({
+      success: false,
+      message: "DOCX to Excel service is unavailable",
+    });
+  }
+});
+
+router.post("/pdf-to-excel", upload.array("pdfs", 20), async (req, res) => {
+  try {
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Upload one or more PDF files using the 'pdfs' form field.",
+      });
+    }
+
+    const formData = new FormData();
+    for (const file of files) {
+      const fileName = file.originalname || "questions.pdf";
+      if (!fileName.toLowerCase().endsWith(".pdf")) {
+        return res.status(400).json({
+          success: false,
+          message: `Only PDF files are supported: ${fileName}`,
+        });
+      }
+      formData.append("pdfs", new Blob([file.buffer], { type: file.mimetype }), fileName);
+    }
+
+    ["classId", "subjectId", "difficulty", "marks", "negativeMarks"].forEach((field) => {
+      if (req.body?.[field] !== undefined) {
+        formData.append(field, String(req.body[field]));
+      }
+    });
+
+    const serviceResponse = await fetch(`${getPdfServiceBaseUrl()}/api/pdf-to-excel`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!serviceResponse.ok) {
+      return sendServiceJson(serviceResponse, res);
+    }
+
+    const contentType = serviceResponse.headers.get("content-type");
+    const contentDisposition = serviceResponse.headers.get("content-disposition");
+    const buffer = Buffer.from(await serviceResponse.arrayBuffer());
+
+    if (contentType) res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Length", buffer.length);
+    res.setHeader(
+      "Content-Disposition",
+      contentDisposition || `attachment; filename="${req.body?.classId || "Class"}_${req.body?.subjectId || "Subject"}_QuestionExcelFiles.zip"`
+    );
+    return res.status(200).send(buffer);
+  } catch (error) {
+    return res.status(502).json({
+      success: false,
+      message: "PDF question Excel service is unavailable",
+    });
+  }
+});
+
 router.get("/", async (req, res) => {
   try {
     const limit = Number(req.query.limit || 25);

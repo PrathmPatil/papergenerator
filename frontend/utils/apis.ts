@@ -534,6 +534,68 @@ export const convertPdfToDocxApi = async (pdfFile: File): Promise<PdfConversionR
   return response as unknown as PdfConversionResponse;
 };
 
+export const convertDocxToExcelZipApi = async (
+  docxFile: File,
+  options: {
+    classId: string;
+    subjectId: string;
+    topicName: string;
+    difficulty?: string;
+    marks?: number;
+    negativeMarks?: number;
+  }
+): Promise<Blob> => {
+  const formData = new FormData();
+  formData.append("docx", docxFile);
+  formData.append("classId", options.classId);
+  formData.append("subjectId", options.subjectId);
+  formData.append("topicName", options.topicName);
+  formData.append("difficulty", options.difficulty || "easy");
+  formData.append("marks", String(options.marks ?? 1));
+  formData.append("negativeMarks", String(options.negativeMarks ?? 0));
+
+  const response = await apiClient({
+    url: "/api/pdf-conversion/docx-to-excel",
+    method: "POST",
+    data: formData,
+    isFormData: true,
+    responseType: "blob",
+    timeout: PDF_CONVERSION_TIMEOUT_MS,
+  });
+
+  return ensureDownloadBlob(response as unknown as Blob, "DOCX to Excel export failed.");
+};
+
+export const convertPdfsToExcelZipApi = async (
+  pdfFiles: File[],
+  options: {
+    classId: string;
+    subjectId: string;
+    difficulty?: string;
+    marks?: number;
+    negativeMarks?: number;
+  }
+): Promise<Blob> => {
+  const formData = new FormData();
+  pdfFiles.forEach((file) => formData.append("pdfs", file));
+  formData.append("classId", options.classId);
+  formData.append("subjectId", options.subjectId);
+  formData.append("difficulty", options.difficulty || "easy");
+  formData.append("marks", String(options.marks ?? 1));
+  formData.append("negativeMarks", String(options.negativeMarks ?? 0));
+
+  const response = await apiClient({
+    url: "/api/pdf-conversion/pdf-to-excel",
+    method: "POST",
+    data: formData,
+    isFormData: true,
+    responseType: "blob",
+    timeout: PDF_CONVERSION_TIMEOUT_MS,
+  });
+
+  return ensureDownloadBlob(response as unknown as Blob, "PDF to Excel generation failed.");
+};
+
 export const fetchPdfConversionApi = async (jobId: string): Promise<PdfConversionResponse> => {
   const response = await apiClient<PdfConversionResponse>({
     url: `/api/pdf-conversion/${jobId}`,

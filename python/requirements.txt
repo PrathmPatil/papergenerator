@@ -2,3 +2,4 @@ Flask
 flask-swagger-ui
 PyMuPDF
 python-docx
+openpyxl
