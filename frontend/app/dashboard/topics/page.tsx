@@ -17,6 +17,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -43,6 +44,7 @@ type TopicRow = {
 };
 
 const ALL = "all";
+const DEFAULT_RECORDS_PER_PAGE = 10;
 
 export default function TopicsPage() {
   const { toast } = useToast();
@@ -54,6 +56,8 @@ export default function TopicsPage() {
   const [filterClass, setFilterClass] = useState(ALL);
   const [filterSubject, setFilterSubject] = useState(ALL);
   const [filterSearch, setFilterSearch] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [recordsPerPage, setRecordsPerPage] = useState(DEFAULT_RECORDS_PER_PAGE);
 
   const [newClassId, setNewClassId] = useState("");
   const [newSubjectId, setNewSubjectId] = useState("");
@@ -88,6 +92,12 @@ export default function TopicsPage() {
     [editClassId]
   );
 
+  const totalPages = Math.max(1, Math.ceil(topics.length / recordsPerPage));
+  const paginatedTopics = useMemo(() => {
+    const start = (currentPage - 1) * recordsPerPage;
+    return topics.slice(start, start + recordsPerPage);
+  }, [currentPage, recordsPerPage, topics]);
+
   const loadTopics = async () => {
     try {
       setLoading(true);
@@ -111,11 +121,22 @@ export default function TopicsPage() {
   };
 
   useEffect(() => {
+    setCurrentPage(1);
     loadTopics();
   }, [filterClass, filterSubject]);
 
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
+
   const handleSearch = () => {
+    setCurrentPage(1);
     loadTopics();
+  };
+
+  const handleRecordsPerPageChange = (value: string) => {
+    setRecordsPerPage(Number(value));
+    setCurrentPage(1);
   };
 
   const handleDownloadPdf = async () => {
@@ -577,7 +598,7 @@ export default function TopicsPage() {
                 </TableCell>
               </TableRow>
             ) : topics.length > 0 ? (
-              topics.map((topic) => (
+              paginatedTopics.map((topic) => (
                 <TableRow key={topic._id || topic.id}>
                   <TableCell>{getClassNameById(topic.classId)}</TableCell>
                   <TableCell>{getSubjectNameById(topic.subjectId)}</TableCell>
@@ -613,6 +634,59 @@ export default function TopicsPage() {
               </TableRow>
             )}
           </TableBody>
+          {topics.length > 0 && (
+            <TableFooter>
+              <TableRow>
+                <TableHead colSpan={5}>
+                  <div className="flex w-full flex-col gap-3 p-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      Showing {(currentPage - 1) * recordsPerPage + 1}-
+                      {Math.min(currentPage * recordsPerPage, topics.length)} of {topics.length}
+                    </span>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage === 1}
+                        onClick={() => setCurrentPage((page) => page - 1)}
+                      >
+                        Previous
+                      </Button>
+
+                      <span className="text-sm">
+                        Page {currentPage} of {totalPages}
+                      </span>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage === totalPages}
+                        onClick={() => setCurrentPage((page) => page + 1)}
+                      >
+                        Next
+                      </Button>
+
+                      <Select
+                        value={recordsPerPage.toString()}
+                        onValueChange={handleRecordsPerPageChange}
+                      >
+                        <SelectTrigger className="w-[120px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="5">5 per page</SelectItem>
+                          <SelectItem value="10">10 per page</SelectItem>
+                          <SelectItem value="20">20 per page</SelectItem>
+                          <SelectItem value="50">50 per page</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </TableHead>
+              </TableRow>
+            </TableFooter>
+          )}
         </Table>
       </div>
 
