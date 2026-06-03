@@ -5,18 +5,24 @@ import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence
+from typing import Dict, List, Sequence, Tuple
 
 import fitz
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
 
-QUESTION_PATTERN = re.compile(r"^\s*(?:q(?:uestion)?\.?\s*)?(\d{1,4})[\).:\-]\s*(.+)$", re.IGNORECASE)
-OPTION_PATTERN = re.compile(r"^\s*([A-Ea-e])[\).:\-]\s*(.+)$")
-ANSWER_PATTERNS = [
-    re.compile(r"^\s*(?:ans(?:wer)?\.?\s*)?(\d{1,4})[\).:\-]\s*([A-Ea-e])\b", re.IGNORECASE),
-    re.compile(r"^\s*(?:ans(?:wer)?\.?\s*)[:\-]\s*([A-Ea-e])\b", re.IGNORECASE),
+OPTION_RE = re.compile(r"\((\d)\)\s*(.+?)(?=\(\d\)|$)", re.DOTALL)
+QUESTION_RE = re.compile(r"^(\d{1,3})[.)\s]\s*(.+)", re.DOTALL)
+SKIP_PATTERNS = [
+    r"^_c_",
+    r"ALL[I1]M",
+    r"^GEOMETRY EXERCISE",
+    r"^Mathematics",
+    r"^\d{3}-+$",
+    r"^-{5,}",
+    r"^={5,}",
+    r"^\d+$",
 ]
 
 
@@ -24,6 +30,7 @@ ANSWER_PATTERNS = [
 class PdfQuestionDefaults:
     class_id: str
     subject_id: str
+    topic_id: str = ""
     difficulty: str = "easy"
     marks: int = 1
     negative_marks: float = 0
@@ -134,12 +141,20 @@ class PdfQuestionExcelService:
     }
 
     def generate_excel_zip(self, pdf_paths: Sequence[Path], defaults: PdfQuestionDefaults) -> BytesIO:
-        parsed_questions: List[ParsedQuestion] = []
-        for pdf_path in pdf_paths:
-            parsed_questions.extend(self._parse_pdf(pdf_path))
+        parsed_questions: List[Dict] = []
+        image_files: Dict[str, bytes] = {}
+        image_counter = 0
 
-        unique_questions = self._dedupe_questions(parsed_questions)
-        categorized = self._categorize_questions(unique_questions)
+        for pdf_path in pdf_paths:
+            questions, pdf_images, image_counter = self._parse_pdf_with_notebook_logic(
+                pdf_path,
+                image_counter,
+            )
+            parsed_questions.extend(questions)
+            image_files.update(pdf_images)
+
+        unique_questions = self._dedupe_question_dicts(parsed_questions)
+        categorized = self._categorize_notebook_questions(unique_questions)
 
         prefix = self._safe_output_prefix(defaults.class_id, defaults.subject_id)
         output = BytesIO()
@@ -151,7 +166,138 @@ class PdfQuestionExcelService:
                     rows=self._build_rows(key, categorized[key], defaults),
                 )
                 package.writestr(self.output_names[key].format(prefix=prefix), workbook_bytes)
+            if image_files:
+                package.writestr("images.zip", self._build_images_zip(image_files).getvalue())
 
+        output.seek(0)
+        return output
+
+    def _parse_pdf_with_notebook_logic(
+        self,
+        pdf_path: Path,
+        image_counter: int = 0,
+    ) -> Tuple[List[Dict], Dict[str, bytes], int]:
+        questions: List[Dict] = []
+        image_files: Dict[str, bytes] = {}
+        current_q = None
+
+        def save_q(question):
+            if question and question.get("text"):
+                questions.append(question)
+
+        with fitz.open(str(pdf_path)) as pdf_doc:
+            for page_index in range(len(pdf_doc)):
+                page = pdf_doc.load_page(page_index)
+                blocks = sorted(page.get_text("dict")["blocks"], key=lambda block: block["bbox"][1])
+
+                for block in blocks:
+                    if block["type"] == 1:
+                        x0, y0, x1, y1 = block["bbox"]
+                        if (x1 - x0) < 35 or (y1 - y0) < 35:
+                            continue
+
+                        image_name = f"page_{page_index + 1}_img_{image_counter}.png"
+                        pix = page.get_pixmap(
+                            matrix=fitz.Matrix(2.5, 2.5),
+                            clip=fitz.Rect(block["bbox"]),
+                        )
+                        image_files[image_name] = pix.tobytes("png")
+                        image_counter += 1
+
+                        if current_q is not None:
+                            current_q["images"].append(image_name)
+                        continue
+
+                    if block["type"] != 0:
+                        continue
+
+                    raw = " ".join(
+                        span["text"]
+                        for line in block.get("lines", [])
+                        for span in line.get("spans", [])
+                    ).strip()
+                    raw = self._clean_text(raw)
+
+                    if self._is_noise(raw):
+                        continue
+
+                    number, rest = self._is_question_start(raw)
+                    if number is not None:
+                        embedded_options = self._extract_options(rest)
+                        question_text = re.split(r"\(1\)", rest)[0].strip() if embedded_options else rest
+
+                        save_q(current_q)
+                        current_q = {
+                            "num": number,
+                            "text": question_text,
+                            "options": embedded_options,
+                            "images": [],
+                            "topic_name": self._topic_from_filename(pdf_path.name),
+                        }
+                        continue
+
+                    if current_q is not None:
+                        new_options = self._extract_options(raw)
+                        if new_options:
+                            current_q["options"].extend(new_options)
+                        elif re.match(r"^\(\d\)", raw):
+                            current_q["options"].append(re.sub(r"^\(\d\)\s*", "", raw).strip())
+
+                if page_index == len(pdf_doc) - 1:
+                    save_q(current_q)
+
+        for question in questions:
+            seen = set()
+            deduped = []
+            for option in question["options"]:
+                if option not in seen:
+                    seen.add(option)
+                    deduped.append(option)
+            question["options"] = deduped[:4]
+
+        return questions, image_files, image_counter
+
+    def _extract_options(self, text: str) -> List[str]:
+        matches = OPTION_RE.findall(text or "")
+        return [match[1].strip() for match in matches[:4]]
+
+    def _is_question_start(self, text: str) -> Tuple[str | None, str | None]:
+        text = str(text or "").strip()
+        match = QUESTION_RE.match(text)
+        if not match:
+            return None, None
+
+        number = match.group(1)
+        rest = match.group(2).strip()
+        if re.match(r"^\d+$", rest):
+            return None, None
+
+        return number, rest
+
+    def _is_noise(self, text: str) -> bool:
+        value = str(text or "").strip()
+        if not value:
+            return True
+        return any(re.search(pattern, value) for pattern in SKIP_PATTERNS)
+
+    def _dedupe_question_dicts(self, questions: Sequence[Dict]) -> List[Dict]:
+        unique = []
+        seen = set()
+
+        for question in questions:
+            key = re.sub(r"[^a-z0-9]+", "", str(question.get("text", "")).lower())
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(question)
+
+        return unique
+
+    def _build_images_zip(self, image_files: Dict[str, bytes]) -> BytesIO:
+        output = BytesIO()
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as images_zip:
+            for image_name, image_bytes in image_files.items():
+                images_zip.writestr(image_name, image_bytes)
         output.seek(0)
         return output
 
@@ -294,12 +440,45 @@ class PdfQuestionExcelService:
 
         return categorized
 
+    def _categorize_notebook_questions(self, questions: Sequence[Dict]) -> Dict[str, List[Dict]]:
+        categorized = {
+            "mcq_text": [],
+            "mcq_image": [],
+            "paragraph": [],
+            "image_subquestions": [],
+        }
+
+        image_groups: Dict[str, List[int]] = {}
+        for index, question in enumerate(questions):
+            if question.get("images"):
+                image_groups.setdefault(question["images"][0], []).append(index)
+
+        shared_image_question_indexes = {
+            index
+            for indexes in image_groups.values()
+            if len(indexes) >= 2
+            for index in indexes
+        }
+
+        for index, question in enumerate(questions):
+            if index in shared_image_question_indexes:
+                categorized["image_subquestions"].append(question)
+            elif question.get("images"):
+                categorized["mcq_image"].append(question)
+            else:
+                categorized["mcq_text"].append(question)
+
+        return categorized
+
     def _build_rows(
         self,
         template_key: str,
-        questions: Sequence[ParsedQuestion],
+        questions: Sequence,
         defaults: PdfQuestionDefaults,
     ) -> List[List]:
+        if questions and isinstance(questions[0], dict):
+            return self._build_notebook_rows(template_key, questions, defaults)
+
         if template_key == "mcq_text":
             return [
                 [
@@ -404,6 +583,104 @@ class PdfQuestionExcelService:
                     ]
                 )
             return rows
+
+        return []
+
+    def _build_notebook_rows(
+        self,
+        template_key: str,
+        questions: Sequence[Dict],
+        defaults: PdfQuestionDefaults,
+    ) -> List[List]:
+        def pad4(options):
+            padded = list(options or []) + [""] * 4
+            return padded[0], padded[1], padded[2], padded[3]
+
+        if template_key == "mcq_text":
+            rows = []
+            for question in questions:
+                option_a, option_b, option_c, option_d = pad4(question.get("options"))
+                topic_id = defaults.topic_id or question.get("topic_name") or "General"
+                rows.append(
+                    [
+                        defaults.class_id,
+                        defaults.subject_id,
+                        topic_id,
+                        "mcq_text",
+                        defaults.difficulty,
+                        defaults.marks,
+                        defaults.negative_marks,
+                        question.get("text", ""),
+                        option_a,
+                        option_b,
+                        option_c,
+                        option_d,
+                        "",
+                    ]
+                )
+            return rows
+
+        if template_key == "mcq_image":
+            rows = []
+            for question in questions:
+                option_a, option_b, option_c, option_d = pad4(question.get("options"))
+                image_name = question.get("images", [""])[0] if question.get("images") else ""
+                topic_id = defaults.topic_id or question.get("topic_name") or "General"
+                rows.append(
+                    [
+                        defaults.class_id,
+                        defaults.subject_id,
+                        topic_id,
+                        "mcq_image",
+                        defaults.difficulty,
+                        defaults.marks,
+                        defaults.negative_marks,
+                        question.get("text", ""),
+                        image_name,
+                        option_a,
+                        "",
+                        option_b,
+                        "",
+                        option_c,
+                        "",
+                        option_d,
+                        "",
+                        "",
+                    ]
+                )
+            return rows
+
+        if template_key == "image_subquestions":
+            rows = []
+            for question in questions:
+                option_a, option_b, option_c, option_d = pad4(question.get("options"))
+                image_name = question.get("images", [""])[0] if question.get("images") else ""
+                topic_id = defaults.topic_id or question.get("topic_name") or "General"
+                rows.append(
+                    [
+                        defaults.class_id,
+                        defaults.subject_id,
+                        topic_id,
+                        "mcq_image",
+                        f"IMG-GRP-{image_name.replace('.png', '')}",
+                        image_name,
+                        "Look at the figure and answer the following questions.",
+                        f"SQ{question.get('num', '')}",
+                        question.get("text", ""),
+                        option_a,
+                        option_b,
+                        option_c,
+                        option_d,
+                        "",
+                        defaults.marks,
+                        defaults.negative_marks,
+                        defaults.difficulty,
+                    ]
+                )
+            return rows
+
+        if template_key == "paragraph":
+            return []
 
         return []
 

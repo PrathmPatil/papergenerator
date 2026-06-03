@@ -539,7 +539,8 @@ export const convertDocxToExcelZipApi = async (
   options: {
     classId: string;
     subjectId: string;
-    topicName: string;
+    topicId?: string;
+    topicName?: string;
     difficulty?: string;
     marks?: number;
     negativeMarks?: number;
@@ -549,7 +550,8 @@ export const convertDocxToExcelZipApi = async (
   formData.append("docx", docxFile);
   formData.append("classId", options.classId);
   formData.append("subjectId", options.subjectId);
-  formData.append("topicName", options.topicName);
+  if (options.topicId) formData.append("topicId", options.topicId);
+  if (options.topicName) formData.append("topicName", options.topicName);
   formData.append("difficulty", options.difficulty || "easy");
   formData.append("marks", String(options.marks ?? 1));
   formData.append("negativeMarks", String(options.negativeMarks ?? 0));
@@ -571,6 +573,8 @@ export const convertPdfsToExcelZipApi = async (
   options: {
     classId: string;
     subjectId: string;
+    topicId?: string;
+    topicName?: string;
     difficulty?: string;
     marks?: number;
     negativeMarks?: number;
@@ -580,6 +584,8 @@ export const convertPdfsToExcelZipApi = async (
   pdfFiles.forEach((file) => formData.append("pdfs", file));
   formData.append("classId", options.classId);
   formData.append("subjectId", options.subjectId);
+  if (options.topicId) formData.append("topicId", options.topicId);
+  if (options.topicName) formData.append("topicName", options.topicName);
   formData.append("difficulty", options.difficulty || "easy");
   formData.append("marks", String(options.marks ?? 1));
   formData.append("negativeMarks", String(options.negativeMarks ?? 0));
@@ -594,6 +600,81 @@ export const convertPdfsToExcelZipApi = async (
   });
 
   return ensureDownloadBlob(response as unknown as Blob, "PDF to Excel generation failed.");
+};
+
+export type ExcelPackageHistoryItem = {
+  job_id: string;
+  status: string;
+  source_type?: string;
+  original_filename: string;
+  created_at?: string;
+  class_id?: string;
+  subject_id?: string;
+  topic_id?: string;
+  difficulty?: string;
+  error?: string;
+  files?: {
+    input_docx?: string;
+    package_zip?: string;
+  };
+};
+
+export type ExcelPackageHistoryResponse = {
+  packages: ExcelPackageHistoryItem[];
+};
+
+export const convertPdfConversionToExcelZipApi = async (
+  jobId: string,
+  options: {
+    classId: string;
+    subjectId: string;
+    topicId?: string;
+    topicName?: string;
+    difficulty?: string;
+    marks?: number;
+    negativeMarks?: number;
+  }
+): Promise<Blob> => {
+  const response = await apiClient({
+    url: `/api/pdf-conversion/${jobId}/excel-package`,
+    method: "POST",
+    data: {
+      classId: options.classId,
+      subjectId: options.subjectId,
+      topicId: options.topicId,
+      topicName: options.topicName,
+      difficulty: options.difficulty || "easy",
+      marks: options.marks ?? 1,
+      negativeMarks: options.negativeMarks ?? 0,
+    },
+    responseType: "blob",
+    timeout: PDF_CONVERSION_TIMEOUT_MS,
+  });
+
+  return ensureDownloadBlob(response as unknown as Blob, "PDF conversion to Excel export failed.");
+};
+
+export const fetchExcelPackageHistoryApi = async (
+  limit: number = 25
+): Promise<ExcelPackageHistoryResponse> => {
+  const response = await apiClient<ExcelPackageHistoryResponse>({
+    url: "/api/pdf-conversion/excel-packages",
+    method: "GET",
+    params: { limit },
+  });
+
+  return response as unknown as ExcelPackageHistoryResponse;
+};
+
+export const downloadExcelPackageApi = async (packageJobId: string): Promise<Blob> => {
+  const response = await apiClient({
+    url: `/api/pdf-conversion/excel-packages/${packageJobId}/download`,
+    method: "GET",
+    responseType: "blob",
+    timeout: PDF_CONVERSION_TIMEOUT_MS,
+  });
+
+  return ensureDownloadBlob(response as unknown as Blob, "Excel package download failed.");
 };
 
 export const fetchPdfConversionApi = async (jobId: string): Promise<PdfConversionResponse> => {

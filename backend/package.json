@@ -5,10 +5,10 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test tests/*.test.js",
     "start": "babel-node server.js",
     "dev": "nodemon --exec babel-node server.js",
-    "build": "babel . -d dist --ignore node_modules",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && babel . -d dist --ignore node_modules,dist,tests",
     "dedupe-topics": "node scripts/dedupe_topics.js"
   },
   "keywords": [],

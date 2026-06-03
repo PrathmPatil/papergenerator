@@ -3,3 +3,4 @@ flask-swagger-ui
 PyMuPDF
 python-docx
 openpyxl
+pandas

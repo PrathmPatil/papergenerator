@@ -127,7 +127,7 @@ router.post("/convert", upload.single("pdf"), async (req, res) => {
   }
 });
 
-router.post("/docx-to-excel", upload.single("docx"), async (req, res) => {
+router.post(["/docx-to-excel", "/docx-package"], upload.single("docx"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -146,7 +146,7 @@ router.post("/docx-to-excel", upload.single("docx"), async (req, res) => {
 
     const formData = new FormData();
     formData.append("docx", new Blob([req.file.buffer], { type: req.file.mimetype }), fileName);
-    ["classId", "subjectId", "topicName", "difficulty", "marks", "negativeMarks"].forEach((field) => {
+    ["classId", "subjectId", "topicId", "topicName", "difficulty", "marks", "negativeMarks"].forEach((field) => {
       if (req.body?.[field] !== undefined) {
         formData.append(field, String(req.body[field]));
       }
@@ -202,7 +202,7 @@ router.post("/pdf-to-excel", upload.array("pdfs", 20), async (req, res) => {
       formData.append("pdfs", new Blob([file.buffer], { type: file.mimetype }), fileName);
     }
 
-    ["classId", "subjectId", "difficulty", "marks", "negativeMarks"].forEach((field) => {
+    ["classId", "subjectId", "topicId", "topicName", "difficulty", "marks", "negativeMarks"].forEach((field) => {
       if (req.body?.[field] !== undefined) {
         formData.append(field, String(req.body[field]));
       }
@@ -232,6 +232,83 @@ router.post("/pdf-to-excel", upload.array("pdfs", 20), async (req, res) => {
     return res.status(502).json({
       success: false,
       message: "PDF question Excel service is unavailable",
+    });
+  }
+});
+
+router.get("/excel-packages", async (req, res) => {
+  try {
+    const limit = Number(req.query.limit || 25);
+    const serviceResponse = await fetch(
+      `${getPdfServiceBaseUrl()}/api/excel-packages?limit=${encodeURIComponent(limit)}`
+    );
+    return sendServiceJson(serviceResponse, res);
+  } catch (error) {
+    return res.status(502).json({
+      success: false,
+      message: "Excel package history service is unavailable",
+    });
+  }
+});
+
+router.get("/excel-packages/:packageJobId/download", async (req, res) => {
+  const { packageJobId } = req.params;
+  if (!isValidJobId(packageJobId)) {
+    return res.status(404).json({ success: false, message: "Excel package not found." });
+  }
+
+  try {
+    return proxyFileResponse(
+      `/api/excel-packages/${packageJobId}/download`,
+      res,
+      `${packageJobId}-excel-import-files.zip`
+    );
+  } catch (error) {
+    return res.status(502).json({
+      success: false,
+      message: "Excel package download service is unavailable",
+    });
+  }
+});
+
+router.post("/:jobId/excel-package", async (req, res) => {
+  const { jobId } = req.params;
+  if (!isValidJobId(jobId)) {
+    return res.status(404).json({ success: false, message: "Conversion not found." });
+  }
+
+  try {
+    const formData = new FormData();
+    ["classId", "subjectId", "topicId", "topicName", "difficulty", "marks", "negativeMarks"].forEach((field) => {
+      if (req.body?.[field] !== undefined) {
+        formData.append(field, String(req.body[field]));
+      }
+    });
+
+    const serviceResponse = await fetch(`${getPdfServiceBaseUrl()}/api/conversions/${jobId}/excel-package`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!serviceResponse.ok) {
+      return sendServiceJson(serviceResponse, res);
+    }
+
+    const contentType = serviceResponse.headers.get("content-type");
+    const contentDisposition = serviceResponse.headers.get("content-disposition");
+    const buffer = Buffer.from(await serviceResponse.arrayBuffer());
+
+    if (contentType) res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Length", buffer.length);
+    res.setHeader(
+      "Content-Disposition",
+      contentDisposition || `attachment; filename="${jobId}-excel-import-files.zip"`
+    );
+    return res.status(200).send(buffer);
+  } catch (error) {
+    return res.status(502).json({
+      success: false,
+      message: "PDF conversion Excel package service is unavailable",
     });
   }
 });

@@ -1,20 +1,20 @@
 import tempfile
+import shutil
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
-from app.services.conversion_storage_service import ConversionStorageService
+from app.services.conversion_storage_service import ConversionStorageService, ExcelPackageStorageService
 from app.services.docx_to_excel_service import DocxExcelDefaults, DocxToExcelService
 from app.services.pdf_to_docx_service import PdfToDocxService
-from app.services.pdf_question_excel_service import PdfQuestionDefaults, PdfQuestionExcelService
 
 
 pdf_bp = Blueprint("pdf", __name__)
 pdf_service = PdfToDocxService()
 docx_excel_service = DocxToExcelService()
-pdf_question_excel_service = PdfQuestionExcelService()
 storage_service = ConversionStorageService()
+excel_package_storage_service = ExcelPackageStorageService()
 
 
 def has_pdf_signature(uploaded_file) -> bool:
@@ -61,6 +61,56 @@ def parse_float_form(name: str, default: float) -> float:
         return default
 
 
+def build_docx_excel_defaults(filename: str) -> DocxExcelDefaults:
+    return DocxExcelDefaults(
+        class_id=request.form.get("classId", "").strip(),
+        subject_id=request.form.get("subjectId", "").strip(),
+        topic_name=request.form.get("topicId", "").strip()
+        or request.form.get("topicName", "").strip()
+        or Path(filename).stem,
+        difficulty=request.form.get("difficulty", "easy").strip() or "easy",
+        marks=parse_int_form("marks", 1),
+        negative_marks=parse_float_form("negativeMarks", 0),
+    )
+
+
+def create_excel_package_record(
+    input_docx_path: Path,
+    original_filename: str,
+    defaults: DocxExcelDefaults,
+    source_type: str,
+):
+    record = excel_package_storage_service.create_record(original_filename)
+    try:
+        shutil.copyfile(input_docx_path, record.input_docx_path)
+        package_buffer = docx_excel_service.convert_to_zip(record.input_docx_path, defaults)
+        package_buffer.seek(0)
+        record.package_zip_path.write_bytes(package_buffer.getvalue())
+        package_buffer.seek(0)
+        metadata = excel_package_storage_service.write_metadata(
+            record,
+            status="completed",
+            source_type=source_type,
+            class_id=defaults.class_id,
+            subject_id=defaults.subject_id,
+            topic_id=defaults.topic_name,
+            difficulty=defaults.difficulty,
+        )
+        return record, metadata, package_buffer
+    except Exception as exc:
+        excel_package_storage_service.write_metadata(
+            record,
+            status="failed",
+            source_type=source_type,
+            class_id=defaults.class_id,
+            subject_id=defaults.subject_id,
+            topic_id=defaults.topic_name,
+            difficulty=defaults.difficulty,
+            error=str(exc),
+        )
+        raise
+
+
 @pdf_bp.post("/api/pdf-to-excel")
 def convert_pdf_questions_to_excel():
     uploaded_files = request.files.getlist("pdfs")
@@ -78,17 +128,11 @@ def convert_pdf_questions_to_excel():
     if not class_id or not subject_id:
         return jsonify({"error": "classId and subjectId are required."}), 400
 
-    defaults = PdfQuestionDefaults(
-        class_id=class_id,
-        subject_id=subject_id,
-        difficulty=request.form.get("difficulty", "easy").strip() or "easy",
-        marks=parse_int_form("marks", 1),
-        negative_marks=parse_float_form("negativeMarks", 0),
-    )
+    defaults = build_docx_excel_defaults(uploaded_files[0].filename or "questions.pdf")
 
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
-            pdf_paths = []
+            package_record = None
             for uploaded_file in uploaded_files:
                 filename = secure_filename(uploaded_file.filename)
                 if not filename or not filename.lower().endswith(".pdf"):
@@ -99,17 +143,55 @@ def convert_pdf_questions_to_excel():
 
                 pdf_path = Path(temp_dir) / filename
                 uploaded_file.save(pdf_path)
-                pdf_paths.append(pdf_path)
+                docx_path = Path(temp_dir) / f"{Path(filename).stem}.docx"
+                pdf_service.convert(pdf_path, docx_path)
+                package_record, _metadata, package_buffer = create_excel_package_record(
+                    input_docx_path=docx_path,
+                    original_filename=f"{Path(filename).stem}.docx",
+                    defaults=defaults,
+                    source_type="pdf",
+                )
 
-            zip_buffer = pdf_question_excel_service.generate_excel_zip(pdf_paths, defaults)
+            if package_record is None:
+                return jsonify({"error": "PDF question Excel generation failed."}), 500
     except Exception:
         return jsonify({"error": "PDF question Excel generation failed."}), 500
 
     download_name = f"{class_id}_{subject_id}_QuestionExcelFiles.zip"
     return send_file(
-        zip_buffer,
+        package_buffer,
         as_attachment=True,
         download_name=download_name,
+        mimetype="application/zip",
+    )
+
+
+@pdf_bp.post("/api/conversions/<job_id>/excel-package")
+def convert_pdf_conversion_to_excel(job_id):
+    try:
+        conversion_record = storage_service.get_record(job_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Conversion not found."}), 404
+
+    if not conversion_record.output_docx_path.exists():
+        return jsonify({"error": "Generated DOCX not found for this conversion."}), 404
+
+    defaults = build_docx_excel_defaults(conversion_record.output_docx_path.name)
+
+    try:
+        package_record, _metadata, package_buffer = create_excel_package_record(
+            input_docx_path=conversion_record.output_docx_path,
+            original_filename=f"{Path(conversion_record.original_filename).stem}.docx",
+            defaults=defaults,
+            source_type="pdf_conversion",
+        )
+    except Exception:
+        return jsonify({"error": "PDF conversion Excel package generation failed."}), 500
+
+    return send_file(
+        package_buffer,
+        as_attachment=True,
+        download_name=f"{package_record.job_id}-excel-import-files.zip",
         mimetype="application/zip",
     )
 
@@ -128,20 +210,18 @@ def convert_docx_to_excel():
     if not filename.lower().endswith(".docx"):
         return jsonify({"error": "Only DOCX files are supported."}), 400
 
-    defaults = DocxExcelDefaults(
-        class_id=request.form.get("classId", "").strip(),
-        subject_id=request.form.get("subjectId", "").strip(),
-        topic_name=request.form.get("topicName", "").strip(),
-        difficulty=request.form.get("difficulty", "easy").strip() or "easy",
-        marks=parse_int_form("marks", 1),
-        negative_marks=parse_float_form("negativeMarks", 0),
-    )
+    defaults = build_docx_excel_defaults(filename)
 
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / filename
             uploaded_file.save(input_path)
-            zip_buffer = docx_excel_service.convert_to_zip(input_path, defaults)
+            _package_record, _metadata, zip_buffer = create_excel_package_record(
+                input_docx_path=input_path,
+                original_filename=filename,
+                defaults=defaults,
+                source_type="docx",
+            )
     except Exception:
         return jsonify({"error": "DOCX to Excel segregation failed."}), 500
 
@@ -150,6 +230,45 @@ def convert_docx_to_excel():
         zip_buffer,
         as_attachment=True,
         download_name=download_name,
+        mimetype="application/zip",
+    )
+
+
+@pdf_bp.get("/api/excel-packages")
+def list_excel_packages():
+    try:
+        limit = int(request.args.get("limit", "25"))
+    except ValueError:
+        limit = 25
+
+    return jsonify({"packages": excel_package_storage_service.list_records(limit=limit)})
+
+
+@pdf_bp.get("/api/excel-packages/<job_id>")
+def get_excel_package(job_id):
+    try:
+        record = excel_package_storage_service.get_record(job_id)
+        metadata = excel_package_storage_service.read_metadata(job_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Excel package not found."}), 404
+
+    return jsonify(excel_package_storage_service.to_public_response(record, metadata))
+
+
+@pdf_bp.get("/api/excel-packages/<job_id>/download")
+def download_excel_package(job_id):
+    try:
+        record = excel_package_storage_service.get_record(job_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Excel package not found."}), 404
+
+    if not record.package_zip_path.exists():
+        return jsonify({"error": "Excel package ZIP not found."}), 404
+
+    return send_file(
+        record.package_zip_path,
+        as_attachment=True,
+        download_name=f"{Path(record.original_filename).stem}-excel-import-files.zip",
         mimetype="application/zip",
     )
 

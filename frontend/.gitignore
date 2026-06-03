@@ -37,3 +37,6 @@ tsc-quick-output.txt
 .env.production.local
 .env.local.development
 env.local.staging
+
+tsconfig.tsbuildinfo
+tsconfig.tsbuildinfo.old
