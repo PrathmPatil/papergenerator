@@ -156,6 +156,8 @@ interface QuestionFilterPayload {
   topicId?: string;
   type?: string;
   difficulty?: string;
+  createdFrom?: string;
+  createdTo?: string;
 }
 
 export async function fetchAllQuestionsApi(
@@ -168,6 +170,22 @@ export async function fetchAllQuestionsApi(
   });
 
   return res as unknown as FetchQuestionsResponse;
+}
+
+export async function downloadQuestionBankExcelApi(
+  filters: QuestionFilterPayload
+): Promise<Blob> {
+  const response = await apiClient({
+    url: "/api/questions/export-excel",
+    method: "POST",
+    data: filters,
+    responseType: "blob",
+  });
+
+  return ensureDownloadBlob(
+    response as unknown as Blob,
+    "Question Bank Excel download failed."
+  );
 }
 
 // /api/questions/create

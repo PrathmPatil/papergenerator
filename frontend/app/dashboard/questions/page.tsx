@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Plus,
   Search,
@@ -11,6 +11,7 @@ import {
   Download,
   Filter,
   X,
+  Calendar,
 } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -53,7 +54,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import { fetchAllQuestionsApi, fetchTopicsApi } from "@/utils/apis";
+import { downloadQuestionBankExcelApi, fetchAllQuestionsApi, fetchTopicsApi } from "@/utils/apis";
 import {
   CLASSES,
   getClassNameById,
@@ -78,6 +79,8 @@ interface QuestionFilterPayload {
   topicId?: string;
   type?: string;
   difficulty?: string;
+  createdFrom?: string;
+  createdTo?: string;
 }
 
 type TopicOption = {
@@ -179,9 +182,14 @@ export default function QuestionBankPage() {
   const [filterTopic, setFilterTopic] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [filterDifficulty, setFilterDifficulty] = useState("all");
+  const [filterCreatedFrom, setFilterCreatedFrom] = useState("");
+  const [filterCreatedTo, setFilterCreatedTo] = useState("");
   const [topics, setTopics] = useState<TopicOption[]>([]);
   const [topicsLoading, setTopicsLoading] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
+  const fromDatePickerRef = useRef<HTMLInputElement | null>(null);
+  const toDatePickerRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedQuestion, setSelectedQuestion] = useState<IQuestion | null>(
     null
@@ -235,6 +243,8 @@ export default function QuestionBankPage() {
     filterTopic,
     filterType,
     filterDifficulty,
+    filterCreatedFrom,
+    filterCreatedTo,
     currentPage,
     recordsPerPage,
   ]);
@@ -288,6 +298,32 @@ export default function QuestionBankPage() {
     return topic?.name || rawTopicId;
   };
 
+  const isValidDisplayDate = (value: string) =>
+    !value.trim() || /^(0[1-9]|[12]\d|3[01])\/(0[1-9]|1[0-2])\/\d{4}$/.test(value.trim());
+
+  const displayDateToIso = (value: string) => {
+    const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) return "";
+    const [, day, month, year] = match;
+    return `${year}-${month}-${day}`;
+  };
+
+  const isoDateToDisplay = (value: string) => {
+    const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return "";
+    const [, year, month, day] = match;
+    return `${day}/${month}/${year}`;
+  };
+
+  const openDatePicker = (input: HTMLInputElement | null) => {
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+      return;
+    }
+    input.click();
+  };
+
   const buildQuestionFilterPayload = (overrides: Record<string, any> = {}) => ({
     search: searchDebounce || undefined,
     classId: filterClass !== "all" ? filterClass : undefined,
@@ -295,8 +331,84 @@ export default function QuestionBankPage() {
     topicId: filterTopic !== "all" ? filterTopic : undefined,
     type: filterType !== "all" ? filterType : undefined,
     difficulty: filterDifficulty !== "all" ? filterDifficulty : undefined,
+    createdFrom: isValidDisplayDate(filterCreatedFrom) ? filterCreatedFrom || undefined : undefined,
+    createdTo: isValidDisplayDate(filterCreatedTo) ? filterCreatedTo || undefined : undefined,
     ...overrides,
   });
+
+  const hasCreatedDateFilter = Boolean(filterCreatedFrom.trim() || filterCreatedTo.trim());
+
+  const saveBlob = (blob: Blob, fileName: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const safeFilePart = (value: string, fallback: string) =>
+    String(value || fallback)
+      .trim()
+      .replace(/[^A-Za-z0-9_-]+/g, "_")
+      .replace(/^_+|_+$/g, "") || fallback;
+
+  const handleDownloadFilteredExcel = async () => {
+    const missingFilters = hasCreatedDateFilter
+      ? []
+      : [
+          filterClass === "all" ? "Class" : "",
+          filterSubject === "all" ? "Subject" : "",
+          filterTopic === "all" ? "Topic" : "",
+        ].filter(Boolean);
+
+    if (missingFilters.length > 0) {
+      showInfo({
+        title: "Select all filters",
+        description: `Choose ${missingFilters.join(", ")} before downloading the Excel template.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!isValidDisplayDate(filterCreatedFrom) || !isValidDisplayDate(filterCreatedTo)) {
+      showInfo({
+        title: "Invalid date format",
+        description: "Use DD/MM/YYYY for From Date and To Date.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsDownloadingExcel(true);
+      const blob = await downloadQuestionBankExcelApi(buildQuestionFilterPayload());
+      const topicName = getTopicNameById(filterTopic);
+      saveBlob(
+        blob,
+        [
+          safeFilePart(filterClass, "class"),
+          safeFilePart(filterSubject, "subject"),
+          safeFilePart(topicName, "topic"),
+          safeFilePart(filterType === "all" ? "all_types" : filterType, "questions"),
+          safeFilePart(filterDifficulty === "all" ? "all_difficulties" : filterDifficulty, "difficulty"),
+          safeFilePart(filterCreatedFrom || "all_dates", "from"),
+          safeFilePart(filterCreatedTo || filterCreatedFrom || "all_dates", "to"),
+        ].join("_") + ".xlsx"
+      );
+    } catch (error: any) {
+      console.error("Question Bank Excel download failed", error);
+      showInfo({
+        title: "Excel download failed",
+        description: error?.message || "Unable to download the filtered Excel file.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloadingExcel(false);
+    }
+  };
 
   const addWrappedText = (
     pdf: any,
@@ -320,7 +432,16 @@ export default function QuestionBankPage() {
   };
 
   const handleDownloadFilteredPdf = async () => {
-    if (filterClass === "all" || filterSubject === "all") {
+    if (!isValidDisplayDate(filterCreatedFrom) || !isValidDisplayDate(filterCreatedTo)) {
+      showInfo({
+        title: "Invalid date format",
+        description: "Use DD/MM/YYYY for From Date and To Date.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!hasCreatedDateFilter && (filterClass === "all" || filterSubject === "all")) {
       const confirmed = await showConfirm({
         title: "Large PDF export",
         description: "Class or Subject is set to All. This PDF may include many questions. Do you want to continue?",
@@ -359,6 +480,13 @@ export default function QuestionBankPage() {
       const typeName = filterType === "all" ? "All Types" : filterType.replace(/_/g, " ");
       const difficultyName =
         filterDifficulty === "all" ? "All Difficulty" : filterDifficulty;
+      const createdDateName = filterCreatedFrom
+        ? filterCreatedTo
+          ? `${filterCreatedFrom} to ${filterCreatedTo}`
+          : filterCreatedFrom
+        : filterCreatedTo
+          ? `Until ${filterCreatedTo}`
+          : "All Dates";
 
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(14);
@@ -369,6 +497,7 @@ export default function QuestionBankPage() {
       pdf.setFontSize(8);
       y = addWrappedText(pdf, `Class: ${className} | Subject: ${subjectName} | Topic: ${topicName}`, marginX, y, maxWidth, 4, pageHeight);
       y = addWrappedText(pdf, `Type: ${typeName} | Difficulty: ${difficultyName}`, marginX, y, maxWidth, 4, pageHeight);
+      y = addWrappedText(pdf, `Created: ${createdDateName}`, marginX, y, maxWidth, 4, pageHeight);
       if (searchDebounce) {
         y = addWrappedText(pdf, `Search: ${searchDebounce}`, marginX, y, maxWidth, 4, pageHeight);
       }
@@ -939,7 +1068,13 @@ export default function QuestionBankPage() {
         y += 3;
       }
 
-      const safeName = [className, subjectName, topicName]
+      const safeName = [
+        className,
+        subjectName,
+        topicName,
+        filterCreatedFrom || "all-dates",
+        filterCreatedTo || filterCreatedFrom || "all-dates",
+      ]
         .join("-")
         .replace(/[^a-z0-9]+/gi, "-")
         .replace(/^-|-$/g, "")
@@ -1099,6 +1234,8 @@ export default function QuestionBankPage() {
     setFilterTopic("all");
     setFilterType("all");
     setFilterDifficulty("all");
+    setFilterCreatedFrom("");
+    setFilterCreatedTo("");
   };
 
   const debouncedSetSearchTerm = useMemo(
@@ -1431,6 +1568,14 @@ export default function QuestionBankPage() {
             <Download className="mr-2 h-4 w-4" />
             {isDownloadingPdf ? "Preparing..." : "Download PDF"}
           </Button>
+          <Button
+            variant="outline"
+            onClick={handleDownloadFilteredExcel}
+            disabled={isDownloadingExcel || isLoading}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {isDownloadingExcel ? "Preparing..." : "Download Excel"}
+          </Button>
           <Link href="/dashboard/questions/new">
             <Button className="cursor-pointer">
               <Plus className="mr-2 h-4 w-4" /> Add Question
@@ -1463,7 +1608,7 @@ export default function QuestionBankPage() {
             <X className="h-4 w-4" /> clear filters
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid md:grid-cols-6 gap-3">
+        <CardContent className="grid md:grid-cols-4 lg:grid-cols-8 gap-3">
           <div>
             <h3>search</h3>
             <Input
@@ -1570,6 +1715,63 @@ export default function QuestionBankPage() {
                 <SelectItem value="hard">Hard</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div>
+            <h3>From Date</h3>
+            <div className="relative flex items-center gap-2">
+              <Input
+                inputMode="numeric"
+                placeholder="DD/MM/YYYY"
+                value={filterCreatedFrom}
+                onChange={(e) => setFilterCreatedFrom(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => openDatePicker(fromDatePickerRef.current)}
+                aria-label="Choose from date"
+              >
+                <Calendar className="h-4 w-4" />
+              </Button>
+              <input
+                ref={fromDatePickerRef}
+                type="date"
+                className="absolute right-0 top-0 h-0 w-0 opacity-0"
+                tabIndex={-1}
+                value={displayDateToIso(filterCreatedFrom)}
+                onChange={(e) => setFilterCreatedFrom(isoDateToDisplay(e.target.value))}
+              />
+            </div>
+          </div>
+          <div>
+            <h3>To Date</h3>
+            <div className="relative flex items-center gap-2">
+              <Input
+                inputMode="numeric"
+                placeholder="DD/MM/YYYY"
+                value={filterCreatedTo}
+                onChange={(e) => setFilterCreatedTo(e.target.value)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => openDatePicker(toDatePickerRef.current)}
+                aria-label="Choose to date"
+              >
+                <Calendar className="h-4 w-4" />
+              </Button>
+              <input
+                ref={toDatePickerRef}
+                type="date"
+                className="absolute right-0 top-0 h-0 w-0 opacity-0"
+                tabIndex={-1}
+                value={displayDateToIso(filterCreatedTo)}
+                min={displayDateToIso(filterCreatedFrom) || undefined}
+                onChange={(e) => setFilterCreatedTo(isoDateToDisplay(e.target.value))}
+              />
+            </div>
           </div>
         </CardContent>
       </Card>

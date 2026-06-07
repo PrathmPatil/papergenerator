@@ -570,6 +570,344 @@ const buildUnknownTopicResponse = (unknownTopics = []) => ({
   unknownTopics,
 });
 
+const parseDateOnly = (value, endOfDay = false) => {
+  const raw = String(value || "").trim();
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const indianMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    const date = new Date(Number(year), Number(month) - 1, Number(day));
+    if (endOfDay) date.setDate(date.getDate() + 1);
+    return date;
+  }
+
+  if (indianMatch) {
+    const [, day, month, year] = indianMatch;
+    const date = new Date(Number(year), Number(month) - 1, Number(day));
+    if (endOfDay) date.setDate(date.getDate() + 1);
+    return date;
+  }
+
+  return null;
+};
+
+async function buildQuestionFilterFromPayload(payload = {}) {
+  const { classId, subjectId, topicId, type, difficulty, search, createdFrom, createdTo } = payload;
+  const filter = {
+    $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+  };
+
+  if (classId) filter.classId = classId;
+
+  if (subjectId) {
+    filter.subjectId = { $in: String(subjectId).split(",").map((s) => s.trim()).filter(Boolean) };
+  }
+
+  if (topicId) {
+    const requestedTopicIds = String(topicId).split(",").map((t) => t.trim()).filter(Boolean);
+    const topicFilterValues = new Set(requestedTopicIds);
+
+    const topicDocs = await Topic.find({
+      $or: [
+        { _id: { $in: requestedTopicIds.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)) } },
+        { nameLower: { $in: requestedTopicIds.map((id) => normalizeExcelKey(id)) } },
+      ],
+    }).lean();
+
+    topicDocs.forEach((topic) => {
+      topicFilterValues.add(topic._id.toString());
+      topicFilterValues.add(topic.name);
+      topicFilterValues.add(topic.nameLower);
+    });
+
+    filter.topicId = { $in: Array.from(topicFilterValues) };
+  }
+
+  if (difficulty) {
+    filter.difficulty = { $in: String(difficulty).split(",").map((d) => d.trim()).filter(Boolean) };
+  }
+
+  if (type) {
+    filter.type = { $in: String(type).split(",").map((t) => t.trim()).filter(Boolean) };
+  }
+
+  if (search) {
+    filter.text = { $regex: String(search), $options: "i" };
+  }
+
+  if (createdFrom || createdTo) {
+    const fromDate = parseDateOnly(createdFrom);
+    const toDate = parseDateOnly(createdTo || createdFrom, true);
+    const createdAt = {};
+
+    if (fromDate) createdAt.$gte = fromDate;
+    if (toDate) createdAt.$lt = toDate;
+    if (Object.keys(createdAt).length > 0) filter.createdAt = createdAt;
+  }
+
+  return filter;
+}
+
+const excelText = (value) => {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+};
+
+const findOption = (question, id) => {
+  const options = Array.isArray(question?.options) ? question.options : [];
+  const optionIndex = id.charCodeAt(0) - 65;
+  return (
+    options.find((item) => String(item?.id || "").trim().toUpperCase() === id) ||
+    options[optionIndex] ||
+    {}
+  );
+};
+
+const findQuestionImageUrl = (question) => {
+  const media = Array.isArray(question?.media) ? question.media : [];
+  const questionImage = media.find(
+    (item) => !String(item?.alt || "").toLowerCase().startsWith("option_")
+  );
+  return question?.mediaUrl || questionImage?.url || "";
+};
+
+const findOptionImageUrl = (question, id) => {
+  const option = findOption(question, id);
+  const media = Array.isArray(question?.media) ? question.media : [];
+  const optionMedia = media.find(
+    (item) => String(item?.alt || "").trim().toLowerCase() === `option_${id.toLowerCase()}`
+  );
+  return option?.mediaUrl || option?.image?.url || option?.url || optionMedia?.url || "";
+};
+
+const correctAnswerFromOptions = (question) => {
+  const options = Array.isArray(question?.options) ? question.options : [];
+  const correctOptions = options
+    .filter((option) => option?.isCorrect)
+    .map((option) => String(option?.id || "").trim().toUpperCase())
+    .filter(Boolean);
+
+  if (correctOptions.length > 0) return correctOptions.join(",");
+  return excelText(question?.correctAnswer);
+};
+
+const baseQuestionRow = (question) => ({
+  classId: question.classId || "",
+  subjectId: question.subjectId || "",
+  topicId: question.topicId || "",
+  type: question.type || "",
+  difficulty: question.difficulty || "easy",
+  marks: Number(question.marks) || 1,
+  negativeMarks: Number(question.negativeMarks) || 0,
+});
+
+const buildMcqTextExportRows = (questions = []) =>
+  questions.map((question) => ({
+    ...baseQuestionRow(question),
+    text: question.text || "",
+    optionA: excelText(findOption(question, "A").text),
+    optionB: excelText(findOption(question, "B").text),
+    optionC: excelText(findOption(question, "C").text),
+    optionD: excelText(findOption(question, "D").text),
+    optionE: excelText(findOption(question, "E").text),
+    correctAnswer: correctAnswerFromOptions(question),
+  }));
+
+const buildMcqImageExportRows = (questions = []) =>
+  questions.map((question) => ({
+    ...baseQuestionRow(question),
+    question_group_id: question._id?.toString?.() || "",
+    questionText: question.text || "",
+    questionImage: findQuestionImageUrl(question),
+    optionAText: excelText(findOption(question, "A").text),
+    optionAImage: findOptionImageUrl(question, "A"),
+    optionBText: excelText(findOption(question, "B").text),
+    optionBImage: findOptionImageUrl(question, "B"),
+    optionCText: excelText(findOption(question, "C").text),
+    optionCImage: findOptionImageUrl(question, "C"),
+    optionDText: excelText(findOption(question, "D").text),
+    optionDImage: findOptionImageUrl(question, "D"),
+    optionEText: excelText(findOption(question, "E").text),
+    optionEImage: findOptionImageUrl(question, "E"),
+    correctAnswer: correctAnswerFromOptions(question),
+  }));
+
+const buildGroupedQuestionExportRows = (questions = []) =>
+  questions.flatMap((question) => {
+    const subQuestions = Array.isArray(question.subQuestions) ? question.subQuestions : [];
+    if (subQuestions.length === 0) {
+      return [
+        {
+          ...baseQuestionRow(question),
+          groupId: question._id?.toString?.() || "",
+          instructionText: question.text || "",
+          paragraph: question.paragraph || "",
+          questionImage: findQuestionImageUrl(question),
+          subQuestionId: "",
+          subQuestionType: "",
+          subQuestionText: "",
+          optionA: "",
+          optionB: "",
+          optionC: "",
+          optionD: "",
+          optionE: "",
+          correctAnswer: excelText(question.correctAnswer),
+        },
+      ];
+    }
+
+    return subQuestions.map((subQuestion, index) => ({
+      ...baseQuestionRow(question),
+      groupId: question._id?.toString?.() || "",
+      instructionText: question.text || "",
+      paragraph: question.paragraph || "",
+      questionImage: findQuestionImageUrl(question),
+      subQuestionId: subQuestion.id || String(index + 1),
+      subQuestionType: subQuestion.type || "mcq_text",
+      subQuestionText: subQuestion.text || "",
+      optionA: excelText(findOption(subQuestion, "A").text),
+      optionB: excelText(findOption(subQuestion, "B").text),
+      optionC: excelText(findOption(subQuestion, "C").text),
+      optionD: excelText(findOption(subQuestion, "D").text),
+      optionE: excelText(findOption(subQuestion, "E").text),
+      correctAnswer: correctAnswerFromOptions(subQuestion),
+      subQuestionMarks: Number(subQuestion.marks) || "",
+      subQuestionNegativeMarks: Number(subQuestion.negativeMarks) || 0,
+    }));
+  });
+
+const buildSimpleAnswerExportRows = (questions = []) =>
+  questions.map((question) => ({
+    ...baseQuestionRow(question),
+    text: question.text || "",
+    correctAnswer: excelText(question.correctAnswer),
+    matches: excelText(question.matches),
+  }));
+
+const exportHeadersByType = {
+  mcq_text: [
+    "classId", "subjectId", "topicId", "type", "difficulty", "marks", "negativeMarks",
+    "text", "optionA", "optionB", "optionC", "optionD", "optionE", "correctAnswer",
+  ],
+  mcq_image: [
+    "classId", "subjectId", "topicId", "type", "question_group_id", "difficulty", "marks",
+    "negativeMarks", "questionText", "questionImage", "optionAText", "optionAImage",
+    "optionBText", "optionBImage", "optionCText", "optionCImage", "optionDText",
+    "optionDImage", "optionEText", "optionEImage", "correctAnswer",
+  ],
+  paragraph: [
+    "classId", "subjectId", "topicId", "type", "groupId", "difficulty", "marks",
+    "negativeMarks", "instructionText", "paragraph", "subQuestionId", "subQuestionType",
+    "subQuestionText", "optionA", "optionB", "optionC", "optionD", "optionE",
+    "correctAnswer", "subQuestionMarks", "subQuestionNegativeMarks",
+  ],
+  image_subquestions: [
+    "classId", "subjectId", "topicId", "type", "groupId", "difficulty", "marks",
+    "negativeMarks", "instructionText", "questionImage", "subQuestionId", "subQuestionType",
+    "subQuestionText", "optionA", "optionB", "optionC", "optionD", "optionE",
+    "correctAnswer", "subQuestionMarks", "subQuestionNegativeMarks",
+  ],
+  simple_answer: [
+    "classId", "subjectId", "topicId", "type", "difficulty", "marks", "negativeMarks",
+    "text", "correctAnswer", "matches",
+  ],
+};
+
+const buildQuestionExportRowsForType = (questions = [], type = "") => {
+  if (type === "mcq_image") return buildMcqImageExportRows(questions);
+  if (type === "paragraph" || type === "image_subquestions") return buildGroupedQuestionExportRows(questions);
+  if (["short_answer", "true_false", "matching", "long_answer"].includes(type)) return buildSimpleAnswerExportRows(questions);
+  return buildMcqTextExportRows(questions);
+};
+
+const getExportHeadersForType = (type = "") => {
+  if (type === "mcq_image") return exportHeadersByType.mcq_image;
+  if (type === "paragraph") return exportHeadersByType.paragraph;
+  if (type === "image_subquestions") return exportHeadersByType.image_subquestions;
+  if (["short_answer", "true_false", "matching", "long_answer"].includes(type)) return exportHeadersByType.simple_answer;
+  return exportHeadersByType.mcq_text;
+};
+
+const safeExcelFilePart = (value, fallback) =>
+  String(value || fallback)
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "") || fallback;
+
+const appendQuestionExportSheet = (
+  workbook,
+  questions = [],
+  type = "",
+  selectedTopicName = "",
+  topicNameMap = new Map()
+) => {
+  const normalizedType = normalizeQuestionType(type);
+  const rows = buildQuestionExportRowsForType(questions, normalizedType).map((row) => ({
+    ...row,
+    topicId: selectedTopicName || topicNameMap.get(String(row.topicId || "")) || row.topicId,
+  }));
+  const headers = getExportHeadersForType(normalizedType);
+  const worksheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+  worksheet["!cols"] = headers.map((header) => ({
+    wch: Math.max(12, Math.min(45, header.length + 6)),
+  }));
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    worksheet,
+    safeExcelFilePart(normalizedType, "Questions").slice(0, 31)
+  );
+};
+
+async function resolveTopicDisplayName(topicId, classId, subjectId) {
+  const rawTopicId = String(topicId || "").trim();
+  if (!rawTopicId) return "";
+
+  const topicFilter = /^[0-9a-fA-F]{24}$/.test(rawTopicId)
+    ? { _id: rawTopicId }
+    : {
+        $or: [
+          { name: rawTopicId },
+          { nameLower: normalizeExcelKey(rawTopicId) },
+        ],
+      };
+
+  const topic = await Topic.findOne({
+    ...topicFilter,
+    ...(classId ? { classId } : {}),
+    ...(subjectId ? { subjectId } : {}),
+  }).lean();
+
+  return topic?.name || rawTopicId;
+}
+
+async function buildTopicNameMapForQuestions(questions = []) {
+  const rawTopicValues = [
+    ...new Set(questions.map((question) => String(question?.topicId || "").trim()).filter(Boolean)),
+  ];
+
+  if (rawTopicValues.length === 0) return new Map();
+
+  const topicDocs = await Topic.find({
+    $or: [
+      { _id: { $in: rawTopicValues.filter((value) => /^[0-9a-fA-F]{24}$/.test(value)) } },
+      { name: { $in: rawTopicValues } },
+      { nameLower: { $in: rawTopicValues.map((value) => normalizeExcelKey(value)) } },
+    ],
+  }).lean();
+
+  const map = new Map();
+  topicDocs.forEach((topic) => {
+    map.set(topic._id.toString(), topic.name);
+    map.set(topic.name, topic.name);
+    map.set(topic.nameLower, topic.name);
+  });
+
+  return map;
+}
+
 async function findUnknownTopicsFromRows(rows = []) {
   const uniqueTopicRequests = new Map();
 
@@ -962,79 +1300,23 @@ router.post("/", async (req, res) => {
       type,
       difficulty,
       search,
+      createdFrom,
+      createdTo,
       page = 1,
       limit = 10,
       selectedQuestions = [],
     } = req.body;
 
-    const filter = {};
-    filter.$or = [{ isDeleted: false }, { isDeleted: { $exists: false } }];
-    // -----------------------------
-    // BASIC FILTERS
-    // -----------------------------
-    if (classId) filter.classId = classId;
-
-    if (subjectId) {
-      filter.subjectId = { $in: subjectId.split(",").map((s) => s.trim()) };
-    }
-
-    if (topicId) {
-      const requestedTopicIds = topicId
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-      const topicFilterValues = new Set(requestedTopicIds);
-
-      const topicDocs = await Topic.find({
-        $or: [
-          {
-            _id: {
-              $in: requestedTopicIds.filter((id) =>
-                /^[0-9a-fA-F]{24}$/.test(id),
-              ),
-            },
-          },
-          {
-            nameLower: {
-              $in: requestedTopicIds.map((id) => normalizeExcelKey(id)),
-            },
-          },
-        ],
-      }).lean();
-
-      topicDocs.forEach((topic) => {
-        topicFilterValues.add(topic._id.toString());
-        topicFilterValues.add(topic.name);
-        topicFilterValues.add(topic.nameLower);
-      });
-
-      filter.topicId = { $in: Array.from(topicFilterValues) };
-    }
-
-    // -----------------------------
-    // DIFFICULTY
-    // -----------------------------
-    if (difficulty) {
-      filter.difficulty = {
-        $in: difficulty.split(",").map((d) => d.trim()),
-      };
-    }
-
-    // -----------------------------
-    // TYPE
-    // -----------------------------
-    if (type) {
-      filter.type = {
-        $in: type.split(",").map((t) => t.trim()),
-      };
-    }
-
-    // -----------------------------
-    // SEARCH
-    // -----------------------------
-    if (search) {
-      filter.text = { $regex: search, $options: "i" };
-    }
+    const filter = await buildQuestionFilterFromPayload({
+      classId,
+      subjectId,
+      topicId,
+      type,
+      difficulty,
+      search,
+      createdFrom,
+      createdTo,
+    });
 
     const pageSize = Math.max(Number(limit), 1);
     const currentPage = Math.max(Number(page), 1);
@@ -1102,6 +1384,95 @@ router.post("/", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Internal Server Error",
+      details: err.message,
+    });
+  }
+});
+
+router.post("/export-excel", async (req, res) => {
+  try {
+    const { classId, subjectId, topicId, type, difficulty, search, createdFrom, createdTo } = req.body || {};
+    const hasDateFilter = Boolean(String(createdFrom || "").trim() || String(createdTo || "").trim());
+    const requiredFilters = hasDateFilter ? {} : { classId, subjectId, topicId };
+    const missingFilters = Object.entries(requiredFilters)
+      .filter(([, value]) => !String(value || "").trim() || String(value).trim() === "all")
+      .map(([key]) => key);
+
+    if (missingFilters.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Select ${missingFilters.join(", ")} before downloading Excel.`,
+      });
+    }
+
+    if ((createdFrom && !parseDateOnly(createdFrom)) || (createdTo && !parseDateOnly(createdTo))) {
+      return res.status(400).json({
+        success: false,
+        message: "Use DD/MM/YYYY for created date filters.",
+      });
+    }
+
+    const hasTypeFilter = Boolean(String(type || "").trim()) && String(type).trim() !== "all";
+    const hasDifficultyFilter = Boolean(String(difficulty || "").trim()) && String(difficulty).trim() !== "all";
+    const normalizedType = hasTypeFilter ? normalizeQuestionType(type) : "";
+    const filter = await buildQuestionFilterFromPayload({
+      classId,
+      subjectId,
+      topicId,
+      ...(hasTypeFilter ? { type: normalizedType } : {}),
+      ...(hasDifficultyFilter ? { difficulty } : {}),
+      search,
+      createdFrom,
+      createdTo,
+    });
+
+    const questions = await Question.find(filter).sort({ createdAt: -1 }).lean();
+
+    if (questions.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No questions match the selected filters.",
+      });
+    }
+
+    const selectedTopicName = await resolveTopicDisplayName(topicId, classId, subjectId);
+    const topicNameMap = selectedTopicName ? new Map() : await buildTopicNameMapForQuestions(questions);
+    const workbook = XLSX.utils.book_new();
+
+    if (hasTypeFilter) {
+      appendQuestionExportSheet(workbook, questions, normalizedType, selectedTopicName, topicNameMap);
+    } else {
+      const questionsByType = questions.reduce((groups, question) => {
+        const questionType = normalizeQuestionType(question.type || "mcq_text");
+        if (!groups[questionType]) groups[questionType] = [];
+        groups[questionType].push(question);
+        return groups;
+      }, {});
+
+      Object.entries(questionsByType).forEach(([questionType, groupedQuestions]) => {
+        appendQuestionExportSheet(workbook, groupedQuestions, questionType, selectedTopicName, topicNameMap);
+      });
+    }
+
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
+    const fileName = [
+      safeExcelFilePart(classId, "class"),
+      safeExcelFilePart(subjectId, "subject"),
+      safeExcelFilePart(selectedTopicName || topicId, "topic"),
+      safeExcelFilePart(normalizedType || "all_types", "questions"),
+      safeExcelFilePart(hasDifficultyFilter ? difficulty : "all_difficulties", "difficulty"),
+      safeExcelFilePart(createdFrom || "all_dates", "from"),
+      safeExcelFilePart(createdTo || createdFrom || "all_dates", "to"),
+    ].join("_");
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}.xlsx"`);
+    return res.send(buffer);
+  } catch (err) {
+    console.error("Question bank Excel export failed:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Question bank Excel export failed.",
       details: err.message,
     });
   }
