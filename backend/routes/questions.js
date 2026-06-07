@@ -65,7 +65,12 @@ import path from "path";
 import Question from "../models/Question.js";
 import Topic from "../models/Topic.js";
 import { normalizeQuestionPayload } from "../middleware/normalizeImageQuestion.middleware.js";
-import { normalizeClassId, normalizeSubjectId } from "../utils/normalization.js";
+import {
+  buildClassIdCandidates,
+  buildSubjectIdCandidates,
+  normalizeClassId,
+  normalizeSubjectId,
+} from "../utils/normalization.js";
 import XLSX from "xlsx";
 import unzipper from "unzipper";
 
@@ -76,7 +81,8 @@ router.post("/test", (req, res) => {
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: Number(process.env.UPLOAD_FILE_SIZE_LIMIT_MB || 100) * 1024 * 1024,
+    fileSize:
+      Number(process.env.UPLOAD_FILE_SIZE_LIMIT_MB || 100) * 1024 * 1024,
   },
 });
 
@@ -124,7 +130,11 @@ const QUESTION_DUPLICATE_FIELDS = [
 ];
 
 const ARRAY_DUPLICATE_FIELDS = new Set(["media", "options", "subQuestions"]);
-const NUMBER_DUPLICATE_FIELDS = new Set(["marks", "negativeMarks", "ocrConfidence"]);
+const NUMBER_DUPLICATE_FIELDS = new Set([
+  "marks",
+  "negativeMarks",
+  "ocrConfidence",
+]);
 
 const normalizeDuplicateValue = (value) => {
   if (value === undefined || value === null) return "";
@@ -138,7 +148,17 @@ const normalizeDuplicateValue = (value) => {
     const normalized = {};
 
     Object.keys(value)
-      .filter((key) => !["_id", "__v", "createdAt", "deletedAt", "deletedBy", "isDeleted"].includes(key))
+      .filter(
+        (key) =>
+          ![
+            "_id",
+            "__v",
+            "createdAt",
+            "deletedAt",
+            "deletedBy",
+            "isDeleted",
+          ].includes(key),
+      )
       .sort()
       .forEach((key) => {
         normalized[key] = normalizeDuplicateValue(value[key]);
@@ -174,7 +194,8 @@ const normalizeDuplicateField = (field, value) => {
 };
 
 const buildQuestionDuplicateFingerprint = (question = {}) => {
-  const source = typeof question.toObject === "function" ? question.toObject() : question;
+  const source =
+    typeof question.toObject === "function" ? question.toObject() : question;
   const normalized = {};
 
   QUESTION_DUPLICATE_FIELDS.forEach((field) => {
@@ -197,7 +218,12 @@ const findDuplicateQuestion = async (question) => {
     isDeleted: { $ne: true },
   }).lean();
 
-  return candidates.find((candidate) => buildQuestionDuplicateFingerprint(candidate) === fingerprint) || null;
+  return (
+    candidates.find(
+      (candidate) =>
+        buildQuestionDuplicateFingerprint(candidate) === fingerprint,
+    ) || null
+  );
 };
 
 const filterDuplicateQuestions = async (questions = []) => {
@@ -250,7 +276,10 @@ const filterDuplicateQuestions = async (questions = []) => {
     const existingCandidates = await getExistingCandidates(question);
     const existingDuplicate = existingCandidates.get(fingerprint);
     if (existingDuplicate) {
-      duplicateQuestions.push({ ...question, duplicateOf: existingDuplicate._id?.toString() });
+      duplicateQuestions.push({
+        ...question,
+        duplicateOf: existingDuplicate._id?.toString(),
+      });
       continue;
     }
 
@@ -384,15 +413,25 @@ const normalizeQuestionType = (value, fallback = "mcq_text") => {
     matching: "matching",
   };
 
-  return typeAliases[normalized] || String(value || fallback).trim().toLowerCase();
+  return (
+    typeAliases[normalized] ||
+    String(value || fallback)
+      .trim()
+      .toLowerCase()
+  );
 };
 
 const normalizeDifficulty = (value) => {
-  const normalized = String(value || "easy").trim().toLowerCase();
+  const normalized = String(value || "easy")
+    .trim()
+    .toLowerCase();
   return ["easy", "medium", "hard"].includes(normalized) ? normalized : "easy";
 };
 
-const normalizeCorrectAnswer = (value) => String(value || "").trim().toUpperCase();
+const normalizeCorrectAnswer = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase();
 
 const verifyInsertedQuestions = async (insertedDocs = []) => {
   const ids = Array.isArray(insertedDocs)
@@ -410,6 +449,20 @@ const verifyInsertedQuestions = async (insertedDocs = []) => {
   return Question.countDocuments({ _id: { $in: ids } });
 };
 
+const normalizeTopicKey = (value = "") =>
+  String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+async function hasExistingQuestionTopic(classCandidates, subjectCandidates, topicKey) {
+  const existingTopicIds = await Question.distinct("topicId", {
+    classId: { $in: classCandidates },
+    subjectId: { $in: subjectCandidates },
+    topicId: { $nin: ["", null] },
+    isDeleted: { $ne: true },
+  });
+
+  return existingTopicIds.some((value) => normalizeTopicKey(value) === topicKey);
+}
+
 async function ensureTopicId(classId, subjectId, topicIdentifier) {
   if (!classId || !subjectId || !topicIdentifier) {
     return "";
@@ -420,21 +473,26 @@ async function ensureTopicId(classId, subjectId, topicIdentifier) {
     return "";
   }
 
-  const normalizeTopicKey = (s = "") => String(s).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
   const nameLower = normalizeTopicKey(rawValue);
+  const classCandidates = buildClassIdCandidates(classId);
+  const subjectCandidates = buildSubjectIdCandidates(subjectId);
 
   // If the value is already a valid Mongo _id, try to resolve it first.
   const isObjectId = /^[0-9a-fA-F]{24}$/.test(rawValue);
   if (isObjectId) {
-    const existingById = await Topic.findById(rawValue).lean();
+    const existingById = await Topic.findOne({
+      _id: rawValue,
+      classId: { $in: classCandidates },
+      subjectId: { $in: subjectCandidates },
+    }).lean();
     if (existingById) {
       return existingById._id.toString();
     }
   }
 
   const existing = await Topic.findOne({
-    classId,
-    subjectId,
+    classId: { $in: classCandidates },
+    subjectId: { $in: subjectCandidates },
     nameLower,
   }).lean();
 
@@ -453,8 +511,8 @@ async function ensureTopicId(classId, subjectId, topicIdentifier) {
   } catch (err) {
     if (err?.code === 11000) {
       const deduped = await Topic.findOne({
-        classId,
-        subjectId,
+        classId: { $in: classCandidates },
+        subjectId: { $in: subjectCandidates },
         nameLower,
       }).lean();
       if (deduped) {
@@ -484,7 +542,7 @@ async function findUnknownTopicsFromRows(rows = []) {
 
     if (!classId || !subjectId || !rawTopic) return;
 
-    const topicKey = String(rawTopic).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    const topicKey = normalizeTopicKey(rawTopic);
     const requestKey = `${classId}|${subjectId}|${topicKey}`;
 
     if (!uniqueTopicRequests.has(requestKey)) {
@@ -503,21 +561,28 @@ async function findUnknownTopicsFromRows(rows = []) {
 
   for (const request of uniqueTopicRequests.values()) {
     const isObjectId = /^[0-9a-fA-F]{24}$/.test(request.topicName);
-    const topicKey = String(request.topicName).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    const topicKey = normalizeTopicKey(request.topicName);
+    const classCandidates = buildClassIdCandidates(request.classId);
+    const subjectCandidates = buildSubjectIdCandidates(request.subjectId);
 
-    const existing = isObjectId
+    const existingTopic = isObjectId
       ? await Topic.findOne({
           _id: request.topicName,
-          classId: request.classId,
-          subjectId: request.subjectId,
+          classId: { $in: classCandidates },
+          subjectId: { $in: subjectCandidates },
         }).lean()
       : await Topic.findOne({
-          classId: request.classId,
-          subjectId: request.subjectId,
+          classId: { $in: classCandidates },
+          subjectId: { $in: subjectCandidates },
           nameLower: topicKey,
         }).lean();
 
-    if (!existing) {
+    const existingFromQuestions =
+      !existingTopic && !isObjectId
+        ? await hasExistingQuestionTopic(classCandidates, subjectCandidates, topicKey)
+        : false;
+
+    if (!existingTopic && !existingFromQuestions) {
       unknownTopics.push(request);
     }
   }
@@ -544,7 +609,7 @@ router.post(
       normalizedPayload.topicId = await ensureTopicId(
         normalizedPayload.classId,
         normalizedPayload.subjectId,
-        topicIdentifier
+        topicIdentifier,
       );
 
       const existingDuplicate = await findDuplicateQuestion(normalizedPayload);
@@ -592,7 +657,7 @@ router.post(
     //   console.error("❌ ERROR:", err);
     //   res.status(500).json({ success: false, error: err.message });
     // }
-  }
+  },
 );
 
 // POST /api/questions/create-bulk-upload
@@ -617,7 +682,8 @@ router.post("/create-bulk-upload", async (req, res) => {
       const rawValue = String(topicId || topicName || "").trim();
       if (!rawValue) return "";
 
-      const normalizeKey = (s = "") => String(s).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      // const normalizeKey = (s = "") => String(s).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      const normalizeKey = normalizeTopicKey;
       const cacheKey = `${classId}|${subjectId}|${normalizeKey(rawValue)}`;
       if (topicCache.has(cacheKey)) {
         return topicCache.get(cacheKey);
@@ -633,9 +699,12 @@ router.post("/create-bulk-upload", async (req, res) => {
         const row = normalizeExcelRow(question);
         const classId = normalizeClassId(row.classId);
         const subjectId = normalizeSubjectId(row.subjectId);
-        const normalizedText =
-          String(row.text || row.questionText || row.question || "").trim();
-        const normalizedType = normalizeQuestionType(row.type || row.questionType || row.question_type);
+        const normalizedText = String(
+          row.text || row.questionText || row.question || "",
+        ).trim();
+        const normalizedType = normalizeQuestionType(
+          row.type || row.questionType || row.question_type,
+        );
         const correctAnswer = normalizeCorrectAnswer(row.correctAnswer);
         const freeTextCorrectAnswer = String(row.correctAnswer || "").trim();
         const isMcqText = normalizedType === "mcq_text";
@@ -643,31 +712,38 @@ router.post("/create-bulk-upload", async (req, res) => {
         const inferredOptions = !isMcqText
           ? []
           : Array.isArray(row.options)
-          ? row.options.map((option) => ({
-              ...option,
-              id: String(option.id || "").trim().toUpperCase(),
-              text: String(option.text || ""),
-              isCorrect:
-                option.isCorrect === true ||
-                String(option.id || "").trim().toUpperCase() === correctAnswer,
-            }))
-          : ["A", "B", "C", "D", "E"]
-              .map((id) => {
-                const text = row[`option${id}`] || row[`option_${id}`] || "";
-                if (!text) return null;
-                return {
-                  id,
-                  text: String(text),
-                  isCorrect: correctAnswer === id,
-                };
-              })
-              .filter(Boolean);
+            ? row.options.map((option) => ({
+                ...option,
+                id: String(option.id || "")
+                  .trim()
+                  .toUpperCase(),
+                text: String(option.text || ""),
+                isCorrect:
+                  option.isCorrect === true ||
+                  String(option.id || "")
+                    .trim()
+                    .toUpperCase() === correctAnswer,
+              }))
+            : ["A", "B", "C", "D", "E"]
+                .map((id) => {
+                  const text = row[`option${id}`] || row[`option_${id}`] || "";
+                  if (!text) return null;
+                  return {
+                    id,
+                    text: String(text),
+                    isCorrect: correctAnswer === id,
+                  };
+                })
+                .filter(Boolean);
 
         if (!classId || !subjectId || !normalizedType || !normalizedText) {
           throw new Error(`Missing required fields at row ${index + 1}`);
         }
 
-        if (normalizedType === "mcq_text" && !["A", "B", "C", "D", "E"].includes(correctAnswer)) {
+        if (
+          normalizedType === "mcq_text" &&
+          !["A", "B", "C", "D", "E"].includes(correctAnswer)
+        ) {
           throw new Error(`Invalid correctAnswer at row ${index + 1}`);
         }
 
@@ -689,20 +765,21 @@ router.post("/create-bulk-upload", async (req, res) => {
             classId,
             subjectId,
             row.topicId,
-            row.topicName
+            row.topicName,
           ),
         };
-        
+
         // Initialize subQuestions as empty array if not provided
         if (!processedQuestion.subQuestions) {
           processedQuestion.subQuestions = [];
         }
-        
+
         return processedQuestion;
-      })
+      }),
     );
 
-    const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(prepared);
+    const { uniqueQuestions, duplicateQuestions } =
+      await filterDuplicateQuestions(prepared);
 
     const inserted = uniqueQuestions.length
       ? await insertQuestionsInChunks(uniqueQuestions)
@@ -724,7 +801,8 @@ router.post("/create-bulk-upload", async (req, res) => {
     if (createdCount > 0 && verifiedCount !== createdCount) {
       return res.status(500).json({
         success: false,
-        message: "Questions were created but could not be verified in the database",
+        message:
+          "Questions were created but could not be verified in the database",
         createdCount,
         verifiedCount,
         receivedCount: questions.length,
@@ -733,9 +811,15 @@ router.post("/create-bulk-upload", async (req, res) => {
       });
     }
 
-    const subQuestionCount = (Array.isArray(insertedDocs) ? insertedDocs : []).reduce(
-      (total, question) => total + (Array.isArray(question.subQuestions) ? question.subQuestions.length : 0),
-      0
+    const subQuestionCount = (
+      Array.isArray(insertedDocs) ? insertedDocs : []
+    ).reduce(
+      (total, question) =>
+        total +
+        (Array.isArray(question.subQuestions)
+          ? question.subQuestions.length
+          : 0),
+      0,
     );
 
     res.json({
@@ -850,7 +934,7 @@ router.post("/", async (req, res) => {
     } = req.body;
 
     const filter = {};
-      filter.$or = [{ isDeleted: false }, { isDeleted: { $exists: false } }];
+    filter.$or = [{ isDeleted: false }, { isDeleted: { $exists: false } }];
     // -----------------------------
     // BASIC FILTERS
     // -----------------------------
@@ -861,13 +945,26 @@ router.post("/", async (req, res) => {
     }
 
     if (topicId) {
-      const requestedTopicIds = topicId.split(",").map((t) => t.trim()).filter(Boolean);
+      const requestedTopicIds = topicId
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
       const topicFilterValues = new Set(requestedTopicIds);
 
       const topicDocs = await Topic.find({
         $or: [
-          { _id: { $in: requestedTopicIds.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)) } },
-          { nameLower: { $in: requestedTopicIds.map((id) => normalizeExcelKey(id)) } },
+          {
+            _id: {
+              $in: requestedTopicIds.filter((id) =>
+                /^[0-9a-fA-F]{24}$/.test(id),
+              ),
+            },
+          },
+          {
+            nameLower: {
+              $in: requestedTopicIds.map((id) => normalizeExcelKey(id)),
+            },
+          },
         ],
       }).lean();
 
@@ -922,7 +1019,7 @@ router.post("/", async (req, res) => {
       }).lean();
       // Preserve order of selectedQuestions array
       const map = new Map(
-        selectedQuestionDocs.map((q) => [q._id.toString(), q])
+        selectedQuestionDocs.map((q) => [q._id.toString(), q]),
       );
 
       selectedQuestionDocs = selectedQuestions
@@ -975,7 +1072,6 @@ router.post("/", async (req, res) => {
     });
   }
 });
-
 
 // router.post("/", async (req, res) => {
 //   try {
@@ -1057,7 +1153,8 @@ router.put("/:id", async (req, res, next) => {
     if (id === "bulk-update" || id === "bulk-delete") {
       return next();
     }
-    const { text, options, correctAnswer, marks, difficulty, topicId } = req.body || {};
+    const { text, options, correctAnswer, marks, difficulty, topicId } =
+      req.body || {};
 
     const update = {};
 
@@ -1068,7 +1165,9 @@ router.put("/:id", async (req, res, next) => {
       } else {
         const topic = /^[0-9a-fA-F]{24}$/.test(rawTopicId)
           ? await Topic.findById(rawTopicId).lean()
-          : await Topic.findOne({ nameLower: normalizeExcelKey(rawTopicId) }).lean();
+          : await Topic.findOne({
+              nameLower: normalizeExcelKey(rawTopicId),
+            }).lean();
 
         if (!topic) {
           return res.status(400).json({
@@ -1103,7 +1202,9 @@ router.put("/:id", async (req, res, next) => {
       }
 
       const normalizedOptions = options.map((option, index) => ({
-        id: String(option?.id || String.fromCharCode(65 + index)).trim().toUpperCase(),
+        id: String(option?.id || String.fromCharCode(65 + index))
+          .trim()
+          .toUpperCase(),
         text: String(option?.text || "").trim(),
         mediaUrl: String(option?.mediaUrl || "").trim(),
         isCorrect: option?.isCorrect === true,
@@ -1116,14 +1217,18 @@ router.put("/:id", async (req, res, next) => {
         });
       }
 
-      if (normalizedOptions.some((option) => !option.text && !option.mediaUrl)) {
+      if (
+        normalizedOptions.some((option) => !option.text && !option.mediaUrl)
+      ) {
         return res.status(400).json({
           success: false,
           message: "Each option must have text or an image",
         });
       }
 
-      const correctOptions = normalizedOptions.filter((option) => option.isCorrect);
+      const correctOptions = normalizedOptions.filter(
+        (option) => option.isCorrect,
+      );
       if (normalizedOptions.length > 0 && correctOptions.length !== 1) {
         return res.status(400).json({
           success: false,
@@ -1162,7 +1267,8 @@ router.put("/:id", async (req, res, next) => {
     if (Object.keys(update).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Nothing to update. Provide text, options, marks, difficulty, and/or topic",
+        message:
+          "Nothing to update. Provide text, options, marks, difficulty, and/or topic",
       });
     }
 
@@ -1172,7 +1278,7 @@ router.put("/:id", async (req, res, next) => {
         $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
       },
       { $set: update },
-      { new: true }
+      { new: true },
     );
 
     if (!result) {
@@ -1238,7 +1344,9 @@ router.put("/bulk-update", async (req, res) => {
       } else {
         const topic = /^[0-9a-fA-F]{24}$/.test(rawTopicId)
           ? await Topic.findById(rawTopicId).lean()
-          : await Topic.findOne({ nameLower: normalizeExcelKey(rawTopicId) }).lean();
+          : await Topic.findOne({
+              nameLower: normalizeExcelKey(rawTopicId),
+            }).lean();
 
         if (!topic) {
           return res.status(400).json({
@@ -1265,7 +1373,7 @@ router.put("/bulk-update", async (req, res) => {
         _id: { $in: ids },
         $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
       },
-      { $set: update }
+      { $set: update },
     );
 
     return res.json({
@@ -1314,7 +1422,7 @@ router.put("/bulk-delete", async (req, res) => {
           deletedAt: new Date(),
           deletedBy: req.user?.id || null,
         },
-      }
+      },
     );
 
     return res.json({
@@ -1346,7 +1454,7 @@ router.delete("/:id", async (req, res) => {
           deletedBy: req.user?.id || null,
         },
       },
-      { new: true }
+      { new: true },
     );
 
     if (!result) {
@@ -1433,12 +1541,10 @@ router.post(
           normalize(row.imageGroupId);
 
         const subQuestionText =
-          normalize(row.subQuestionText) ||
-          normalize(row.sub_question_text);
+          normalize(row.subQuestionText) || normalize(row.sub_question_text);
 
         const subQuestionId =
-          normalize(row.subQuestionId) ||
-          normalize(row.sub_question_id);
+          normalize(row.subQuestionId) || normalize(row.sub_question_id);
 
         return Boolean(groupId || subQuestionText || subQuestionId);
       });
@@ -1455,7 +1561,8 @@ router.post(
         const rawValue = String(topicId || topicName || "").trim();
         if (!rawValue) return "";
 
-        const normalizeKey = (s = "") => String(s).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+        // const normalizeKey = (s = "") => String(s).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+        const normalizeKey = normalizeTopicKey;
         const cacheKey = `${classId}|${subjectId}|${normalizeKey(rawValue)}`;
         if (topicCache.has(cacheKey)) {
           return topicCache.get(cacheKey);
@@ -1474,14 +1581,16 @@ router.post(
             classId,
             subjectId,
             row.topicId,
-            row.topicName
+            row.topicName,
           );
           const correctAnswer = normalizeCorrectAnswer(row.correctAnswer);
 
           const options = ["A", "B", "C", "D"].map((id) => ({
             id,
             text: row[`option${id}Text`] || row[`option_${id}`] || "",
-            mediaUrl: resolveImageDataUrl(row[`option${id}Image`] || row[`option_${id}_image`]),
+            mediaUrl: resolveImageDataUrl(
+              row[`option${id}Image`] || row[`option_${id}_image`],
+            ),
             isCorrect: correctAnswer === id,
           }));
 
@@ -1489,19 +1598,27 @@ router.post(
             classId,
             subjectId,
             topicId,
-            type: normalizeQuestionType(row.type || row.questionType, "mcq_image"),
+            type: normalizeQuestionType(
+              row.type || row.questionType,
+              "mcq_image",
+            ),
             difficulty: normalizeDifficulty(row.difficulty),
             marks: Number(row.marks) || 1,
             negativeMarks: Number(row.negativeMarks) || 0,
             text: row.questionText,
             media: resolveImageDataUrl(row.questionImage)
-              ? [{ url: resolveImageDataUrl(row.questionImage), alt: String(row.questionImage || "") }]
+              ? [
+                  {
+                    url: resolveImageDataUrl(row.questionImage),
+                    alt: String(row.questionImage || ""),
+                  },
+                ]
               : [],
             options,
             correctAnswer,
             subQuestions: [], // Initialize subQuestions as empty array
           };
-        })
+        }),
       );
 
       if (hasGroupedImageRows) {
@@ -1536,12 +1653,11 @@ router.post(
               classId,
               subjectId,
               firstRow.topicId,
-              firstRow.topicName
+              firstRow.topicName,
             );
 
             const questionImage =
-              normalize(firstRow.questionImage) ||
-              normalize(firstRow.image);
+              normalize(firstRow.questionImage) || normalize(firstRow.image);
 
             const media = resolveImageDataUrl(questionImage)
               ? [
@@ -1569,7 +1685,7 @@ router.post(
                   id,
                   text: row[`option${id}Text`] || row[`option_${id}`] || "",
                   mediaUrl: resolveImageDataUrl(
-                    row[`option${id}Image`] || row[`option_${id}_image`] || ""
+                    row[`option${id}Image`] || row[`option_${id}_image`] || "",
                   ),
                   isCorrect: correctAnswer === id,
                 }))
@@ -1590,14 +1706,21 @@ router.post(
               classId,
               subjectId,
               topicId,
-              type: questionType === "image_subquestions"
-                ? "image_subquestions"
-                : normalizeQuestionType(firstRow.type || firstRow.questionType, "mcq_image"),
+              type:
+                questionType === "image_subquestions"
+                  ? "image_subquestions"
+                  : normalizeQuestionType(
+                      firstRow.type || firstRow.questionType,
+                      "mcq_image",
+                    ),
               difficulty: normalizeDifficulty(firstRow.difficulty),
-              marks: subQuestions.reduce((sum, sq) => sum + (Number(sq.marks) || 0), 0),
+              marks: subQuestions.reduce(
+                (sum, sq) => sum + (Number(sq.marks) || 0),
+                0,
+              ),
               negativeMarks: subQuestions.reduce(
                 (sum, sq) => sum + (Number(sq.negativeMarks) || 0),
-                0
+                0,
               ),
               text:
                 normalize(firstRow.instructionText) ||
@@ -1608,10 +1731,11 @@ router.post(
               correctAnswer: null,
               subQuestions,
             };
-          })
+          }),
         );
 
-        const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(groupedQuestions);
+        const { uniqueQuestions, duplicateQuestions } =
+          await filterDuplicateQuestions(groupedQuestions);
 
         const inserted = uniqueQuestions.length
           ? await insertQuestionsInChunks(uniqueQuestions)
@@ -1633,7 +1757,8 @@ router.post(
         if (createdCount > 0 && verifiedCount !== createdCount) {
           return res.status(500).json({
             success: false,
-            message: "Questions were created but could not be verified in the database",
+            message:
+              "Questions were created but could not be verified in the database",
             createdCount,
             verifiedCount,
             receivedCount: groupedQuestions.length,
@@ -1642,9 +1767,15 @@ router.post(
           });
         }
 
-        const subQuestionCount = (Array.isArray(insertedDocs) ? insertedDocs : []).reduce(
-          (total, question) => total + (Array.isArray(question.subQuestions) ? question.subQuestions.length : 0),
-          0
+        const subQuestionCount = (
+          Array.isArray(insertedDocs) ? insertedDocs : []
+        ).reduce(
+          (total, question) =>
+            total +
+            (Array.isArray(question.subQuestions)
+              ? question.subQuestions.length
+              : 0),
+          0,
         );
 
         return res.json({
@@ -1658,7 +1789,8 @@ router.post(
         });
       }
 
-      const { uniqueQuestions, duplicateQuestions } = await filterDuplicateQuestions(questions);
+      const { uniqueQuestions, duplicateQuestions } =
+        await filterDuplicateQuestions(questions);
 
       const inserted = uniqueQuestions.length
         ? await insertQuestionsInChunks(uniqueQuestions)
@@ -1680,7 +1812,8 @@ router.post(
       if (createdCount > 0 && verifiedCount !== createdCount) {
         return res.status(500).json({
           success: false,
-          message: "Questions were created but could not be verified in the database",
+          message:
+            "Questions were created but could not be verified in the database",
           createdCount,
           verifiedCount,
           receivedCount: questions.length,
@@ -1689,9 +1822,15 @@ router.post(
         });
       }
 
-      const subQuestionCount = (Array.isArray(insertedDocs) ? insertedDocs : []).reduce(
-        (total, question) => total + (Array.isArray(question.subQuestions) ? question.subQuestions.length : 0),
-        0
+      const subQuestionCount = (
+        Array.isArray(insertedDocs) ? insertedDocs : []
+      ).reduce(
+        (total, question) =>
+          total +
+          (Array.isArray(question.subQuestions)
+            ? question.subQuestions.length
+            : 0),
+        0,
       );
 
       res.json({
@@ -1707,8 +1846,7 @@ router.post(
       console.error(err);
       res.status(500).json({ success: false, message: err.message });
     }
-  }
+  },
 );
 
 export default router;
-
