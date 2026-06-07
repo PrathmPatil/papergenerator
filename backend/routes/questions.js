@@ -452,6 +452,16 @@ const verifyInsertedQuestions = async (insertedDocs = []) => {
 const normalizeTopicKey = (value = "") =>
   String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
+const normalizeLegacyTopicKey = (value = "") =>
+  String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+
+const buildTopicKeyCandidates = (value = "") =>
+  [
+    normalizeTopicKey(value),
+    normalizeLegacyTopicKey(value),
+    String(value || "").trim().toLowerCase(),
+  ].filter(Boolean);
+
 async function hasExistingQuestionTopic(classCandidates, subjectCandidates, topicKey) {
   const existingTopicIds = await Question.distinct("topicId", {
     classId: { $in: classCandidates },
@@ -461,6 +471,57 @@ async function hasExistingQuestionTopic(classCandidates, subjectCandidates, topi
   });
 
   return existingTopicIds.some((value) => normalizeTopicKey(value) === topicKey);
+}
+
+async function findExistingTopic(classCandidates, subjectCandidates, topicIdentifier) {
+  const rawValue = String(topicIdentifier || "").trim();
+  if (!rawValue) return null;
+
+  const topicKey = normalizeTopicKey(rawValue);
+  const keyCandidates = buildTopicKeyCandidates(rawValue);
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(rawValue);
+
+  const existing = await Topic.findOne({
+    classId: { $in: classCandidates },
+    subjectId: { $in: subjectCandidates },
+    $or: [
+      ...(isObjectId ? [{ _id: rawValue }] : []),
+      { nameLower: { $in: keyCandidates } },
+    ],
+  }).lean();
+
+  if (existing) return existing;
+
+  const candidateTopics = await Topic.find({
+    classId: { $in: classCandidates },
+    subjectId: { $in: subjectCandidates },
+  }).lean();
+
+  return (
+    candidateTopics.find(
+      (topic) =>
+        normalizeTopicKey(topic?.name) === topicKey ||
+        normalizeTopicKey(topic?.nameLower) === topicKey
+    ) || null
+  );
+}
+
+function logUnknownTopics(unknownTopics = []) {
+  if (unknownTopics.length === 0) return;
+
+  console.warn(
+    "[UNKNOWN_TOPICS]",
+    JSON.stringify(
+      unknownTopics.map((topic) => ({
+        classId: topic.classId,
+        subjectId: topic.subjectId,
+        topicName: topic.topicName,
+        compactKey: normalizeTopicKey(topic.topicName),
+        legacyKey: normalizeLegacyTopicKey(topic.topicName),
+        rows: topic.rows,
+      }))
+    )
+  );
 }
 
 async function ensureTopicId(classId, subjectId, topicIdentifier) {
@@ -473,28 +534,10 @@ async function ensureTopicId(classId, subjectId, topicIdentifier) {
     return "";
   }
 
-  const nameLower = normalizeTopicKey(rawValue);
   const classCandidates = buildClassIdCandidates(classId);
   const subjectCandidates = buildSubjectIdCandidates(subjectId);
-
-  // If the value is already a valid Mongo _id, try to resolve it first.
-  const isObjectId = /^[0-9a-fA-F]{24}$/.test(rawValue);
-  if (isObjectId) {
-    const existingById = await Topic.findOne({
-      _id: rawValue,
-      classId: { $in: classCandidates },
-      subjectId: { $in: subjectCandidates },
-    }).lean();
-    if (existingById) {
-      return existingById._id.toString();
-    }
-  }
-
-  const existing = await Topic.findOne({
-    classId: { $in: classCandidates },
-    subjectId: { $in: subjectCandidates },
-    nameLower,
-  }).lean();
+  const nameLower = normalizeTopicKey(rawValue);
+  const existing = await findExistingTopic(classCandidates, subjectCandidates, rawValue);
 
   if (existing) {
     return existing._id.toString();
@@ -510,11 +553,7 @@ async function ensureTopicId(classId, subjectId, topicIdentifier) {
     return created._id.toString();
   } catch (err) {
     if (err?.code === 11000) {
-      const deduped = await Topic.findOne({
-        classId: { $in: classCandidates },
-        subjectId: { $in: subjectCandidates },
-        nameLower,
-      }).lean();
+      const deduped = await findExistingTopic(classCandidates, subjectCandidates, rawValue);
       if (deduped) {
         return deduped._id.toString();
       }
@@ -560,22 +599,15 @@ async function findUnknownTopicsFromRows(rows = []) {
   const unknownTopics = [];
 
   for (const request of uniqueTopicRequests.values()) {
-    const isObjectId = /^[0-9a-fA-F]{24}$/.test(request.topicName);
     const topicKey = normalizeTopicKey(request.topicName);
     const classCandidates = buildClassIdCandidates(request.classId);
     const subjectCandidates = buildSubjectIdCandidates(request.subjectId);
-
-    const existingTopic = isObjectId
-      ? await Topic.findOne({
-          _id: request.topicName,
-          classId: { $in: classCandidates },
-          subjectId: { $in: subjectCandidates },
-        }).lean()
-      : await Topic.findOne({
-          classId: { $in: classCandidates },
-          subjectId: { $in: subjectCandidates },
-          nameLower: topicKey,
-        }).lean();
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(request.topicName);
+    const existingTopic = await findExistingTopic(
+      classCandidates,
+      subjectCandidates,
+      request.topicName
+    );
 
     const existingFromQuestions =
       !existingTopic && !isObjectId
@@ -586,6 +618,8 @@ async function findUnknownTopicsFromRows(rows = []) {
       unknownTopics.push(request);
     }
   }
+
+  logUnknownTopics(unknownTopics);
 
   return unknownTopics;
 }
