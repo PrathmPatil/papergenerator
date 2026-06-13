@@ -213,6 +213,83 @@ import Paper from "../models/Paper.js";
 import { requireStaff } from "../middleware/tokenVerification.middleware.js";
 const router = express.Router();
 
+const buildQuestionUsageMap = (questionIds = []) => {
+  const usageMap = new Map();
+
+  questionIds
+    .map((id) => String(id || "").trim())
+    .filter(Boolean)
+    .forEach((id) => {
+      usageMap.set(id, (usageMap.get(id) || 0) + 1);
+    });
+
+  return usageMap;
+};
+
+const getPaperQuestionIds = (paper = {}) =>
+  (paper.sections || [])
+    .flatMap((section) => section.questions || [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+
+const applyQuestionUsageDelta = async (deltaByQuestionId = new Map()) => {
+  const operations = [];
+  const incrementedIds = [];
+
+  for (const [questionId, delta] of deltaByQuestionId.entries()) {
+    if (!questionId || !delta) continue;
+
+    const update = {
+      $inc: { usageCount: delta },
+    };
+
+    if (delta > 0) {
+      update.$set = { lastUsedAt: new Date() };
+      incrementedIds.push(questionId);
+    }
+
+    operations.push({
+      updateOne: {
+        filter: { _id: questionId },
+        update,
+      },
+    });
+  }
+
+  if (operations.length === 0) return;
+
+  await Question.bulkWrite(operations, { ordered: false });
+
+  await Question.updateMany(
+    { usageCount: { $lt: 0 } },
+    { $set: { usageCount: 0 } },
+  );
+
+  if (incrementedIds.length > 0) {
+    await Question.updateMany(
+      {
+        _id: { $in: incrementedIds },
+        usageCount: { $lte: 0 },
+      },
+      { $set: { lastUsedAt: null } },
+    );
+  }
+};
+
+const applyQuestionUsageChange = async (oldQuestionIds = [], newQuestionIds = []) => {
+  const oldUsage = buildQuestionUsageMap(oldQuestionIds);
+  const newUsage = buildQuestionUsageMap(newQuestionIds);
+  const allQuestionIds = new Set([...oldUsage.keys(), ...newUsage.keys()]);
+  const deltaByQuestionId = new Map();
+
+  allQuestionIds.forEach((questionId) => {
+    const delta = (newUsage.get(questionId) || 0) - (oldUsage.get(questionId) || 0);
+    if (delta !== 0) deltaByQuestionId.set(questionId, delta);
+  });
+
+  await applyQuestionUsageDelta(deltaByQuestionId);
+};
+
 const toLocalUploadPath = (url = "") => {
   if (!url || typeof url !== "string") return null;
   if (!url.startsWith("/uploads/")) return null;
@@ -480,12 +557,15 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
       paper = await Paper.findOne({ _id: paperId, isDeleted: false });
       if (!paper) return res.status(404).json({ error: "Paper not found" });
 
+      const oldQuestionIds = getPaperQuestionIds(paper);
+
       paper.sections = sections;
       paper.questionsSnapshot = snapshots;
       paper.totalMarks = totalMarks;
       paper.updatedAt = new Date();
 
       await paper.save();
+      await applyQuestionUsageChange(oldQuestionIds, getPaperQuestionIds(paper));
     }
 
     // ============================
@@ -504,6 +584,7 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
       });
 
       await paper.save();
+      await applyQuestionUsageChange([], getPaperQuestionIds(paper));
     }
 
     return res.json({ success: true, paper });
@@ -644,6 +725,7 @@ router.post("/generate", requireStaff, async (req, res) => {
     });
 
     await paper.save();
+    await applyQuestionUsageChange([], getPaperQuestionIds(paper));
     res.json({ success: true, paper });
   } catch (err) {
     console.log(err);
@@ -789,6 +871,7 @@ router.delete("/:id", requireStaff, async (req, res) => {
     if (req.user?.id) paper.deletedBy = req.user.id;
 
     await paper.save();
+    await applyQuestionUsageChange(getPaperQuestionIds(paper), []);
 
     return res.json({ success: true, message: "Paper deleted (soft)", paper });
   } catch (err) {

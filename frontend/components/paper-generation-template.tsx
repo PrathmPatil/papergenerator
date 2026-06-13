@@ -27,6 +27,8 @@ interface IQuestion {
   options?: any[];
   paragraph?: string;
   subQuestions?: any[];
+  usageCount?: number;
+  lastUsedAt?: string | Date | null;
 }
 
 interface SubjectState {
@@ -590,6 +592,11 @@ export function PaperGenerationTemplate({
                           <Badge variant="outline">{q.type}</Badge>
                           <Badge>{q.difficulty}</Badge>
                           <Badge variant="secondary">Marks: {q.marks ?? 1}</Badge>
+                          <Badge variant={Number(q.usageCount || 0) > 0 ? "destructive" : "outline"}>
+                            {Number(q.usageCount || 0) > 0
+                              ? `Used ${Number(q.usageCount || 0)}x`
+                              : "Unused"}
+                          </Badge>
                           <Badge variant="outline">
                             {topicNameById.get(q.topicId) || "Topic"}
                           </Badge>

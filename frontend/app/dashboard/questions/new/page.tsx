@@ -56,7 +56,13 @@ import { showInfo } from "@/components/app-dialog-provider";
 /* ------------------------------------------------------------------ */
 
 type Difficulty = "easy" | "medium" | "hard";
-type QuestionType = "mcq_text" | "mcq_image" | "paragraph" | "image_subquestions";
+type QuestionType =
+  | "mcq_text"
+  | "mcq_image"
+  | "paragraph"
+  | "image_subquestions"
+  | "short_answer"
+  | "long_answer";
 
 interface CreateQuestionPayload {
   type: QuestionType;
@@ -412,7 +418,11 @@ export default function CreateQuestionPage() {
       setIsLoading(true);
       let questions: any[] = [];
       const formData = new FormData();
-      if (questionType == "mcq_text") {
+      if (
+        questionType === "mcq_text" ||
+        questionType === "short_answer" ||
+        questionType === "long_answer"
+      ) {
         questions = convertExcelRowsToQuestions(fileUpload);
       } else if (questionType == "paragraph") {
         questions = convertExcelRowsToParagraphQuestions(fileUpload);
@@ -686,7 +696,7 @@ export default function CreateQuestionPage() {
                 value={questionType}
                 onValueChange={(v) => setQuestionType(v as QuestionType)}
               >
-                <TabsList className="mb-6 grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-4">
+                <TabsList className="mb-6 grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-6">
                   <TabsTrigger value="mcq_text" className="min-h-10 cursor-pointer whitespace-normal text-center leading-tight">
                     Text MCQ
                   </TabsTrigger>
@@ -695,6 +705,12 @@ export default function CreateQuestionPage() {
                   </TabsTrigger>
                   <TabsTrigger value="paragraph" className="min-h-10 cursor-pointer whitespace-normal text-center leading-tight">
                     Paragraph
+                  </TabsTrigger>
+                  <TabsTrigger value="short_answer" className="min-h-10 cursor-pointer whitespace-normal text-center leading-tight">
+                    Short Answer
+                  </TabsTrigger>
+                  <TabsTrigger value="long_answer" className="min-h-10 cursor-pointer whitespace-normal text-center leading-tight">
+                    Long Answer
                   </TabsTrigger>
                   <TabsTrigger value="image_subquestions" className="min-h-10 cursor-pointer whitespace-normal text-center leading-tight">
                     Image + Sub-Questions
@@ -737,6 +753,44 @@ export default function CreateQuestionPage() {
                     <MCQForm onChange={setMcqData} />
                   )}
                 </TabsContent>
+
+                {(["short_answer", "long_answer"] as const).map((answerType) => (
+                  <TabsContent key={answerType} value={answerType}>
+                    {isFileUpload ? (
+                      <>
+                        <div className="flex justify-between items-center space-y-4">
+                          <FileUploadForm
+                            label={`Upload ${answerType === "short_answer" ? "Short" : "Long"} Answer Questions`}
+                            onRowsChange={setFileUpload}
+                            onFileChange={setUploadedFile}
+                            accept=".xlsx,.xls"
+                            parseExcel
+                          />
+
+                          <Button
+                            className="cursor-pointer"
+                            variant="outline"
+                            onClick={() =>
+                              downloadFile(
+                                "/sample_file/text_answer_questions_upload_template.xlsx",
+                                "text_answer_questions_upload_template.xlsx"
+                              )
+                            }
+                          >
+                            <Download /> Sample File
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Set the type column to {answerType}. correctAnswer can be blank, or used for an optional expected answer or answer key.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                        Turn on File Upload to bulk upload {answerType === "short_answer" ? "short" : "long"} answer questions.
+                      </p>
+                    )}
+                  </TabsContent>
+                ))}
 
                 <TabsContent value="mcq_image">
                   {isFileUpload ? (

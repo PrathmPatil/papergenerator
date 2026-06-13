@@ -23,7 +23,7 @@ const SubQuestionSchema = new mongoose.Schema({
 const QuestionSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ["mcq_text", "mcq_image", "paragraph", "image_subquestions", "short_answer", "true_false", "matching"],
+    enum: ["mcq_text", "mcq_image", "paragraph", "image_subquestions", "short_answer", "long_answer", "true_false", "matching"],
     required: true
   },
 
@@ -59,6 +59,8 @@ const QuestionSchema = new mongoose.Schema({
   ocrText: String,
   ocrConfidence: Number,
   needsReview: { type: Boolean, default: false },
+  usageCount: { type: Number, default: 0 },
+  lastUsedAt: { type: Date, default: null },
   isDeleted: { type: Boolean, default: false },
   deletedAt: { type: Date, default: null },
   deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }

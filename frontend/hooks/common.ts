@@ -168,8 +168,8 @@ const normalizeQuestionType = (value: unknown, fallback = "mcq_text") => {
     descriptive: "short_answer",
     descriptiveanswer: "short_answer",
     desc: "short_answer",
-    longanswer: "short_answer",
-    essay: "short_answer",
+    longanswer: "long_answer",
+    essay: "long_answer",
     truefalse: "true_false",
     matching: "matching",
   };
@@ -268,7 +268,7 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
       throw new Error(`Missing required fields at row ${index + 1}`);
     }
 
-    if (normalizedType === "short_answer") {
+    if (normalizedType === "short_answer" || normalizedType === "long_answer") {
       return {
         classId: normalizedClassId,
         subjectId: normalizedSubjectId,

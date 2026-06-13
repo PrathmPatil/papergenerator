@@ -12,6 +12,7 @@ import {
   Filter,
   X,
   Calendar,
+  RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -62,7 +63,14 @@ import {
   SUBJECTS,
 } from "@/lib/data";
 import { baseURL, debounce } from "@/hooks/common";
-import { deleteQuestionApi, bulkUpdateQuestionsApi, bulkDeleteQuestionsApi, updateQuestionApi } from "@/utils/apis";
+import {
+  deleteQuestionApi,
+  bulkUpdateQuestionsApi,
+  bulkDeleteQuestionsApi,
+  updateQuestionApi,
+  bulkClearQuestionUsageApi,
+  rebuildQuestionUsageApi,
+} from "@/utils/apis";
 import { showConfirm, showInfo } from "@/components/app-dialog-provider";
 /* ----------------------------------------
    TYPES
@@ -167,6 +175,8 @@ export interface IQuestion {
   ocrText?: string;
   ocrConfidence?: number;
   needsReview?: boolean;
+  usageCount?: number;
+  lastUsedAt?: Date | string | null;
 }
 
 /* ----------------------------------------
@@ -207,6 +217,8 @@ export default function QuestionBankPage() {
   const [bulkTopicId, setBulkTopicId] = useState("unchanged");
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isClearingUsage, setIsClearingUsage] = useState(false);
+  const [isRebuildingUsage, setIsRebuildingUsage] = useState(false);
   const [editQuestionOpen, setEditQuestionOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<IQuestion | null>(null);
   const [editQuestionText, setEditQuestionText] = useState("");
@@ -1481,6 +1493,81 @@ export default function QuestionBankPage() {
     }
   };
 
+  const handleBulkClearUsage = async () => {
+    if (selectedQuestionIds.length === 0) {
+      showInfo({ title: "No questions selected", description: "Please select at least one question.", variant: "destructive" });
+      return;
+    }
+
+    const confirmed = await showConfirm({
+      title: "Clear usage tags?",
+      description: `Reset used count for ${selectedQuestionIds.length} selected question${selectedQuestionIds.length === 1 ? "" : "s"}?`,
+      confirmText: "Clear Usage",
+      variant: "destructive",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      setIsClearingUsage(true);
+      const res: any = await bulkClearQuestionUsageApi({ ids: selectedQuestionIds });
+
+      if (!res?.success) {
+        showInfo({ title: "Clear usage failed", description: res?.message || "Unable to clear usage tags.", variant: "destructive" });
+        return;
+      }
+
+      setQuestions((prev) =>
+        prev.map((q) =>
+          q._id && selectedQuestionIds.includes(q._id)
+            ? { ...q, usageCount: 0, lastUsedAt: null }
+            : q
+        )
+      );
+      setSelectedQuestionIds([]);
+      showInfo({
+        title: "Usage tags cleared",
+        description: `${res?.modifiedCount ?? selectedQuestionIds.length} question${(res?.modifiedCount ?? selectedQuestionIds.length) === 1 ? "" : "s"} reset.`,
+      });
+    } catch (error) {
+      console.error("Clear usage failed", error);
+      showInfo({ title: "Clear usage failed", description: "Unable to clear usage tags right now.", variant: "destructive" });
+    } finally {
+      setIsClearingUsage(false);
+    }
+  };
+
+  const handleRebuildUsage = async () => {
+    const confirmed = await showConfirm({
+      title: "Rebuild usage tags?",
+      description: "This will recalculate used counts from all saved papers and overwrite existing usage tags.",
+      confirmText: "Rebuild",
+    });
+
+    if (!confirmed) return;
+
+    try {
+      setIsRebuildingUsage(true);
+      const res: any = await rebuildQuestionUsageApi();
+
+      if (!res?.success) {
+        showInfo({ title: "Rebuild failed", description: res?.message || "Unable to rebuild usage tags.", variant: "destructive" });
+        return;
+      }
+
+      showInfo({
+        title: "Usage tags rebuilt",
+        description: `${res?.questionCount ?? 0} question${(res?.questionCount ?? 0) === 1 ? "" : "s"} updated from ${res?.paperCount ?? 0} paper${(res?.paperCount ?? 0) === 1 ? "" : "s"}.`,
+      });
+      await fetchQuestions();
+    } catch (error) {
+      console.error("Rebuild usage failed", error);
+      showInfo({ title: "Rebuild failed", description: "Unable to rebuild usage tags right now.", variant: "destructive" });
+    } finally {
+      setIsRebuildingUsage(false);
+    }
+  };
+
   const handleBulkUpdate = async () => {
     const parsedMarks = bulkMarks.trim() === "" ? undefined : Number(bulkMarks);
     const nextDifficulty = bulkDifficulty === "unchanged" ? undefined : bulkDifficulty;
@@ -1575,6 +1662,14 @@ export default function QuestionBankPage() {
           >
             <Download className="mr-2 h-4 w-4" />
             {isDownloadingExcel ? "Preparing..." : "Download Excel"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleRebuildUsage}
+            disabled={isRebuildingUsage || isLoading}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            {isRebuildingUsage ? "Rebuilding..." : "Rebuild Usage"}
           </Button>
           <Link href="/dashboard/questions/new">
             <Button className="cursor-pointer">
@@ -1786,14 +1881,22 @@ export default function QuestionBankPage() {
             <Button
               variant="outline"
               onClick={handleOpenBulkEdit}
-              disabled={selectedQuestionIds.length === 0 || isBulkDeleting}
+              disabled={selectedQuestionIds.length === 0 || isBulkDeleting || isClearingUsage}
             >
               <Edit className="mr-2 h-4 w-4" /> Bulk Edit
             </Button>
             <Button
+              variant="outline"
+              onClick={handleBulkClearUsage}
+              disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting || isClearingUsage}
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              {isClearingUsage ? "Clearing..." : "Clear Usage"}
+            </Button>
+            <Button
               variant="destructive"
               onClick={handleBulkDelete}
-              disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting}
+              disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting || isClearingUsage}
             >
               <Trash className="mr-2 h-4 w-4" /> Delete Selected
             </Button>
@@ -1845,6 +1948,7 @@ export default function QuestionBankPage() {
                     <TableHead>Class</TableHead>
                     <TableHead>Subject</TableHead>
                     <TableHead>Topic</TableHead>
+                    <TableHead>Usage</TableHead>
                     <TableHead>Marks</TableHead>
                     <TableHead>Difficulty</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -1875,6 +1979,13 @@ export default function QuestionBankPage() {
                           {getSubjectNameById(q?.subjectId)}
                         </TableCell>
                         <TableCell>{getTopicNameById(q.topicId)}</TableCell>
+                        <TableCell>
+                          <Badge variant={Number(q.usageCount || 0) > 0 ? "destructive" : "outline"}>
+                            {Number(q.usageCount || 0) > 0
+                              ? `Used ${Number(q.usageCount || 0)}x`
+                              : "Unused"}
+                          </Badge>
+                        </TableCell>
                         <TableCell>{q.marks}</TableCell>
                         <TableCell>
                           <Badge
@@ -1928,7 +2039,7 @@ export default function QuestionBankPage() {
                 </TableBody>
                 <TableFooter>
                   <TableRow>
-                    <TableHead colSpan={9} className="text-right">
+                    <TableHead colSpan={10} className="text-right">
                       <div className="w-full flex items-center justify-between p-4">
                         <span className="text-sm text-muted-foreground">
                           Showing {(currentPage - 1) * recordsPerPage + 1}–

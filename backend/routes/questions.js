@@ -63,6 +63,7 @@ const router = express.Router();
 import multer from "multer";
 import path from "path";
 import Question from "../models/Question.js";
+import Paper from "../models/Paper.js";
 import Topic from "../models/Topic.js";
 import { normalizeQuestionPayload } from "../middleware/normalizeImageQuestion.middleware.js";
 import {
@@ -407,8 +408,8 @@ const normalizeQuestionType = (value, fallback = "mcq_text") => {
     descriptive: "short_answer",
     descriptiveanswer: "short_answer",
     desc: "short_answer",
-    longanswer: "short_answer",
-    essay: "short_answer",
+    longanswer: "long_answer",
+    essay: "long_answer",
     truefalse: "true_false",
     matching: "matching",
   };
@@ -1355,7 +1356,7 @@ router.post("/", async (req, res) => {
 
     const [remainingDocs, totalRemaining] = await Promise.all([
       Question.find(remainingFilter)
-        .sort({ createdAt: -1 })
+        .sort({ usageCount: 1, createdAt: -1 })
         .skip(skip)
         .limit(pageSize)
         .lean(),
@@ -1555,7 +1556,11 @@ router.post("/export-excel", async (req, res) => {
 router.put("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (id === "bulk-update" || id === "bulk-delete") {
+    if (
+      id === "bulk-update" ||
+      id === "bulk-delete" ||
+      id === "bulk-clear-usage"
+    ) {
       return next();
     }
     const { text, options, correctAnswer, marks, difficulty, topicId } =
@@ -1834,6 +1839,123 @@ router.put("/bulk-delete", async (req, res) => {
       success: true,
       message: "Questions deleted successfully",
       deletedCount: result.modifiedCount,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// BULK CLEAR QUESTION USAGE TAGS
+router.put("/bulk-clear-usage", async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ids must be a non-empty array",
+      });
+    }
+
+    const uniqueIds = [...new Set(ids.map((id) => String(id)).filter(Boolean))];
+
+    if (uniqueIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ids must contain at least one valid question id",
+      });
+    }
+
+    const result = await Question.updateMany(
+      {
+        _id: { $in: uniqueIds },
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+      },
+      {
+        $set: {
+          usageCount: 0,
+          lastUsedAt: null,
+        },
+      },
+    );
+
+    return res.json({
+      success: true,
+      message: "Question usage tags cleared successfully",
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// REBUILD QUESTION USAGE TAGS FROM SAVED PAPERS
+router.post("/rebuild-usage", async (_req, res) => {
+  try {
+    const papers = await Paper.find({
+      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+    })
+      .select("sections createdAt")
+      .lean();
+
+    const usageByQuestionId = new Map();
+    const lastUsedByQuestionId = new Map();
+
+    papers.forEach((paper) => {
+      const usedAt = paper.createdAt || new Date();
+      (paper.sections || []).forEach((section) => {
+        (section.questions || [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+          .forEach((questionId) => {
+            usageByQuestionId.set(
+              questionId,
+              (usageByQuestionId.get(questionId) || 0) + 1,
+            );
+
+            const previousLastUsed = lastUsedByQuestionId.get(questionId);
+            if (!previousLastUsed || new Date(usedAt) > new Date(previousLastUsed)) {
+              lastUsedByQuestionId.set(questionId, usedAt);
+            }
+          });
+      });
+    });
+
+    await Question.updateMany(
+      {},
+      { $set: { usageCount: 0, lastUsedAt: null } },
+    );
+
+    const operations = Array.from(usageByQuestionId.entries()).map(
+      ([questionId, usageCount]) => ({
+        updateOne: {
+          filter: { _id: questionId },
+          update: {
+            $set: {
+              usageCount,
+              lastUsedAt: lastUsedByQuestionId.get(questionId) || null,
+            },
+          },
+        },
+      }),
+    );
+
+    if (operations.length > 0) {
+      await Question.bulkWrite(operations, { ordered: false });
+    }
+
+    return res.json({
+      success: true,
+      message: "Question usage tags rebuilt successfully",
+      paperCount: papers.length,
+      questionCount: usageByQuestionId.size,
     });
   } catch (err) {
     return res.status(500).json({

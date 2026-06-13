@@ -170,7 +170,74 @@ Upload requirement:
 
 Along with this Excel, upload a ZIP file containing all referenced images.
 
-## 3. Paragraph Questions
+## 3. Text Answer Questions
+
+Template file:
+
+```text
+text_answer_questions_upload_template.xlsx
+```
+
+Use this file for text questions that do not have MCQ options.
+
+Use it when the question has:
+
+- A short written answer
+- A long written answer
+- A model answer or answer key in text form
+
+Columns:
+
+```text
+classId
+subjectId
+topicId
+type
+difficulty
+marks
+negativeMarks
+text
+correctAnswer
+```
+
+Important values:
+
+```text
+type = short_answer or long_answer
+correctAnswer = optional expected answer, model answer, or answer key
+```
+
+For short answer and long answer rows, `correctAnswer` can be left blank.
+
+Example short answer:
+
+```text
+classId: class_5
+subjectId: science
+topicId: Plants
+type: short_answer
+difficulty: easy
+marks: 2
+negativeMarks: 0
+text: Name the process by which plants make food.
+correctAnswer: Photosynthesis
+```
+
+Example long answer:
+
+```text
+classId: class_8
+subjectId: science
+topicId: Cell Structure
+type: long_answer
+difficulty: medium
+marks: 5
+negativeMarks: 0
+text: Explain the functions of the nucleus, mitochondria, and cell membrane.
+correctAnswer: The nucleus controls cell activities, mitochondria release energy, and the cell membrane controls movement of substances in and out of the cell.
+```
+
+## 4. Paragraph Questions
 
 Template file:
 
@@ -255,7 +322,7 @@ option_D: Seed
 correct_answer: B
 ```
 
-## 4. Image Subquestions
+## 5. Image Subquestions
 
 Template file:
 
@@ -373,6 +440,13 @@ Parent image + multiple sub-questions
 => mcq_image_bulk_upload_template.xlsx
 ```
 
+Short/long answer:
+
+```text
+Question + written answer key
+=> text_answer_questions_upload_template.xlsx
+```
+
 ## PDF Filename To Topic Rule
 
 Use the PDF filename as `topicId` or topic name.
@@ -392,7 +466,7 @@ Before uploading:
 - All rows have `classId`, `subjectId`, and `topicId`
 - `type` or `question_type` is correct
 - All MCQ rows have options A, B, C, and D
-- `correctAnswer` is filled
+- `correctAnswer` is filled for MCQ rows; it can be blank for short answer and long answer rows
 - Image filenames exactly match files inside the uploaded ZIP
 - Paragraph questions use the same `paragraph_group_id` for the same passage
 - Image subquestions use the same `question_group_id` for the same image

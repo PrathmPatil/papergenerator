@@ -338,6 +338,23 @@ export const bulkDeleteQuestionsApi = async (payload: { ids: string[] }) => {
   });
   return response;
 };
+
+export const bulkClearQuestionUsageApi = async (payload: { ids: string[] }) => {
+  const response = await apiClient({
+    url: "/api/questions/bulk-clear-usage",
+    method: "PUT",
+    data: payload,
+  });
+  return response;
+};
+
+export const rebuildQuestionUsageApi = async () => {
+  const response = await apiClient({
+    url: "/api/questions/rebuild-usage",
+    method: "POST",
+  });
+  return response;
+};
 export const createPaperTemplateApi = async (payload: any) => {
   const response = await apiClient({
     url: "/api/papers/template/create",
