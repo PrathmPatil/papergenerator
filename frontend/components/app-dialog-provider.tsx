@@ -109,7 +109,7 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
             <AlertDialogAction
               className={
                 activeDialog?.variant === "destructive"
-                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20"
                   : undefined
               }
               onClick={() => closeDialog(true)}
