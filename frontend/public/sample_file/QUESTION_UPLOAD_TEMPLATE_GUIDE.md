@@ -271,6 +271,7 @@ option_A
 option_B
 option_C
 option_D
+option_E
 correct_answer
 marks
 negative_marks
@@ -303,6 +304,7 @@ option_A: Air, water, and sunlight
 option_B: Stones only
 option_C: Plastic
 option_D: Sand only
+option_E:
 correct_answer: A
 marks: 1
 negative_marks: 0

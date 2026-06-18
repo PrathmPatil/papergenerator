@@ -85,6 +85,9 @@ type ExcelParagraphRow = {
 };
 
 type ExcelRow = Record<string, any>;
+type NormalizedExcelParagraphRow = ExcelParagraphRow & {
+  __rowNumber?: number;
+};
 
 const normalizeExcelKey = (key: string) =>
   String(key || "")
@@ -125,6 +128,7 @@ const EXCEL_KEY_ALIASES: Record<string, string> = {
   optioneimage: "optionEImage",
   correctanswer: "correctAnswer",
   correct_option: "correctAnswer",
+  correctoption: "correctAnswer",
   paragraphgroupid: "paragraphGroupId",
   groupid: "groupId",
   paragraphid: "paragraphId",
@@ -138,12 +142,12 @@ const EXCEL_KEY_ALIASES: Record<string, string> = {
   optionb: "optionB",
   optionc: "optionC",
   optiond: "optionD",
+  optione: "optionE",
   option_a: "optionA",
   option_b: "optionB",
   option_c: "optionC",
   option_d: "optionD",
-  correct_answer: "correctAnswer",
-  negative_marks: "negativeMarks",
+  option_e: "optionE",
 };
 
 const normalizeQuestionType = (value: unknown, fallback = "mcq_text") => {
@@ -402,14 +406,24 @@ export function convertExcelRowsToParagraphQuestions(
     throw new Error("Input must be an array");
   }
 
-  if (rows.length === 0) return [];
-
   const normalize = (value: unknown) => String(value || "").trim();
-  const normalizedRows: ExcelParagraphRow[] = rows.map(
-    (row) => normalizeExcelRow(row) as ExcelParagraphRow
-  );
+  const isBlankRow = (row: ExcelParagraphRow) =>
+    Object.entries(row || {})
+      .filter(([key]) => !key.startsWith("__"))
+      .every(([, value]) => normalize(value) === "");
 
-  const groupRows = new Map<string, ExcelParagraphRow[]>();
+  const nonEmptyRows = rows.filter((row) => !isBlankRow(row));
+  if (nonEmptyRows.length === 0) return [];
+
+  const normalizedRows: NormalizedExcelParagraphRow[] = rows.map(
+    (row, index) =>
+      ({
+        ...normalizeExcelRow(row),
+        __rowNumber: index + 2,
+      }) as NormalizedExcelParagraphRow
+  ).filter((row) => !isBlankRow(row));
+
+  const groupRows = new Map<string, NormalizedExcelParagraphRow[]>();
   normalizedRows.forEach((row, index) => {
     const groupId =
       normalize(row.paragraphGroupId) ||
@@ -432,7 +446,7 @@ export function convertExcelRowsToParagraphQuestions(
     groupRows.get(key)!.push(row);
   });
 
-  const buildSubQuestion = (row: ExcelParagraphRow, index: number) => {
+  const buildSubQuestion = (row: NormalizedExcelParagraphRow, index: number) => {
     const {
       subQuestionId,
       subQuestionType,
@@ -449,9 +463,10 @@ export function convertExcelRowsToParagraphQuestions(
 
     const normalizedSubQuestionType = normalizeQuestionType(subQuestionType || "mcq_text");
     const normalizedCorrectAnswer = normalizeCorrectAnswer(correctAnswer);
+    const rowNumber = row.__rowNumber || index + 1;
 
     if (!subQuestionId || !normalizedSubQuestionType) {
-      throw new Error(`Missing sub-question fields at row ${index + 1}`);
+      throw new Error(`Missing sub-question fields at Excel row ${rowNumber}`);
     }
 
     if (
@@ -460,7 +475,7 @@ export function convertExcelRowsToParagraphQuestions(
       normalizedSubQuestionType === "mcq_image"
     ) {
       if (!["A", "B", "C", "D", "E"].includes(normalizedCorrectAnswer)) {
-        throw new Error(`Invalid correct answer at row ${index + 1}`);
+        throw new Error(`Invalid correct answer at Excel row ${rowNumber}`);
       }
 
       const options = [
@@ -468,6 +483,7 @@ export function convertExcelRowsToParagraphQuestions(
         { id: "B", text: optionB },
         { id: "C", text: optionC },
         { id: "D", text: optionD },
+        { id: "E", text: optionE },
       ]
         .filter((o) => o.text)
         .map((o) => ({
@@ -477,7 +493,7 @@ export function convertExcelRowsToParagraphQuestions(
         }));
 
       if (options.length < 2) {
-        throw new Error(`At least 2 options required at row ${index + 1}`);
+        throw new Error(`At least 2 options required at Excel row ${rowNumber}`);
       }
 
       return {
@@ -498,7 +514,7 @@ export function convertExcelRowsToParagraphQuestions(
         String(correctAnswer).toLowerCase() !== "true" &&
         String(correctAnswer).toLowerCase() !== "false"
       ) {
-        throw new Error(`Invalid true/false value at row ${index + 1}`);
+        throw new Error(`Invalid true/false value at Excel row ${rowNumber}`);
       }
 
       return {
@@ -522,7 +538,7 @@ export function convertExcelRowsToParagraphQuestions(
       };
     }
 
-    throw new Error(`Unsupported sub-question type at row ${index + 1}`);
+    throw new Error(`Unsupported sub-question type at Excel row ${rowNumber}`);
   };
 
   return Array.from(groupRows.values()).map((group, groupIndex) => {
@@ -539,17 +555,38 @@ export function convertExcelRowsToParagraphQuestions(
 
     const normalizedClassId = normalizeClassId(classId);
     const normalizedSubjectId = normalizeSubjectId(String(subjectId || ""));
+    const normalizedGroupId =
+      normalize(firstRow.paragraphGroupId) ||
+      normalize(firstRow.groupId) ||
+      normalize(firstRow.paragraphId) ||
+      normalize(firstRow.passageId) ||
+      `group ${groupIndex + 1}`;
+    const normalizedParentType = questionType
+      ? normalizeQuestionType(questionType, "paragraph")
+      : "paragraph";
 
-    if (
-      !normalizedClassId ||
-      !normalizedSubjectId ||
-      (questionType && normalizeQuestionType(questionType, "paragraph") !== "paragraph")
-    ) {
-      throw new Error(`Invalid paragraph question data in group ${groupIndex + 1}`);
+    if (!normalizedClassId) {
+      throw new Error(
+        `Missing classId in paragraph group ${groupIndex + 1} (${normalizedGroupId})`
+      );
+    }
+
+    if (!normalizedSubjectId) {
+      throw new Error(
+        `Missing subjectId in paragraph group ${groupIndex + 1} (${normalizedGroupId})`
+      );
+    }
+
+    if (normalizedParentType !== "paragraph") {
+      throw new Error(
+        `Invalid question_type "${questionType}" in paragraph group ${groupIndex + 1} (${normalizedGroupId}). Use "paragraph".`
+      );
     }
 
     if (!instructionText || !paragraph) {
-      throw new Error(`Missing instruction text or paragraph in group ${groupIndex + 1}`);
+      throw new Error(
+        `Missing instruction_text or paragraph in paragraph group ${groupIndex + 1} (${normalizedGroupId})`
+      );
     }
 
     const subQuestions = group.map((row, index) => buildSubQuestion(row, index));
