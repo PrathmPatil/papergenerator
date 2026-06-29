@@ -37,7 +37,16 @@ export function ImageMCQForm({ onChange }: { onChange: Function }) {
 
   const updateOption = (id: string, key: string, value: any) => {
     setOptions(opts =>
-      opts.map(o => (o.id === id ? { ...o, [key]: value } : o))
+      opts.map(o => {
+        if (o.id !== id) return o
+        if (key === "text") {
+          return { ...o, text: value, image: value.trim() ? null : o.image }
+        }
+        if (key === "image") {
+          return { ...o, image: value, text: value ? "" : o.text }
+        }
+        return { ...o, [key]: value }
+      })
     )
   }
 
@@ -88,9 +97,10 @@ export function ImageMCQForm({ onChange }: { onChange: Function }) {
             </div>
 
             <Input
-              placeholder="Option text (optional)"
+              placeholder="Option text"
               value={opt.text}
               onChange={e => updateOption(opt.id, "text", e.target.value)}
+              disabled={Boolean(opt.image)}
             />
 
             <Input

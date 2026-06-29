@@ -13,6 +13,7 @@ import {
   X,
   Calendar,
   RotateCcw,
+  ImageIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -131,6 +132,11 @@ export interface IOption {
   isCorrect?: boolean;
 }
 
+interface IEditOption extends IOption {
+  imageFile?: File | null;
+  imagePreviewUrl?: string;
+}
+
 // Sub-question (for paragraph questions)
 export interface ISubQuestion {
   _id?: string;
@@ -222,7 +228,10 @@ export default function QuestionBankPage() {
   const [editQuestionOpen, setEditQuestionOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<IQuestion | null>(null);
   const [editQuestionText, setEditQuestionText] = useState("");
-  const [editOptions, setEditOptions] = useState<IOption[]>([]);
+  const [editQuestionImageFile, setEditQuestionImageFile] = useState<File | null>(null);
+  const [editQuestionImagePreviewUrl, setEditQuestionImagePreviewUrl] = useState("");
+  const [editQuestionImageUrl, setEditQuestionImageUrl] = useState("");
+  const [editOptions, setEditOptions] = useState<IEditOption[]>([]);
   const [editMarks, setEditMarks] = useState<string>("");
   const [editDifficulty, setEditDifficulty] = useState<DifficultyLevel>("easy");
   const [editTopicId, setEditTopicId] = useState("");
@@ -1258,16 +1267,57 @@ export default function QuestionBankPage() {
     []
   );
 
+  const getDisplayMediaSrc = (url?: string) => {
+    const value = String(url || "").trim();
+    if (!value) return "";
+    if (/^(data:|https?:\/\/|blob:)/i.test(value)) return value;
+    return `${baseURL || ""}${value.startsWith("/") ? "" : "/"}${value}`;
+  };
+
+  const getQuestionImageUrl = (q: IQuestion) => {
+    const questionImage = q.media?.find(
+      (item) => !String(item.alt || "").toLowerCase().startsWith("option_")
+    );
+    return (q as any).mediaUrl || questionImage?.url || "";
+  };
+
+  const getOptionImageUrl = (q: IQuestion, option: IOption, index: number) => {
+    const optionId = String(option.id || String.fromCharCode(65 + index)).trim();
+    const optionIdLower = optionId.toLowerCase();
+    const optionImage = q.media?.find(
+      (item) => {
+        const alt = String(item.alt || "").trim().toLowerCase();
+        return (
+          alt === `option_${optionIdLower}` ||
+          alt === `option${optionIdLower}` ||
+          alt === optionIdLower
+        );
+      }
+    );
+    return (
+      option.mediaUrl ||
+      (option as any).image?.url ||
+      (option as any).url ||
+      optionImage?.url ||
+      ""
+    );
+  };
+
   const handleOpenEditModal = (q: IQuestion) => {
     setEditingQuestion(q);
     setEditQuestionText(String(q.text ?? ""));
+    setEditQuestionImageFile(null);
+    setEditQuestionImagePreviewUrl("");
+    setEditQuestionImageUrl(getQuestionImageUrl(q));
     setEditOptions(
       Array.isArray(q.options)
         ? q.options.map((option, index) => ({
             ...option,
             id: option.id || String.fromCharCode(65 + index),
             text: option.text || "",
-            mediaUrl: option.mediaUrl || "",
+            mediaUrl: getOptionImageUrl(q, option, index),
+            imageFile: null,
+            imagePreviewUrl: "",
             isCorrect: Boolean(option.isCorrect),
           }))
         : []
@@ -1292,8 +1342,78 @@ export default function QuestionBankPage() {
   const handleEditOptionTextChange = (optionIndex: number, text: string) => {
     setEditOptions((prev) =>
       prev.map((option, index) =>
-        index === optionIndex ? { ...option, text } : option
+        index === optionIndex
+          ? {
+              ...option,
+              text,
+              ...(text.trim()
+                ? { mediaUrl: "", imageFile: null, imagePreviewUrl: "" }
+                : {}),
+            }
+          : option
       )
+    );
+  };
+
+  const handleEditQuestionImageChange = (file?: File | null) => {
+    if (!file) return;
+    if (editQuestionImagePreviewUrl) {
+      URL.revokeObjectURL(editQuestionImagePreviewUrl);
+    }
+    setEditQuestionImageFile(file);
+    setEditQuestionImagePreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleEditOptionImageChange = (optionIndex: number, file?: File | null) => {
+    if (!file) return;
+    setEditOptions((prev) =>
+      prev.map((option, index) => {
+        if (index !== optionIndex) return option;
+        if (option.imagePreviewUrl) {
+          URL.revokeObjectURL(option.imagePreviewUrl);
+        }
+        return {
+          ...option,
+          text: "",
+          mediaUrl: "",
+          imageFile: file,
+          imagePreviewUrl: URL.createObjectURL(file),
+        };
+      })
+    );
+  };
+
+  const handleEditOptionUseText = (optionIndex: number) => {
+    setEditOptions((prev) =>
+      prev.map((option, index) => {
+        if (index !== optionIndex) return option;
+        if (option.imagePreviewUrl) {
+          URL.revokeObjectURL(option.imagePreviewUrl);
+        }
+        return {
+          ...option,
+          mediaUrl: "",
+          imageFile: null,
+          imagePreviewUrl: "",
+        };
+      })
+    );
+  };
+
+  const handleEditOptionRemoveImage = (optionIndex: number) => {
+    setEditOptions((prev) =>
+      prev.map((option, index) => {
+        if (index !== optionIndex) return option;
+        if (option.imagePreviewUrl) {
+          URL.revokeObjectURL(option.imagePreviewUrl);
+        }
+        return {
+          ...option,
+          mediaUrl: "",
+          imageFile: null,
+          imagePreviewUrl: "",
+        };
+      })
     );
   };
 
@@ -1327,8 +1447,8 @@ export default function QuestionBankPage() {
     const shouldUpdateOptions = editOptions.length > 0;
     const normalizedOptions = editOptions.map((option, index) => ({
       id: option.id || String.fromCharCode(65 + index),
-      text: String(option.text || "").trim(),
-      mediaUrl: option.mediaUrl || "",
+      text: option.imageFile ? "" : String(option.text || "").trim(),
+      mediaUrl: option.imageFile ? "" : option.mediaUrl || "",
       isCorrect: Boolean(option.isCorrect),
     }));
 
@@ -1348,7 +1468,7 @@ export default function QuestionBankPage() {
 
     try {
       setIsUpdatingSingle(true);
-      const res: any = await updateQuestionApi(editingQuestion._id, {
+      const updatePayload = {
         text: trimmedQuestionText,
         ...(shouldUpdateOptions
           ? {
@@ -1359,7 +1479,28 @@ export default function QuestionBankPage() {
         marks: parsedMarks,
         difficulty: editDifficulty,
         topicId: editTopicId,
-      });
+      };
+
+      const hasReplacementImages =
+        Boolean(editQuestionImageFile) || editOptions.some((option) => option.imageFile);
+      let updateRequest: typeof updatePayload | FormData = updatePayload;
+
+      if (hasReplacementImages) {
+        const formData = new FormData();
+        formData.append("payload", JSON.stringify(updatePayload));
+        if (editQuestionImageFile) {
+          formData.append("media", editQuestionImageFile);
+        }
+        editOptions.forEach((option, index) => {
+          if (option.imageFile) {
+            const optionId = option.id || String.fromCharCode(65 + index);
+            formData.append("media", option.imageFile, `option_${optionId}`);
+          }
+        });
+        updateRequest = formData;
+      }
+
+      const res: any = await updateQuestionApi(editingQuestion._id, updateRequest);
 
       if (!res?.success) {
         showInfo({ title: "Update failed", description: res?.message || "Failed to update question.", variant: "destructive" });
@@ -1371,18 +1512,7 @@ export default function QuestionBankPage() {
           q._id === editingQuestion._id
             ? {
                 ...q,
-                text: trimmedQuestionText,
-                ...(shouldUpdateOptions
-                  ? {
-                      options: normalizedOptions,
-                      correctAnswer: selectedCorrectOption?.id,
-                    }
-                  : {}),
-                marks: parsedMarks,
-                difficulty: editDifficulty,
-                topicId: res?.question?.topicId ?? editTopicId,
-                classId: res?.question?.classId || q.classId,
-                subjectId: res?.question?.subjectId || q.subjectId,
+                ...(res?.question || {}),
               }
             : q
         )
@@ -1390,6 +1520,12 @@ export default function QuestionBankPage() {
 
       setEditQuestionOpen(false);
       setEditingQuestion(null);
+      if (editQuestionImagePreviewUrl) {
+        URL.revokeObjectURL(editQuestionImagePreviewUrl);
+      }
+      editOptions.forEach((option) => {
+        if (option.imagePreviewUrl) URL.revokeObjectURL(option.imagePreviewUrl);
+      });
     } catch (error) {
       console.error("Single question update failed", error);
       showInfo({ title: "Update failed", description: "Failed to update question.", variant: "destructive" });
@@ -2144,14 +2280,9 @@ export default function QuestionBankPage() {
               {/* ================= OPTIONS ================= */}
               {selectedOptions.length > 0 && (
                 <ul className="mt-6 space-y-3">
-                  {selectedOptions.map((option) => {
+                  {selectedOptions.map((option, index) => {
                     const optionKey = option._id || option.id || option.text || "option";
-                    const optionIdLower = String(option.id || "").toLowerCase();
-                    const optionImage = selectedQuestion.media?.find(
-                      (m) =>
-                        m.alt?.toLowerCase() ===
-                        `option_${optionIdLower}`
-                    );
+                    const optionImageUrl = getOptionImageUrl(selectedQuestion, option, index);
 
                     return (
                       <li
@@ -2167,10 +2298,10 @@ export default function QuestionBankPage() {
                         />
 
                         {/* OPTION IMAGE */}
-                        {optionImage && (
+                        {optionImageUrl && (
                           <img
-                            src={/^(data:|https?:\/\/)/.test(String(optionImage.url || "")) ? optionImage.url : `${baseURL || ""}${optionImage.url || ""}`}
-                            alt={optionImage.alt}
+                            src={getDisplayMediaSrc(optionImageUrl)}
+                            alt={`Option ${index + 1}`}
                             className="max-h-24 rounded border"
                           />
                         )}
@@ -2180,7 +2311,7 @@ export default function QuestionBankPage() {
                           <span className="text-sm">{option.text}</span>
                         )}
 
-                        {!option.text && !optionImage && (
+                        {!option.text && !optionImageUrl && (
                           <span className="italic text-sm text-muted-foreground">
                             No option content
                           </span>
@@ -2232,27 +2363,36 @@ export default function QuestionBankPage() {
                         {/* SUB MCQ */}
                         {sq.type === "mcq_text" && (sq.options || []).length > 0 && (
                           <ul className="space-y-2">
-                            {(sq.options || []).map((opt, optIndex) => (
-                              <li
-                                key={opt._id || opt.id || `opt-${optIndex}`}
-                                className="flex items-center gap-3"
-                              >
-                                <input
-                                  type="radio"
-                                  disabled
-                                  checked={opt.isCorrect}
-                                />
-                                {opt.mediaUrl ? (
-                                  <img
-                                    src={/^(data:|https?:\/\/)/.test(opt.mediaUrl) ? opt.mediaUrl : baseURL + opt.mediaUrl}
-                                    alt="Option"
-                                    className="max-h-20 rounded border"
+                            {(sq.options || []).map((opt, optIndex) => {
+                              const subOptionImageUrl = getDisplayMediaSrc(
+                                (opt as any).mediaUrl || (opt as any).image?.url || (opt as any).url || ""
+                              );
+
+                              return (
+                                <li
+                                  key={opt._id || opt.id || `opt-${optIndex}`}
+                                  className="flex items-center gap-3"
+                                >
+                                  <input
+                                    type="radio"
+                                    disabled
+                                    checked={opt.isCorrect}
                                   />
-                                ) : (
-                                  <span>{opt.text}</span>
-                                )}
-                              </li>
-                            ))}
+                                  {subOptionImageUrl ? (
+                                    <>
+                                      <img
+                                        src={subOptionImageUrl}
+                                        alt={`Option ${optIndex + 1}`}
+                                        className="max-h-20 rounded border"
+                                      />
+                                      {opt.text && <span className="text-sm">{opt.text}</span>}
+                                    </>
+                                  ) : (
+                                    <span>{opt.text}</span>
+                                  )}
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
 
@@ -2371,7 +2511,7 @@ export default function QuestionBankPage() {
 
       {/* SINGLE EDIT MODAL */}
       <Dialog open={editQuestionOpen} onOpenChange={setEditQuestionOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Question</DialogTitle>
             <DialogDescription>
@@ -2379,40 +2519,131 @@ export default function QuestionBankPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div>
+          <div className="min-w-0 space-y-4">
+            <div className="min-w-0">
               <label className="text-sm font-medium">Question Text</label>
               <Textarea
                 value={editQuestionText}
                 onChange={(e) => setEditQuestionText(e.target.value)}
                 placeholder="Enter question text"
-                className="min-h-[120px]"
+                className="min-h-[120px] break-words"
               />
             </div>
 
+            {(editingQuestion?.type === "mcq_image" || editQuestionImageUrl || editQuestionImagePreviewUrl) && (
+              <div className="min-w-0 space-y-2">
+                <label className="text-sm font-medium">Question Image</label>
+                {(editQuestionImagePreviewUrl || editQuestionImageUrl) ? (
+                  <div className="flex min-w-0 flex-col items-start gap-3 rounded-md border p-3 sm:flex-row">
+                    <img
+                      src={editQuestionImagePreviewUrl || getDisplayMediaSrc(editQuestionImageUrl)}
+                      alt="Question"
+                      className="max-h-36 w-full max-w-[220px] rounded border object-contain"
+                    />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <p className="break-words text-xs text-muted-foreground">
+                        {editQuestionImageFile ? editQuestionImageFile.name : "Current question image"}
+                      </p>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        className="min-w-0"
+                        onChange={(e) => handleEditQuestionImageChange(e.target.files?.[0] || null)}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    className="min-w-0"
+                    onChange={(e) => handleEditQuestionImageChange(e.target.files?.[0] || null)}
+                  />
+                )}
+              </div>
+            )}
+
             {editOptions.length > 0 && (
-              <div className="space-y-3">
+              <div className="min-w-0 space-y-3">
                 <label className="text-sm font-medium">Options</label>
                 {editOptions.map((option, index) => (
                   <div
                     key={`${option.id || index}-${index}`}
-                    className="grid grid-cols-[auto_1fr] gap-3 items-start"
+                    className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3"
                   >
                     <Checkbox
                       checked={Boolean(option.isCorrect)}
                       onCheckedChange={() => handleEditCorrectOptionChange(index)}
                       aria-label={`Mark option ${option.id || index + 1} as correct`}
                     />
-                    <div className="space-y-1">
+                    <div className="min-w-0 space-y-2">
                       <Input
                         value={option.text || ""}
                         onChange={(e) => handleEditOptionTextChange(index, e.target.value)}
-                        placeholder={`Option ${option.id || index + 1}`}
+                        placeholder={`Option ${option.id || index + 1} text`}
+                        disabled={Boolean(option.mediaUrl || option.imageFile)}
+                        className="min-w-0"
                       />
-                      {option.mediaUrl && (
-                        <p className="text-xs text-muted-foreground">
-                          Image option preserved
-                        </p>
+                      {(option.imagePreviewUrl || option.mediaUrl) && (
+                        <div className="flex min-w-0 flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center">
+                          <img
+                            src={option.imagePreviewUrl || getDisplayMediaSrc(option.mediaUrl)}
+                            alt={`Option ${option.id || index + 1}`}
+                            className="h-24 w-full max-w-full rounded border object-contain sm:w-32"
+                          />
+                          <div className="min-w-0 flex-1 space-y-3">
+                            <p className="break-words text-xs text-muted-foreground">
+                              {option.imageFile ? option.imageFile.name : "Current option image"}
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-auto whitespace-normal text-left"
+                                onClick={() => handleEditOptionRemoveImage(index)}
+                              >
+                                <Trash className="mr-2 h-4 w-4" />
+                                Remove image
+                              </Button>
+                              <label
+                                htmlFor={`edit-option-image-${option.id || index}`}
+                                className="inline-flex min-h-9 cursor-pointer items-center justify-center whitespace-normal rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                              >
+                                <ImageIcon className="mr-2 h-4 w-4" />
+                                Replace image
+                              </label>
+                              <Input
+                                id={`edit-option-image-${option.id || index}`}
+                                type="file"
+                                accept="image/*"
+                                className="sr-only"
+                                onChange={(e) => handleEditOptionImageChange(index, e.target.files?.[0] || null)}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-auto whitespace-normal text-left"
+                                onClick={() => handleEditOptionUseText(index)}
+                              >
+                                Replace with text
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {!(option.imagePreviewUrl || option.mediaUrl) && (
+                        <div className="flex min-w-0 items-center gap-2">
+                          <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                          <Input
+                            id={`edit-option-image-${option.id || index}`}
+                            type="file"
+                            accept="image/*"
+                            className="min-w-0"
+                            onChange={(e) => handleEditOptionImageChange(index, e.target.files?.[0] || null)}
+                          />
+                        </div>
                       )}
                     </div>
                   </div>

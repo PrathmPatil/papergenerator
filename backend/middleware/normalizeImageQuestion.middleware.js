@@ -25,7 +25,7 @@ export const normalizeQuestionPayload = (req, res, next) => {
     const optionMediaMap = {};
 
     files.forEach((file) => {
-      const optionToken = String(file.fieldname || file.originalname || "");
+      const optionToken = String(file.originalname || file.fieldname || "");
 
       // Option images: option_A, option_B, etc.
       if (optionToken.startsWith("option_")) {
@@ -49,8 +49,8 @@ export const normalizeQuestionPayload = (req, res, next) => {
     -------------------------------- */
     const options = (payload.options || []).map((opt, index) => ({
       id: opt.id || String.fromCharCode(65 + index), // A, B, C, D
-      text: opt.text || "",
       mediaUrl: optionMediaMap[opt.id] || opt.mediaUrl || "",
+      text: optionMediaMap[opt.id] || opt.mediaUrl ? "" : opt.text || "",
       isCorrect: Boolean(opt.isCorrect),
     }));
 

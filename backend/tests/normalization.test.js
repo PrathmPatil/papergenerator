@@ -7,6 +7,10 @@ import {
   normalizeClassId,
   normalizeSubjectId,
 } from "../utils/normalization.js";
+import {
+  formatImageOptionValidationErrors,
+  validateImageOptionRows,
+} from "../utils/bulkImageUploadValidation.js";
 
 test("normalizes common class labels to stable IDs", () => {
   assert.equal(normalizeClassId("Class 10"), "class_10");
@@ -23,4 +27,36 @@ test("normalizes subject names and aliases to stable IDs", () => {
 test("builds lookup aliases for existing unnormalized data", () => {
   assert.ok(buildClassIdCandidates("10").includes("class_10"));
   assert.ok(buildSubjectIdCandidates("General Knowledge").includes("gk"));
+});
+
+test("flags image-based options that contain both text and image values", () => {
+  const issues = validateImageOptionRows([
+    {
+      optionAText: "Alpha",
+      optionAImage: "a.png",
+    },
+    {
+      optionBText: "Beta",
+    },
+  ]);
+
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].row, 1);
+  assert.equal(issues[0].option, "A");
+  assert.match(formatImageOptionValidationErrors(issues), /Question row 1: option A/);
+});
+
+test("lists every affected question row in the validation message", () => {
+  const issues = validateImageOptionRows(
+    Array.from({ length: 10 }, (_, index) => ({
+      [`optionAText`]: `Value ${index + 1}`,
+      [`optionAImage`]: `image-${index + 1}.png`,
+    }))
+  );
+
+  const formatted = formatImageOptionValidationErrors(issues);
+
+  assert.equal(issues.length, 10);
+  assert.match(formatted, /Question row 10/);
+  assert.doesNotMatch(formatted, /and 2 more row\(s\)/);
 });

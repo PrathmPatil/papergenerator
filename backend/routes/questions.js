@@ -67,6 +67,10 @@ import Paper from "../models/Paper.js";
 import Topic from "../models/Topic.js";
 import { normalizeQuestionPayload } from "../middleware/normalizeImageQuestion.middleware.js";
 import {
+  formatImageOptionValidationErrors,
+  validateImageOptionRows,
+} from "../utils/bulkImageUploadValidation.js";
+import {
   buildClassIdCandidates,
   buildSubjectIdCandidates,
   normalizeClassId,
@@ -1552,8 +1556,8 @@ router.post("/export-excel", async (req, res) => {
 //   }
 // });
 
-// UPDATE QUESTION META (text / options / marks / difficulty)
-router.put("/:id", async (req, res, next) => {
+// UPDATE QUESTION META (text / options / marks / difficulty / images)
+router.put("/:id", upload.array("media"), async (req, res, next) => {
   try {
     const { id } = req.params;
     if (
@@ -1563,8 +1567,43 @@ router.put("/:id", async (req, res, next) => {
     ) {
       return next();
     }
-    const { text, options, correctAnswer, marks, difficulty, topicId } =
-      req.body || {};
+    let body = req.body || {};
+    if (body.payload) {
+      try {
+        body = JSON.parse(body.payload);
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid update payload",
+        });
+      }
+    }
+
+    const files = req.files || [];
+    const optionMediaMap = {};
+    const questionMedia = [];
+
+    files.forEach((file) => {
+      const token = String(file.originalname || file.fieldname || "");
+      const url = bufferToDataUrl(
+        file.buffer,
+        file.mimetype || detectMimeTypeByFileName(file.originalname),
+      );
+      if (!url) return;
+
+      if (token.startsWith("option_")) {
+        optionMediaMap[token.replace("option_", "").trim().toUpperCase()] = url;
+        return;
+      }
+
+      questionMedia.push({
+        url,
+        alt: file.originalname,
+        mimeType: file.mimetype,
+      });
+    });
+
+    const { text, options, correctAnswer, marks, difficulty, topicId } = body;
 
     const update = {};
 
@@ -1618,7 +1657,15 @@ router.put("/:id", async (req, res, next) => {
         text: String(option?.text || "").trim(),
         mediaUrl: String(option?.mediaUrl || "").trim(),
         isCorrect: option?.isCorrect === true,
-      }));
+      })).map((option) => {
+        const replacementMediaUrl = optionMediaMap[option.id];
+        const mediaUrl = replacementMediaUrl || option.mediaUrl;
+        return {
+          ...option,
+          text: mediaUrl ? "" : option.text,
+          mediaUrl,
+        };
+      });
 
       if (normalizedOptions.length > 0 && normalizedOptions.length < 2) {
         return res.status(400).json({
@@ -1650,6 +1697,10 @@ router.put("/:id", async (req, res, next) => {
       update.correctAnswer = correctOptions[0]?.id;
     } else if (correctAnswer !== undefined) {
       update.correctAnswer = String(correctAnswer || "").trim();
+    }
+
+    if (questionMedia.length > 0) {
+      update.media = questionMedia;
     }
 
     if (marks !== undefined) {
@@ -2053,6 +2104,15 @@ router.post(
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
       const normalizedRows = rows.map(normalizeExcelRow);
+      const imageOptionValidationIssues = validateImageOptionRows(normalizedRows);
+      if (imageOptionValidationIssues.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: formatImageOptionValidationErrors(imageOptionValidationIssues),
+          errors: imageOptionValidationIssues,
+        });
+      }
+
       const unknownTopics = await findUnknownTopicsFromRows(normalizedRows);
       if (unknownTopics.length > 0) {
         return res.status(409).json(buildUnknownTopicResponse(unknownTopics));
@@ -2112,14 +2172,17 @@ router.post(
           );
           const correctAnswer = normalizeCorrectAnswer(row.correctAnswer);
 
-          const options = ["A", "B", "C", "D"].map((id) => ({
-            id,
-            text: row[`option${id}Text`] || row[`option_${id}`] || "",
-            mediaUrl: resolveImageDataUrl(
+          const options = ["A", "B", "C", "D"].map((id) => {
+            const mediaUrl = resolveImageDataUrl(
               row[`option${id}Image`] || row[`option_${id}_image`],
-            ),
-            isCorrect: correctAnswer === id,
-          }));
+            );
+            return {
+              id,
+              text: mediaUrl ? "" : row[`option${id}Text`] || row[`option_${id}`] || "",
+              mediaUrl,
+              isCorrect: correctAnswer === id,
+            };
+          });
 
           return {
             classId,
@@ -2208,14 +2271,17 @@ router.post(
 
               const correctAnswer = normalizeCorrectAnswer(row.correctAnswer);
               const options = ["A", "B", "C", "D"]
-                .map((id) => ({
-                  id,
-                  text: row[`option${id}Text`] || row[`option_${id}`] || "",
-                  mediaUrl: resolveImageDataUrl(
+                .map((id) => {
+                  const mediaUrl = resolveImageDataUrl(
                     row[`option${id}Image`] || row[`option_${id}_image`] || "",
-                  ),
-                  isCorrect: correctAnswer === id,
-                }))
+                  );
+                  return {
+                    id,
+                    text: mediaUrl ? "" : row[`option${id}Text`] || row[`option_${id}`] || "",
+                    mediaUrl,
+                    isCorrect: correctAnswer === id,
+                  };
+                })
                 .filter((option) => option.text || option.mediaUrl);
 
               return {

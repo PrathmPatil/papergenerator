@@ -93,10 +93,10 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
     <>
       {children}
       <AlertDialog open={Boolean(activeDialog)} onOpenChange={(open) => !open && closeDialog(false)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-h-[85vh] overflow-hidden">
           <AlertDialogHeader>
             <AlertDialogTitle>{activeDialog?.title}</AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-line">
+            <AlertDialogDescription className="max-h-[60vh] overflow-y-auto whitespace-pre-line pr-2">
               {activeDialog?.description}
             </AlertDialogDescription>
           </AlertDialogHeader>

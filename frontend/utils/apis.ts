@@ -294,19 +294,21 @@ export const deleteQuestionApi = async (id: string) => {
 
 export const updateQuestionApi = async (
   id: string,
-  payload: {
-    text?: string;
-    options?: {
-      id?: string;
-      text?: string;
-      mediaUrl?: string;
-      isCorrect?: boolean;
-    }[];
-    correctAnswer?: string;
-    marks?: number;
-    difficulty?: "easy" | "medium" | "hard";
-    topicId?: string;
-  }
+  payload:
+    | FormData
+    | {
+        text?: string;
+        options?: {
+          id?: string;
+          text?: string;
+          mediaUrl?: string;
+          isCorrect?: boolean;
+        }[];
+        correctAnswer?: string;
+        marks?: number;
+        difficulty?: "easy" | "medium" | "hard";
+        topicId?: string;
+      }
 ) => {
   const response = await apiClient({
     url: `/api/questions/${id}`,
