@@ -147,11 +147,29 @@ export default function CreateQuestionPage() {
   const [zipFile, setZipFile] = useState<File | null>(null);
 
   const [isFileUpload, setIsFileUpload] = useState(false);
+  const [formResetKey, setFormResetKey] = useState(0);
 
   /* Question content (received from child forms) */
   const [mcqData, setMcqData] = useState<any>(null);
   const [paragraphData, setParagraphData] = useState<any>(null);
   const [imageSubQuestionsData, setImageSubQuestionsData] = useState<any>(null);
+
+  const resetFormState = () => {
+    setSelectedClass("");
+    setSelectedSubject("");
+    setSelectedTopic("");
+    setTopicNameInput("");
+    setDifficulty("medium");
+    setMarks(1);
+    setNegativeMarks(0);
+    setMcqData(null);
+    setParagraphData(null);
+    setImageSubQuestionsData(null);
+    setFileUpload([]);
+    setUploadedFile(null);
+    setZipFile(null);
+    setFormResetKey((value) => value + 1);
+  };
 
   const showUnknownTopicAlert = (response: any) => {
     const unknownTopics = Array.isArray(response?.unknownTopics)
@@ -404,6 +422,7 @@ export default function CreateQuestionPage() {
         return;
       }
       showInfo({ title: "Question uploaded", description: "Uploaded: 1, Skipped: 0" });
+      resetFormState();
       router.refresh();
     } catch (err) {
       showInfo({ title: "Upload failed", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
@@ -514,6 +533,7 @@ export default function CreateQuestionPage() {
       }
 
       console.table(res.errors || []);
+      resetFormState();
       await loadTopics(selectedClass || undefined, selectedSubject || undefined);
       router.refresh();
     } catch (err) {
@@ -722,6 +742,7 @@ export default function CreateQuestionPage() {
                     <>
                       <div className="flex justify-between items-center space-y-4">
                         <FileUploadForm
+                          key={`mcq-file-${formResetKey}`}
                           label="Upload MCQ Questions"
                           onRowsChange={setFileUpload}
                           onFileChange={setUploadedFile}
@@ -750,7 +771,7 @@ export default function CreateQuestionPage() {
                       </p>
                     </>
                   ) : (
-                    <MCQForm onChange={setMcqData} />
+                    <MCQForm key={`mcq-form-${formResetKey}`} onChange={setMcqData} />
                   )}
                 </TabsContent>
 
@@ -760,6 +781,7 @@ export default function CreateQuestionPage() {
                       <>
                         <div className="flex justify-between items-center space-y-4">
                           <FileUploadForm
+                            key={`answer-file-${formResetKey}`}
                             label={`Upload ${answerType === "short_answer" ? "Short" : "Long"} Answer Questions`}
                             onRowsChange={setFileUpload}
                             onFileChange={setUploadedFile}
@@ -795,24 +817,26 @@ export default function CreateQuestionPage() {
                 <TabsContent value="mcq_image">
                   {isFileUpload ? (
                       <BulkImageMCQUpload
+                        key={`bulk-image-mcq-${formResetKey}`}
                         questionType="mcq_image"
                         onFileUpload={setUploadedFile}
                         onZipUpload={setZipFile}
                       />
                   ) : (
-                    <ImageMCQForm onChange={setMcqData} />
+                    <ImageMCQForm key={`image-mcq-form-${formResetKey}`} onChange={setMcqData} />
                   )}
                 </TabsContent>
 
                 <TabsContent value="image_subquestions">
                   {isFileUpload ? (
                     <BulkImageMCQUpload
+                      key={`bulk-image-subquestions-${formResetKey}`}
                       questionType="image_subquestions"
                       onFileUpload={setUploadedFile}
                       onZipUpload={setZipFile}
                     />
                   ) : (
-                    <ImageSubQuestionsForm onChange={setImageSubQuestionsData} />
+                    <ImageSubQuestionsForm key={`image-subquestions-form-${formResetKey}`} onChange={setImageSubQuestionsData} />
                   )}
                 </TabsContent>
 
@@ -833,6 +857,7 @@ export default function CreateQuestionPage() {
 
                       <div className="flex justify-between items-center space-y-4">
                         <FileUploadForm
+                          key={`paragraph-file-${formResetKey}`}
                           label="Upload Paragraph Questions"
                           parseExcel={true} 
                           onRowsChange={setFileUpload}
@@ -858,7 +883,7 @@ export default function CreateQuestionPage() {
                       </p>
                     </>
                   ) : (
-                    <ParagraphForm onChange={setParagraphData} />
+                    <ParagraphForm key={`paragraph-form-${formResetKey}`} onChange={setParagraphData} />
                   )}
                 </TabsContent>
               </Tabs>

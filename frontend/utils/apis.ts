@@ -314,6 +314,7 @@ export const updateQuestionApi = async (
     url: `/api/questions/${id}`,
     method: "PUT",
     data: payload,
+    isFormData: payload instanceof FormData,
   });
   return response;
 };

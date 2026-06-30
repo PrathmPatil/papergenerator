@@ -76,6 +76,11 @@ import {
   normalizeClassId,
   normalizeSubjectId,
 } from "../utils/normalization.js";
+import {
+  hasValidQuestionOptions,
+  normalizeOptionsForQuestionUpdate,
+} from "../utils/questionUpdateValidation.js";
+import { buildQuestionListSortOptions } from "../utils/questionListSort.js";
 import XLSX from "xlsx";
 import unzipper from "unzipper";
 
@@ -1358,9 +1363,11 @@ router.post("/", async (req, res) => {
       }),
     };
 
+    const questionListSort = buildQuestionListSortOptions();
+
     const [remainingDocs, totalRemaining] = await Promise.all([
       Question.find(remainingFilter)
-        .sort({ usageCount: 1, createdAt: -1 })
+        .sort(questionListSort)
         .skip(skip)
         .limit(pageSize)
         .lean(),
@@ -1382,7 +1389,7 @@ router.post("/", async (req, res) => {
       selectedCount: selectedQuestionDocs.length,
       totalRecords: totalRemaining + selectedQuestionDocs.length,
       currentPage,
-      totalPages: Math.ceil(totalRemaining / pageSize),
+      totalPages: Math.ceil((totalRemaining + selectedQuestionDocs.length) / pageSize),
     });
   } catch (err) {
     console.error("❌ QUESTION FETCH ERROR:", err);
@@ -1650,22 +1657,10 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
         });
       }
 
-      const normalizedOptions = options.map((option, index) => ({
-        id: String(option?.id || String.fromCharCode(65 + index))
-          .trim()
-          .toUpperCase(),
-        text: String(option?.text || "").trim(),
-        mediaUrl: String(option?.mediaUrl || "").trim(),
-        isCorrect: option?.isCorrect === true,
-      })).map((option) => {
-        const replacementMediaUrl = optionMediaMap[option.id];
-        const mediaUrl = replacementMediaUrl || option.mediaUrl;
-        return {
-          ...option,
-          text: mediaUrl ? "" : option.text,
-          mediaUrl,
-        };
-      });
+      const normalizedOptions = normalizeOptionsForQuestionUpdate(
+        options,
+        optionMediaMap,
+      );
 
       if (normalizedOptions.length > 0 && normalizedOptions.length < 2) {
         return res.status(400).json({
@@ -1674,9 +1669,7 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
         });
       }
 
-      if (
-        normalizedOptions.some((option) => !option.text && !option.mediaUrl)
-      ) {
+      if (!hasValidQuestionOptions(normalizedOptions)) {
         return res.status(400).json({
           success: false,
           message: "Each option must have text or an image",

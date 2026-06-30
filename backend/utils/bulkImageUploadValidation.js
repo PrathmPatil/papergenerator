@@ -45,16 +45,31 @@ export const formatImageOptionValidationErrors = (issues = []) => {
 
   const summaryLines = Array.from(groupedByRow.entries())
     .sort(([a], [b]) => a - b)
-    .map(([row, options]) => {
-      const optionList = options.join(", ");
-      const optionLabel = options.length > 1 ? `options ${optionList}` : `option ${optionList}`;
-      return `Question row ${row}: ${optionLabel}`;
+    .map(([row, options]) => ({ row, options: options.slice().sort() }));
+
+  // Group rows by their option lists to avoid repeating identical option text per row
+  const groupedByOptionSet = new Map();
+  summaryLines.forEach(({ row, options }) => {
+    const key = options.join(",");
+    const list = groupedByOptionSet.get(key) || [];
+    list.push(row);
+    groupedByOptionSet.set(key, list);
+  });
+
+  const groupedLines = Array.from(groupedByOptionSet.entries())
+    .map(([optionKey, rows]) => {
+      const options = optionKey.split(",").filter(Boolean);
+      const optionLabel = options.length > 1 ? `Options ${options.join(", ")}` : `Option ${options[0]}`;
+      const sortedRows = rows.map(Number).sort((a, b) => a - b);
+      const rowList = sortedRows.join(", ");
+      return `${optionLabel}: rows ${rowList}`;
     });
 
   return [
     "Some uploaded rows contain options with both text and image values.",
     "Please keep each option as either text or image only.",
     "",
-    ...summaryLines,
+    "Affected rows:",
+    ...groupedLines.map((line) => `- ${line}`),
   ].join("\n");
 };

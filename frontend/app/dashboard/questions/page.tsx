@@ -1454,7 +1454,12 @@ export default function QuestionBankPage() {
 
     if (
       shouldUpdateOptions &&
-      normalizedOptions.some((option) => !option.text && !option.mediaUrl)
+      normalizedOptions.some((option, index) => {
+        const hasText = Boolean(String(option.text || "").trim());
+        const hasImage = Boolean(option.mediaUrl);
+        const hasPendingImageUpload = Boolean(editOptions[index]?.imageFile);
+        return !hasText && !hasImage && !hasPendingImageUpload;
+      })
     ) {
       showInfo({ title: "Invalid options", description: "Each option must have text or an image.", variant: "destructive" });
       return;

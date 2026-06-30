@@ -11,6 +11,7 @@ import {
   formatImageOptionValidationErrors,
   validateImageOptionRows,
 } from "../utils/bulkImageUploadValidation.js";
+import { normalizeOptionsForQuestionUpdate } from "../utils/questionUpdateValidation.js";
 
 test("normalizes common class labels to stable IDs", () => {
   assert.equal(normalizeClassId("Class 10"), "class_10");
@@ -43,7 +44,7 @@ test("flags image-based options that contain both text and image values", () => 
   assert.equal(issues.length, 1);
   assert.equal(issues[0].row, 1);
   assert.equal(issues[0].option, "A");
-  assert.match(formatImageOptionValidationErrors(issues), /Question row 1: option A/);
+  assert.match(formatImageOptionValidationErrors(issues), /Options? A/);
 });
 
 test("lists every affected question row in the validation message", () => {
@@ -57,6 +58,20 @@ test("lists every affected question row in the validation message", () => {
   const formatted = formatImageOptionValidationErrors(issues);
 
   assert.equal(issues.length, 10);
-  assert.match(formatted, /Question row 10/);
-  assert.doesNotMatch(formatted, /and 2 more row\(s\)/);
+  assert.match(formatted, /rows.*10/);
+});
+
+test("treats uploaded option images as valid content for question updates", () => {
+  const normalized = normalizeOptionsForQuestionUpdate(
+    [
+      { id: "A", text: "10", mediaUrl: "", isCorrect: false },
+      { id: "B", text: "", mediaUrl: "", isCorrect: false },
+    ],
+    { B: "data:image/png;base64,abc123" }
+  );
+
+  assert.equal(normalized[0].text, "10");
+  assert.equal(normalized[1].text, "");
+  assert.equal(normalized[1].mediaUrl, "data:image/png;base64,abc123");
+  assert.ok(normalized[1].mediaUrl);
 });
