@@ -56,7 +56,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import { downloadQuestionBankExcelApi, fetchAllQuestionsApi, fetchTopicsApi } from "@/utils/apis";
+import { downloadQuestionBankExcelApi, fetchAllQuestionsApi, fetchTopicsApi, getQuestionByIdApi } from "@/utils/apis";
 import {
   CLASSES,
   getClassNameById,
@@ -1139,10 +1139,25 @@ export default function QuestionBankPage() {
         );
       } else {
         setQuestions([]);
+        setTotalRecords(0);
+        setTotalPages(0);
         setSelectedQuestionIds([]);
+        showInfo({
+          title: "Could not load questions",
+          description: res.message || "Please refresh and try again.",
+          variant: "destructive",
+        });
       }
     } catch (err) {
       console.error("Fetch failed", err);
+      setQuestions([]);
+      setTotalRecords(0);
+      setTotalPages(0);
+      showInfo({
+        title: "Could not load questions",
+        description: "The request timed out or failed. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -1176,9 +1191,21 @@ export default function QuestionBankPage() {
   /* ----------------------------------------
      ACTIONS
   ---------------------------------------- */
-  const handleView = (q: IQuestion) => {
+  const handleView = async (q: IQuestion) => {
+    const questionId = String(q._id || "").trim();
     setSelectedQuestion(q);
     setViewModalOpen(true);
+
+    if (!questionId) return;
+
+    try {
+      const res: any = await getQuestionByIdApi(questionId);
+      if (res?.success && res?.question) {
+        setSelectedQuestion(res.question);
+      }
+    } catch (error) {
+      console.error("Failed to load full question details", error);
+    }
   };
 
   const handleDelete = (id: string) => {

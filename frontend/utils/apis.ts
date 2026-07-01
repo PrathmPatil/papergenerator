@@ -161,16 +161,26 @@ interface QuestionFilterPayload {
 }
 
 export async function fetchAllQuestionsApi(
-  filters: QuestionFilterPayload
+  filters: QuestionFilterPayload & { page?: number; limit?: number }
 ): Promise<FetchQuestionsResponse> {
   const res = await apiClient({
     url: "/api/questions/",
     method: "POST",
     data: filters,
+    timeout: 60000,
   });
 
   return res as unknown as FetchQuestionsResponse;
 }
+
+export const getQuestionByIdApi = async (id: string) => {
+  const response = await apiClient({
+    url: `/api/questions/${id}`,
+    method: "GET",
+    timeout: 60000,
+  });
+  return response;
+};
 
 export async function downloadQuestionBankExcelApi(
   filters: QuestionFilterPayload

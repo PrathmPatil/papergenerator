@@ -81,6 +81,7 @@ import {
   normalizeOptionsForQuestionUpdate,
 } from "../utils/questionUpdateValidation.js";
 import { buildQuestionListSortOptions } from "../utils/questionListSort.js";
+import { sanitizeQuestionsForList } from "../utils/questionListResponse.js";
 import XLSX from "xlsx";
 import unzipper from "unzipper";
 
@@ -1331,6 +1332,8 @@ router.post("/", async (req, res) => {
     const pageSize = Math.max(Number(limit), 1);
     const currentPage = Math.max(Number(page), 1);
     const skip = (currentPage - 1) * pageSize;
+    const listFields =
+      "type classId subjectId topicId text marks negativeMarks difficulty usageCount lastUsedAt createdAt correctAnswer options subQuestions needsReview isDeleted";
 
     let selectedQuestionDocs = [];
     let remainingQuestions = [];
@@ -1342,7 +1345,9 @@ router.post("/", async (req, res) => {
       selectedQuestionDocs = await Question.find({
         ...filter,
         _id: { $in: selectedQuestions },
-      }).lean();
+      })
+        .select(listFields)
+        .lean();
       // Preserve order of selectedQuestions array
       const map = new Map(
         selectedQuestionDocs.map((q) => [q._id.toString(), q]),
@@ -1367,6 +1372,7 @@ router.post("/", async (req, res) => {
 
     const [remainingDocs, totalRemaining] = await Promise.all([
       Question.find(remainingFilter)
+        .select(listFields)
         .sort(questionListSort)
         .skip(skip)
         .limit(pageSize)
@@ -1380,7 +1386,10 @@ router.post("/", async (req, res) => {
     // ======================================================
     // 3️⃣ MERGE RESULT
     // ======================================================
-    const questions = [...selectedQuestionDocs, ...remainingQuestions];
+    const questions = sanitizeQuestionsForList([
+      ...selectedQuestionDocs,
+      ...remainingQuestions,
+    ]);
 
     res.json({
       success: true,
@@ -1562,6 +1571,49 @@ router.post("/export-excel", async (req, res) => {
 //     });
 //   }
 // });
+
+router.get("/:id", async (req, res, next) => {
+  const { id } = req.params;
+  if (
+    id === "bulk-update" ||
+    id === "bulk-delete" ||
+    id === "bulk-clear-usage" ||
+    id === "rebuild-usage" ||
+    id === "export-excel" ||
+    id === "create" ||
+    id === "create-bulk-upload" ||
+    id === "bulk-image-upload" ||
+    id === "test"
+  ) {
+    return next();
+  }
+
+  try {
+    const question = await Question.findOne({
+      _id: id,
+      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+    }).lean();
+
+    if (!question) {
+      return res.status(404).json({
+        success: false,
+        message: "Question not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      question,
+    });
+  } catch (err) {
+    console.error("❌ QUESTION FETCH BY ID ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      details: err.message,
+    });
+  }
+});
 
 // UPDATE QUESTION META (text / options / marks / difficulty / images)
 router.put("/:id", upload.array("media"), async (req, res, next) => {
