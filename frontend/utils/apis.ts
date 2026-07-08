@@ -140,6 +140,17 @@ export const createTopicApi = async (payload: {
   return response;
 };
 
+export const bulkUploadTopicsApi = async (payload: FormData) => {
+  const response = await apiClient({
+    url: "/api/topics/bulk-upload",
+    method: "POST",
+    data: payload,
+    isFormData: true,
+    timeout: BULK_UPLOAD_TIMEOUT_MS,
+  });
+  return response;
+};
+
 // http://localhost:5000/api/questions/
 
 interface FetchQuestionsResponse {

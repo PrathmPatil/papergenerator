@@ -1,4 +1,6 @@
 import express from "express";
+import multer from "multer";
+import XLSX from "xlsx";
 import Topic from "../models/Topic.js";
 import Question from "../models/Question.js";
 import {
@@ -10,6 +12,48 @@ import {
 } from "../utils/normalization.js";
 
 const router = express.Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+const TOPIC_NAME_MAX_LENGTH = 120;
+
+function normalizeTopicName(value = "") {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function getTopicCellValue(row = {}) {
+  const candidates = ["topic", "topicName", "name", "topic name", "topic_name"];
+  for (const key of candidates) {
+    if (row[key] !== undefined && row[key] !== null) {
+      return row[key];
+    }
+  }
+
+  const firstValue = Object.values(row)[0];
+  return firstValue === undefined ? "" : firstValue;
+}
+
+function getClassCellValue(row = {}) {
+  const candidates = ["classId", "class", "class id", "class_id", "standard", "grade"];
+  for (const key of candidates) {
+    if (row[key] !== undefined && row[key] !== null) {
+      return row[key];
+    }
+  }
+  return "";
+}
+
+function getSubjectCellValue(row = {}) {
+  const candidates = ["subjectId", "subject", "subject id", "subject_id"];
+  for (const key of candidates) {
+    if (row[key] !== undefined && row[key] !== null) {
+      return row[key];
+    }
+  }
+  return "";
+}
 
 /**
  * GET /api/topics?classId=...&subjectId=...
@@ -237,6 +281,205 @@ router.post("/", async (req, res) => {
 
     console.error("POST /api/topics error:", err);
     return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * POST /api/topics/bulk-upload
+ * FormData: { file }
+ * Excel columns supported:
+ * class | classId | standard | grade
+ * subject | subjectId
+ * topic | topicName | name | topic name
+ */
+router.post("/bulk-upload", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Excel file is required",
+      });
+    }
+
+    let workbook;
+    try {
+      workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+    } catch {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Excel file. Please upload .xlsx or .xls format.",
+      });
+    }
+
+    const firstSheetName = workbook.SheetNames?.[0];
+    if (!firstSheetName) {
+      return res.status(400).json({
+        success: false,
+        message: "Excel file does not contain any sheets.",
+      });
+    }
+
+    const sheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Excel file is empty. Add at least one topic row.",
+      });
+    }
+
+    if (rows.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        message: "Maximum 1000 topic rows allowed per upload.",
+      });
+    }
+
+    const validationErrors = [];
+    const seenInFile = new Map();
+    const validTopics = [];
+
+    rows.forEach((row, index) => {
+      const rowNumber = index + 2;
+      const normalizedClassId = normalizeClassId(getClassCellValue(row));
+      const normalizedSubjectId = normalizeSubjectId(getSubjectCellValue(row));
+      const rawName = getTopicCellValue(row);
+      const name = normalizeTopicName(rawName);
+
+      if (!normalizedClassId) {
+        validationErrors.push({
+          row: rowNumber,
+          message: "Class is required. Use class, classId, standard, or grade column.",
+        });
+        return;
+      }
+
+      if (!normalizedSubjectId) {
+        validationErrors.push({
+          row: rowNumber,
+          message: "Subject is required. Use subject or subjectId column.",
+        });
+        return;
+      }
+
+      if (!name) {
+        validationErrors.push({
+          row: rowNumber,
+          message: "Topic name is required.",
+        });
+        return;
+      }
+
+      if (name.length < 2) {
+        validationErrors.push({
+          row: rowNumber,
+          message: "Topic name must be at least 2 characters.",
+        });
+        return;
+      }
+
+      if (name.length > TOPIC_NAME_MAX_LENGTH) {
+        validationErrors.push({
+          row: rowNumber,
+          message: `Topic name must be ${TOPIC_NAME_MAX_LENGTH} characters or less.`,
+        });
+        return;
+      }
+
+      const nameLower = normalizeLookupToken(name);
+      if (!nameLower) {
+        validationErrors.push({
+          row: rowNumber,
+          message: "Topic name must contain letters or numbers.",
+        });
+        return;
+      }
+
+      const rowKey = `${normalizedClassId}|${normalizedSubjectId}|${nameLower}`;
+      const duplicateRow = seenInFile.get(rowKey);
+      if (duplicateRow) {
+        validationErrors.push({
+          row: rowNumber,
+          message: `Duplicate topic in file for same class and subject. Same as row ${duplicateRow}.`,
+        });
+        return;
+      }
+
+      seenInFile.set(rowKey, rowNumber);
+      validTopics.push({
+        row: rowNumber,
+        name,
+        nameLower,
+        classId: normalizedClassId,
+        subjectId: normalizedSubjectId,
+      });
+    });
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed for one or more rows.",
+        errors: validationErrors,
+      });
+    }
+
+    const existingTopics = await Topic.find({
+      $or: validTopics.map((item) => ({
+        classId: item.classId,
+        subjectId: item.subjectId,
+        nameLower: item.nameLower,
+      })),
+    }).lean();
+
+    const existingByNameLower = new Map(
+      existingTopics.map((item) => [
+        `${item.classId}|${item.subjectId}|${item.nameLower}`,
+        item,
+      ])
+    );
+
+    const toInsert = validTopics.filter(
+      (item) =>
+        !existingByNameLower.has(`${item.classId}|${item.subjectId}|${item.nameLower}`)
+    );
+    const skippedExisting = validTopics
+      .filter((item) =>
+        existingByNameLower.has(`${item.classId}|${item.subjectId}|${item.nameLower}`)
+      )
+      .map((item) => ({
+        row: item.row,
+        name: item.name,
+        classId: item.classId,
+        subjectId: item.subjectId,
+        reason: "Already exists",
+      }));
+
+    if (toInsert.length > 0) {
+      await Topic.insertMany(
+        toInsert.map((item) => ({
+          name: item.name,
+          nameLower: item.nameLower,
+          classId: item.classId,
+          subjectId: item.subjectId,
+        })),
+        { ordered: false }
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      message:
+        toInsert.length > 0
+          ? `Imported ${toInsert.length} topic${toInsert.length === 1 ? "" : "s"} successfully.`
+          : "No new topics were imported.",
+      importedCount: toInsert.length,
+      skippedCount: skippedExisting.length,
+      skipped: skippedExisting,
+    });
+  } catch (err) {
+    console.error("POST /api/topics/bulk-upload error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 

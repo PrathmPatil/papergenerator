@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Edit, Plus, Search, Trash } from "lucide-react";
+import { Download, Edit, FileSpreadsheet, Plus, Search, Trash, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,13 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { CLASSES, getClassNameById, getSubjectNameById, SUBJECTS } from "@/lib/data";
-import { createTopicApi, deleteTopicApi, fetchTopicsApi, updateTopicApi } from "@/utils/apis";
+import {
+  bulkUploadTopicsApi,
+  createTopicApi,
+  deleteTopicApi,
+  fetchTopicsApi,
+  updateTopicApi,
+} from "@/utils/apis";
 import { showConfirm, showInfo } from "@/components/app-dialog-provider";
 
 type TopicRow = {
@@ -43,6 +49,13 @@ type TopicRow = {
   questionCount?: number;
 };
 
+type BulkUploadSummary = {
+  importedCount?: number;
+  skippedCount?: number;
+  skipped?: Array<{ row: number; name: string; classId?: string; subjectId?: string; reason: string }>;
+  errors?: Array<{ row: number; message: string }>;
+};
+
 const ALL = "all";
 const DEFAULT_RECORDS_PER_PAGE = 10;
 
@@ -52,6 +65,7 @@ export default function TopicsPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isDownloadingSample, setIsDownloadingSample] = useState(false);
 
   const [filterClass, setFilterClass] = useState(ALL);
   const [filterSubject, setFilterSubject] = useState(ALL);
@@ -62,6 +76,10 @@ export default function TopicsPage() {
   const [newClassId, setNewClassId] = useState("");
   const [newSubjectId, setNewSubjectId] = useState("");
   const [newTopicName, setNewTopicName] = useState("");
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkUploadSummary, setBulkUploadSummary] = useState<BulkUploadSummary | null>(null);
+  const [bulkInputKey, setBulkInputKey] = useState(0);
 
   const [editingTopic, setEditingTopic] = useState<TopicRow | null>(null);
   const [editClassId, setEditClassId] = useState("");
@@ -314,6 +332,52 @@ export default function TopicsPage() {
     }
   };
 
+  const handleDownloadSampleFile = async () => {
+    try {
+      setIsDownloadingSample(true);
+
+      const sampleRows = [
+        { class: "Class 8", subject: "Science", topic: "Force and Pressure" },
+        { class: "Class 8", subject: "Science", topic: "Friction" },
+        { class: "Class 9", subject: "Mathematics", topic: "Polynomials" },
+        { class: "Class 10", subject: "English", topic: "Grammar" },
+        { class: "Class 7", subject: "History", topic: "Medieval India" },
+      ];
+
+      const XLSX = await import("xlsx");
+      const worksheet = XLSX.utils.json_to_sheet(sampleRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Topics");
+
+      const workbookArray = XLSX.write(workbook, {
+        bookType: "xlsx",
+        type: "array",
+      });
+
+      const blob = new Blob([workbookArray], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "topics-bulk-upload-sample.xlsx";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Sample file download failed", error);
+      toast({
+        variant: "destructive",
+        title: "Sample file download failed",
+        description: "Please try again.",
+      });
+    } finally {
+      setIsDownloadingSample(false);
+    }
+  };
+
   const handleAddTopic = async () => {
     const topicName = newTopicName.trim();
 
@@ -352,6 +416,78 @@ export default function TopicsPage() {
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const resetBulkUpload = () => {
+    setBulkFile(null);
+    setBulkInputKey((value) => value + 1);
+  };
+
+  const handleBulkUpload = async () => {
+    if (!bulkFile) {
+      toast({
+        variant: "destructive",
+        title: "Bulk upload details required",
+        description: "Select an Excel file before uploading.",
+      });
+      return;
+    }
+
+    const isExcelFile =
+      /\.xlsx?$/i.test(bulkFile.name) ||
+      [
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+      ].includes(bulkFile.type);
+
+    if (!isExcelFile) {
+      toast({
+        variant: "destructive",
+        title: "Invalid file type",
+        description: "Upload a valid .xlsx or .xls Excel file.",
+      });
+      return;
+    }
+
+    try {
+      setBulkUploading(true);
+      setBulkUploadSummary(null);
+
+      const formData = new FormData();
+      formData.append("file", bulkFile);
+
+      const res: any = await bulkUploadTopicsApi(formData);
+
+      if (!res?.success) {
+        setBulkUploadSummary({
+          errors: Array.isArray(res?.errors) ? res.errors : [],
+          skipped: Array.isArray(res?.skipped) ? res.skipped : [],
+          skippedCount: res?.skippedCount || 0,
+          importedCount: res?.importedCount || 0,
+        });
+        throw new Error(res?.message || "Bulk upload failed");
+      }
+
+      setBulkUploadSummary({
+        importedCount: res?.importedCount || 0,
+        skippedCount: res?.skippedCount || 0,
+        skipped: Array.isArray(res?.skipped) ? res.skipped : [],
+      });
+      toast({
+        title: "Topics uploaded",
+        description: res?.message || "Bulk topic upload completed.",
+      });
+      resetBulkUpload();
+      await loadTopics();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Bulk upload failed",
+        description: error?.message || "Please fix the Excel file and try again.",
+      });
+    } finally {
+      setBulkUploading(false);
     }
   };
 
@@ -450,15 +586,26 @@ export default function TopicsPage() {
             Manage approved topic names for Excel uploads and paper generation.
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={handleDownloadPdf}
-          disabled={loading || isDownloadingPdf}
-          className="gap-2 md:mt-1"
-        >
-          <Download className="h-4 w-4" />
-          {isDownloadingPdf ? "Preparing..." : "Download PDF"}
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            onClick={handleDownloadSampleFile}
+            disabled={isDownloadingSample}
+            className="gap-2 md:mt-1"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            {isDownloadingSample ? "Preparing..." : "Download Sample Excel"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleDownloadPdf}
+            disabled={loading || isDownloadingPdf}
+            className="gap-2 md:mt-1"
+          >
+            <Download className="h-4 w-4" />
+            {isDownloadingPdf ? "Preparing..." : "Download PDF"}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-[1fr_1fr_1.4fr_auto]">
@@ -578,6 +725,87 @@ export default function TopicsPage() {
           </Button>
         </div>
       </div>
+
+      <div className="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-[1.8fr_auto]">
+        <div className="space-y-2">
+          <Label>Excel file</Label>
+          <Input
+            key={bulkInputKey}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={(event) => {
+              setBulkFile(event.target.files?.[0] || null);
+              setBulkUploadSummary(null);
+            }}
+            disabled={bulkUploading}
+          />
+          <p className="text-xs text-muted-foreground">
+            Excel should contain one topic per row with columns for <strong>class</strong>,{" "}
+            <strong>subject</strong>, and <strong>topic</strong>.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Supported headers: <strong>class</strong>/<strong>classId</strong>/<strong>standard</strong>,
+            <strong> subject</strong>/<strong>subjectId</strong>, and{" "}
+            <strong>topic</strong>/<strong>topicName</strong>/<strong>name</strong>.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Validation checks class, subject, topic name, duplicates in file, duplicates already
+            in the system, and topic name length. Mixed classes and subjects are allowed in one file.
+          </p>
+        </div>
+
+        <div className="flex items-end">
+          <Button
+            onClick={handleBulkUpload}
+            disabled={bulkUploading}
+            className="w-full gap-2 md:w-auto"
+          >
+            <Upload className="h-4 w-4" />
+            {bulkUploading ? "Uploading..." : "Upload Excel"}
+          </Button>
+        </div>
+      </div>
+
+      {bulkUploadSummary && (
+        <div className="rounded-lg border bg-card p-4">
+          <h3 className="text-base font-semibold">Bulk upload summary</h3>
+          <div className="mt-2 space-y-1 text-sm text-muted-foreground">
+            <p>Imported: {bulkUploadSummary.importedCount || 0}</p>
+            <p>Skipped existing: {bulkUploadSummary.skippedCount || 0}</p>
+            <p>Validation errors: {bulkUploadSummary.errors?.length || 0}</p>
+          </div>
+
+          {bulkUploadSummary.errors && bulkUploadSummary.errors.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium text-destructive">Validation errors</p>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {bulkUploadSummary.errors.slice(0, 15).map((item, index) => (
+                  <li key={`${item.row}-${index}`}>
+                    Row {item.row}: {item.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {bulkUploadSummary.skipped && bulkUploadSummary.skipped.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <p className="text-sm font-medium">Skipped existing topics</p>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {bulkUploadSummary.skipped.slice(0, 15).map((item, index) => (
+                  <li key={`${item.row}-${item.name}-${index}`}>
+                    Row {item.row}: {item.name}
+                    {item.classId || item.subjectId
+                      ? ` [${item.classId || "?"} / ${item.subjectId || "?"}]`
+                      : ""}
+                    {" "}({item.reason})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="rounded-lg border bg-card">
         <Table>
