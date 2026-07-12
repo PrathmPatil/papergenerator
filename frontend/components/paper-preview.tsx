@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FileText, Eye, Printer } from "lucide-react";
+import { FileText, Eye, Plus, Printer, Trash2 } from "lucide-react";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const PAGE_MARGIN_MM = 12;
@@ -24,6 +24,32 @@ const MONTH_OPTIONS = [
   "NOVEMBER",
   "DECEMBER",
 ];
+
+const DEFAULT_STUDENT_INSTRUCTIONS = [
+  "All the questions are compulsory.",
+  "Read the instructions carefully given for each question.",
+];
+
+const DEFAULT_STUDENT_INSTRUCTION_SET = new Set(
+  DEFAULT_STUDENT_INSTRUCTIONS.map((line) => line.trim().toLowerCase())
+);
+
+const normalizeInstructionLines = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((line) => String(line ?? "").trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
 
 const getPageSize = (orientation: "portrait" | "landscape") => {
   const widthMm = orientation === "landscape" ? 297 : 210;
@@ -77,6 +103,9 @@ export function PaperPreview({ config }: { config: any }) {
   const [paperMonth, setPaperMonth] = useState(String(config?.previewSettings?.month || config?.month || "OCTOBER").toUpperCase());
   const [paperYear, setPaperYear] = useState(String(config?.previewSettings?.year || config?.year || "2025"));
   const [paperCode, setPaperCode] = useState(String(config?.previewSettings?.code || config?.code || ""));
+  const [dynamicStudentInstructions, setDynamicStudentInstructions] = useState<string[]>(() =>
+    normalizeInstructionLines(config?.previewSettings?.studentInstructions ?? config?.instructions)
+  );
 
   const cell = {
     border: "1px solid black",
@@ -102,6 +131,32 @@ export function PaperPreview({ config }: { config: any }) {
       pageMinHeight: safeOrientation === "landscape" ? "210mm" : "297mm",
     };
   }, [columnCount, fontSize, orientation]);
+
+  const studentInstructionLines = useMemo(
+    () => [
+      ...DEFAULT_STUDENT_INSTRUCTIONS,
+      ...dynamicStudentInstructions
+        .map((line) => String(line || "").trim())
+        .filter((line) => Boolean(line) && !DEFAULT_STUDENT_INSTRUCTION_SET.has(line.toLowerCase())),
+    ],
+    [dynamicStudentInstructions]
+  );
+
+  const updateDynamicInstruction = (index: number, value: string) => {
+    setDynamicStudentInstructions((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  };
+
+  const addDynamicInstruction = () => {
+    setDynamicStudentInstructions((prev) => [...prev, ""]);
+  };
+
+  const removeDynamicInstruction = (index: number) => {
+    setDynamicStudentInstructions((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const renderAnswerLine = (label = "Answer") => (
     <div
@@ -455,6 +510,50 @@ export function PaperPreview({ config }: { config: any }) {
               onChange={(e) => setPaperCode(e.target.value)}
             />
           </div>
+
+          <div className="space-y-2 md:col-span-3 lg:col-span-6">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-sm font-medium">Student Instructions</Label>
+              <Button type="button" variant="outline" size="sm" onClick={addDynamicInstruction}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Instruction
+              </Button>
+            </div>
+
+            <div className="rounded-md border p-3 space-y-2">
+              {DEFAULT_STUDENT_INSTRUCTIONS.map((line, idx) => (
+                <div key={`default-instruction-${idx}`} className="text-sm text-muted-foreground">
+                  [{idx + 1}] {line}
+                </div>
+              ))}
+
+              {dynamicStudentInstructions.map((line, index) => (
+                <div key={`dynamic-instruction-${index}`} className="flex items-center gap-2">
+                  <span className="text-sm font-medium whitespace-nowrap">[{index + 3}]</span>
+                  <Input
+                    value={line}
+                    onChange={(e) => updateDynamicInstruction(index, e.target.value)}
+                    placeholder="Enter additional instruction"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => removeDynamicInstruction(index)}
+                    aria-label={`Remove instruction ${index + 3}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+
+              {dynamicStudentInstructions.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  First 2 instructions are fixed. Add more lines if needed.
+                </p>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -602,6 +701,59 @@ export function PaperPreview({ config }: { config: any }) {
             </tr>
           </tbody>
         </table>
+
+        <div
+          className="paper-instructions-box"
+          style={{
+            border: "1px solid #000",
+            marginTop: "12px",
+            paddingBottom: "6px",
+            pageBreakInside: "avoid",
+          }}
+        >
+          <div
+            className="paper-instructions-title"
+            style={{
+              textAlign: "center",
+              fontStyle: "italic",
+              fontSize: `${Math.max(previewStyles.fontSize + 1, 14)}px`,
+              lineHeight: "1.3",
+              padding: "6px 6px 4px",
+            }}
+          >
+            INSTRUCTIONS FOR STUDENTS:
+          </div>
+
+          <div
+            className="paper-instructions-list"
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "0 14px 4px",
+            }}
+          >
+            {studentInstructionLines.map((line, index) => (
+              <div
+                key={`paper-instruction-${index}`}
+                className="paper-instruction-row"
+                style={{
+                  display: "block",
+                  margin: "0",
+                  padding: "2px 0 5px",
+                  fontStyle: "italic",
+                  fontSize: `${Math.max(previewStyles.fontSize, 12)}px`,
+                  lineHeight: "1.5",
+                  whiteSpace: "normal",
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word",
+                  overflow: "visible",
+                }}
+              >
+                [{index + 1}] {line}
+              </div>
+            ))}
+          </div>
+        </div>
 
         {config.sections.map((section: any, sectionIndex: number) => (
           <div key={section.id} style={{ marginTop: "14px" }}>
@@ -968,10 +1120,10 @@ export const exportAsPDF = async (config: any) => {
     const marginX = PAGE_MARGIN_MM;
     const marginTop = PAGE_MARGIN_MM;
     const footerBandHeight = 14;
-    const printableHeight = pageHeightMm - marginTop - footerBandHeight;
+    const printableHeight = pageHeightMm - marginTop - PAGE_MARGIN_MM - footerBandHeight;
     const imgWidth = contentWidthMm;
     const pxPerMm = canvas.width / imgWidth;
-    const sliceHeightPx = Math.max(1, Math.floor(printableHeight * pxPerMm));
+    const sliceHeightPx = Math.max(1, Math.round(printableHeight * pxPerMm));
 
     let sourceY = 0;
     let pageNumber = 1;
