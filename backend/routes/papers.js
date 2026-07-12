@@ -213,6 +213,17 @@ import Paper from "../models/Paper.js";
 import { requireStaff } from "../middleware/tokenVerification.middleware.js";
 const router = express.Router();
 
+const SCHOOL_LOGO_FILENAME = "school logo.png";
+
+const getSchoolLogoPath = () => {
+  const candidates = [
+    path.join(process.cwd(), "frontend", "public", SCHOOL_LOGO_FILENAME),
+    path.join(process.cwd(), "..", "frontend", "public", SCHOOL_LOGO_FILENAME),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+};
+
 const buildQuestionUsageMap = (questionIds = []) => {
   const usageMap = new Map();
 
@@ -913,12 +924,26 @@ router.get("/export/:id", async (req, res) => {
 
     doc.pipe(res);
 
+    const logoPath = getSchoolLogoPath();
+    const headerTop = doc.y;
+    const logoSize = 72;
+    const headerGap = 12;
+    const titleX = doc.page.margins.left + logoSize + headerGap;
+    const titleWidth = doc.page.width - titleX - doc.page.margins.right;
+
+    if (logoPath) {
+      doc.image(logoPath, doc.page.margins.left, headerTop, {
+        fit: [logoSize, logoSize],
+      });
+    }
+
     // Title
-    doc.fontSize(18).text(paper.title || "Question Paper", {
+    doc.fontSize(18).text(paper.title || "Question Paper", titleX, headerTop + 18, {
       align: "center",
+      width: titleWidth,
     });
 
-    doc.moveDown();
+    doc.y = Math.max(doc.y, headerTop + logoSize + 10);
 
     doc.fontSize(12).text(`Class: ${paper.classId}`);
     doc.text(`Total Marks: ${paper.totalMarks}`);

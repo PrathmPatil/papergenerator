@@ -9,6 +9,21 @@ import { FileText, Eye, Printer } from "lucide-react";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const PAGE_MARGIN_MM = 12;
+const SCHOOL_LOGO_SRC = "/school%20logo.png";
+const MONTH_OPTIONS = [
+  "JANUARY",
+  "FEBRUARY",
+  "MARCH",
+  "APRIL",
+  "MAY",
+  "JUNE",
+  "JULY",
+  "AUGUST",
+  "SEPTEMBER",
+  "OCTOBER",
+  "NOVEMBER",
+  "DECEMBER",
+];
 
 const getPageSize = (orientation: "portrait" | "landscape") => {
   const widthMm = orientation === "landscape" ? 297 : 210;
@@ -59,6 +74,9 @@ export function PaperPreview({ config }: { config: any }) {
   const [fontSize, setFontSize] = useState(Number(config?.previewSettings?.fontSize || 13));
   const [orientation, setOrientation] = useState(config?.previewSettings?.orientation === "landscape" ? "landscape" : "portrait");
   const [columnCount, setColumnCount] = useState(Math.min(2, Math.max(1, Number(config?.previewSettings?.columnCount || 1))));
+  const [paperMonth, setPaperMonth] = useState(String(config?.previewSettings?.month || config?.month || "OCTOBER").toUpperCase());
+  const [paperYear, setPaperYear] = useState(String(config?.previewSettings?.year || config?.year || "2025"));
+  const [paperCode, setPaperCode] = useState(String(config?.previewSettings?.code || config?.code || ""));
 
   const cell = {
     border: "1px solid black",
@@ -369,7 +387,7 @@ export function PaperPreview({ config }: { config: any }) {
         <CardHeader>
           <CardTitle>Preview Settings</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-3">
+        <CardContent className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
           <div className="space-y-2">
             <Label htmlFor="preview-font-size">Font Size</Label>
             <Input
@@ -403,12 +421,47 @@ export function PaperPreview({ config }: { config: any }) {
               onChange={(e) => setColumnCount(Number(e.target.value))}
             />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="preview-paper-month">Month</Label>
+            <select
+              id="preview-paper-month"
+              value={paperMonth}
+              onChange={(e) => setPaperMonth(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              {MONTH_OPTIONS.map((month) => (
+                <option key={month} value={month}>
+                  {month}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="preview-paper-year">Year</Label>
+            <Input
+              id="preview-paper-year"
+              type="number"
+              min={1900}
+              max={2100}
+              value={paperYear}
+              onChange={(e) => setPaperYear(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="preview-paper-code">Code</Label>
+            <Input
+              id="preview-paper-code"
+              value={paperCode}
+              onChange={(e) => setPaperCode(e.target.value)}
+            />
+          </div>
         </CardContent>
       </Card>
 
       <div
         id="paper-preview"
         data-orientation={previewStyles.orientation}
+        data-paper-code={paperCode}
         className="bg-white text-black font-serif"
         style={{
           width: "100%",
@@ -416,32 +469,90 @@ export function PaperPreview({ config }: { config: any }) {
           minHeight: previewStyles.pageMinHeight,
           margin: "0 auto",
           padding: `${PAGE_MARGIN_MM}mm`,
+          fontFamily: "'Times New Roman', Times, serif",
           lineHeight: "1.45",
           fontSize: `${previewStyles.fontSize}px`,
           boxSizing: "border-box",
           background: "#ffffff",
         }}
       >
-        <div style={{ textAlign: "center", borderBottom: "1px solid black", paddingBottom: "6px" }}>
-          <h1 style={{ fontSize: "18px", fontWeight: "bold" }}>
-            INNOVATIVE SCHOLARS' ACHIEVEMENT TEST [ INNOSAT ]
-          </h1>
-          <p style={{ fontSize: "12px", marginTop: "4px" }}>
-            OCTOBER - 2025 CODE : {config.code}
-          </p>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "104px 1fr",
+            alignItems: "center",
+            columnGap: "12px",
+            paddingBottom: "4px",
+          }}
+        >
+          <img
+            className="school-logo"
+            src={SCHOOL_LOGO_SRC}
+            alt="School logo"
+            style={{
+              display: "block",
+              width: "104px",
+              height: "104px",
+              objectFit: "contain",
+              border: "none",
+              padding: 0,
+            }}
+          />
+          <div style={{ textAlign: "center" }}>
+            <h1 style={{ fontSize: "20px", fontWeight: "bold", lineHeight: 1.15, whiteSpace: "nowrap" }}>
+              INNOVATIVE SCHOLARS' ACHIEVEMENT TEST [ INNOSAT ]
+            </h1>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "baseline",
+                gap: "44px",
+                flexWrap: "wrap",
+                fontSize: "21px",
+                fontWeight: 700,
+                marginTop: "12px",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              <span>{paperMonth} - {paperYear}</span>
+              <span>CODE : {paperCode}</span>
+            </div>
+          </div>
         </div>
 
-        <div style={{ marginTop: "10px", fontSize: "12px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>Name of the student : __________________________</span>
+        <div style={{ marginTop: "2px", fontSize: "18px", lineHeight: "1.35" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "24px" }}>
+            <span style={{ display: "flex", alignItems: "baseline", flex: "1 1 auto", minWidth: 0 }}>
+              <span style={{ whiteSpace: "nowrap" }}>Name of the student :</span>
+              <span
+                style={{
+                  display: "inline-block",
+                  flex: "0 1 300px",
+                  minWidth: "190px",
+                  borderBottom: "1px solid #000",
+                  marginLeft: "6px",
+                  height: "0.9em",
+                }}
+              />
+            </span>
             <span>Time : {config.durationMinutes} min</span>
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: "5px" }}>
             <span>Class : {config.classLevel}</span>
-            <span>Roll No.: ______</span>
-            <span>Date : ______</span>
-            <span>Sign. of Invigilator : ______</span>
+            <span style={{ display: "flex", alignItems: "baseline" }}>
+              <span>Roll No.:</span>
+              <span style={{ display: "inline-block", width: "70px", borderBottom: "1px solid #000", marginLeft: "5px", height: "0.9em" }} />
+            </span>
+            <span style={{ display: "flex", alignItems: "baseline" }}>
+              <span>Date :</span>
+              <span style={{ display: "inline-block", width: "70px", borderBottom: "1px solid #000", marginLeft: "5px", height: "0.9em" }} />
+            </span>
+            <span style={{ display: "flex", alignItems: "baseline" }}>
+              <span>Sign. of Invigilator :</span>
+              <span style={{ display: "inline-block", width: "70px", borderBottom: "1px solid #000", marginLeft: "5px", height: "0.9em" }} />
+            </span>
           </div>
         </div>
 
@@ -449,8 +560,8 @@ export function PaperPreview({ config }: { config: any }) {
           style={{
             width: "100%",
             borderCollapse: "collapse",
-            marginTop: "12px",
-            fontSize: "12px",
+            marginTop: "10px",
+            fontSize: "18px",
           }}
         >
           <thead>
@@ -702,6 +813,7 @@ export const exportAsPDF = async (config: any) => {
     const page = getPageSize(orientation);
     const pageWidthMm = page.widthMm;
     const pageHeightMm = page.heightMm;
+    const exportPaperCode = preview.dataset.paperCode || config?.code || "";
 
     const html2canvas = (await import("html2canvas")).default;
     const { jsPDF } = await import("jspdf");
@@ -752,7 +864,6 @@ export const exportAsPDF = async (config: any) => {
             th, td {
               border: 1px solid #000;
               padding: 5px;
-              font-size: 12px;
             }
 
             .flex {
@@ -809,11 +920,9 @@ export const exportAsPDF = async (config: any) => {
               pointer-events: none;
             }
 
-            h1 { text-align: center; font-size: 18px; }
-            h2 { font-size: 14px; margin-top: 18px; }
+            h1 { text-align: center; }
 
             p {
-              margin: 3px 0;
               line-height: 1.4;
             }
 
@@ -830,14 +939,6 @@ export const exportAsPDF = async (config: any) => {
               min-height: 18px;
               border-bottom: 1.2px solid #000;
               line-height: 18px;
-            }
-
-            img {
-              max-width: 160px;
-              max-height: 100px;
-              object-fit: contain;
-              border: 1px solid #000;
-              padding: 2px;
             }
 
             .option-media {
@@ -908,7 +1009,7 @@ export const exportAsPDF = async (config: any) => {
       pdf.rect(0, pageHeightMm - footerBandHeight, pageWidthMm, footerBandHeight, "F");
 
       pdf.setFontSize(10);
-      pdf.text(`Page ${pageNumber} / INNOSAT / CODE ${config.code}`, pageWidthMm / 2, pageHeightMm - 6, {
+      pdf.text(`Page ${pageNumber} / INNOSAT / CODE ${exportPaperCode}`, pageWidthMm / 2, pageHeightMm - 6, {
         align: "center",
       });
 
@@ -995,6 +1096,7 @@ export const exportAsWord = (config: any) => {
   const preview = document.getElementById("paper-preview");
   if (!preview) return;
   const orientation = preview.dataset.orientation === "landscape" ? "landscape" : "portrait";
+  const exportPaperCode = preview.dataset.paperCode || config?.code || "";
   const page = getPageSize(orientation);
 
   const clone = preview.cloneNode(true) as HTMLElement;
@@ -1187,6 +1289,16 @@ export const exportAsWord = (config: any) => {
         max-width: 85px;
         max-height: 60px;
       }
+      .paper-export-footer {
+        position: fixed;
+        bottom: 4mm;
+        left: 0;
+        right: 0;
+        width: 100%;
+        text-align: center;
+        font-size: 10px;
+        font-family: 'Times New Roman', serif;
+      }
     </style>
   `;
 
@@ -1200,6 +1312,7 @@ export const exportAsWord = (config: any) => {
       </head>
       <body>
         ${clone.outerHTML}
+        <div class="paper-export-footer">INNOSAT / CODE ${exportPaperCode}</div>
       </body>
     </html>
   `;
