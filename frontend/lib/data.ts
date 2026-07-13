@@ -12,6 +12,9 @@ export const SUBJECTS = [
   { id: "physics", name: "Physics", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
   { id: "chemistry", name: "Chemistry", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
   { id: "biology", name: "Biology", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "mental_ability", name: "Mental Ability", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "achievers_section", name: "Achievers Section", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "logical_reasoning", name: "Logical Reasoning", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
 ];
 
 const SUBJECT_ALIASES: Record<string, string> = {
@@ -37,8 +40,6 @@ const SUBJECT_ALIASES: Record<string, string> = {
   // Reasoning
   reasoning: "reasoning",
   reasoning10: "reasoning",
-  logicalreasoning: "reasoning",
-  lr: "reasoning",
   
   // General Knowledge
   gk: "gk",
@@ -70,6 +71,19 @@ const SUBJECT_ALIASES: Record<string, string> = {
   biology: "biology",
   bio: "biology",
   biol: "biology",
+
+  // Mental Ability
+  mentalability: "mental_ability",
+  ma: "mental_ability",
+  mental: "mental_ability",
+
+  // Achievers Section
+  achieversection: "achievers_section",
+  achievers: "achievers_section",
+
+  // Logical Reasoning
+  logicalreasoning: "logical_reasoning",
+  lr: "logical_reasoning",
 };
 
 const normalizeSubjectKey = (value: string) =>
