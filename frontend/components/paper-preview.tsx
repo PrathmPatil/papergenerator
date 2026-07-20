@@ -1251,8 +1251,275 @@ export const exportAsWord = (config: any) => {
   const exportPaperCode = preview.dataset.paperCode || config?.code || "";
   const page = getPageSize(orientation);
 
+  const getBase64Image = (img: HTMLImageElement): string => {
+    try {
+      const canvas = document.createElement("canvas");
+      const w = img.naturalWidth || img.width || 104;
+      const h = img.naturalHeight || img.height || 104;
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return img.src;
+      ctx.drawImage(img, 0, 0, w, h);
+      return canvas.toDataURL("image/png");
+    } catch (e) {
+      console.error("Failed to convert image to base64", e);
+      return img.src;
+    }
+  };
+
   const clone = preview.cloneNode(true) as HTMLElement;
 
+  // 1. Convert relative image URLs to absolute URLs, and convert loaded images to Base64 data URIs so Word can load them offline
+  clone.querySelectorAll("img").forEach((imgNode: any) => {
+    const originalSrc = imgNode.getAttribute("src");
+    let base64Src = "";
+
+    if (originalSrc) {
+      // Find the corresponding original image in the active DOM (preview)
+      const selector = `img[src="${originalSrc}"]`;
+      const originalImg = preview.querySelector(selector) as HTMLImageElement;
+      if (originalImg) {
+        base64Src = getBase64Image(originalImg);
+      }
+    }
+
+    if (base64Src && base64Src.startsWith("data:")) {
+      imgNode.setAttribute("src", base64Src);
+    } else if (originalSrc) {
+      imgNode.setAttribute("src", getMediaSrc(originalSrc));
+    }
+    
+    // Explicit attributes for Word compatibility
+    if (imgNode.classList.contains("school-logo")) {
+      imgNode.setAttribute("width", "104");
+      imgNode.setAttribute("height", "104");
+    } else {
+      // For general question images, read their inline style to determine width
+      const maxWidthStyle = imgNode.style.maxWidth;
+      if (maxWidthStyle && maxWidthStyle.endsWith("px")) {
+        const widthVal = parseInt(maxWidthStyle, 10);
+        imgNode.setAttribute("width", String(widthVal));
+      } else {
+        // default fallback width for question images in Word
+        imgNode.setAttribute("width", "160");
+      }
+    }
+  });
+
+  // 2. Convert Header Layout (Grid) to Word-compatible Table
+  const headerLogoNode = clone.querySelector(".school-logo");
+  if (headerLogoNode) {
+    const headerWrapper = headerLogoNode.parentElement;
+    if (headerWrapper) {
+      const headerTable = document.createElement("table");
+      headerTable.className = "header-table";
+      headerTable.style.width = "100%";
+      headerTable.style.borderCollapse = "collapse";
+      headerTable.style.border = "none";
+      headerTable.setAttribute("border", "0");
+      headerTable.setAttribute("cellpadding", "0");
+      headerTable.setAttribute("cellspacing", "0");
+      headerTable.style.marginBottom = "10px";
+
+      const tr = document.createElement("tr");
+
+      const logoCell = document.createElement("td");
+      logoCell.className = "header-logo-cell";
+      logoCell.style.width = "104px";
+      logoCell.style.verticalAlign = "middle";
+      logoCell.style.border = "none";
+      logoCell.style.padding = "0";
+      logoCell.setAttribute("width", "104");
+      logoCell.setAttribute("valign", "middle");
+      logoCell.setAttribute("align", "center");
+
+      const logoImg = headerLogoNode.cloneNode(true) as HTMLImageElement;
+      logoImg.className = "school-logo";
+      logoImg.setAttribute("width", "104");
+      logoImg.setAttribute("height", "104");
+      logoImg.style.width = "104px";
+      logoImg.style.height = "104px";
+      logoImg.style.display = "block";
+      logoImg.style.border = "none";
+      logoCell.appendChild(logoImg);
+
+      const textCell = document.createElement("td");
+      textCell.className = "header-text-cell";
+      textCell.style.verticalAlign = "middle";
+      textCell.style.border = "none";
+      textCell.style.padding = "0";
+      textCell.style.textAlign = "center";
+      textCell.setAttribute("valign", "middle");
+      textCell.setAttribute("align", "center");
+
+      const centerContainer = document.createElement("center");
+
+      const h1 = document.createElement("h1");
+      h1.style.fontSize = "20px";
+      h1.style.fontWeight = "bold";
+      h1.style.lineHeight = "1.15";
+      h1.style.margin = "0";
+      h1.style.fontFamily = "'Times New Roman', Times, serif";
+      h1.setAttribute("align", "center");
+      h1.textContent = "INNOVATIVE SCHOLARS' ACHIEVEMENT TEST [ INNOSAT ]";
+
+      const subHeaderDiv = document.createElement("div");
+      subHeaderDiv.style.fontSize = "21px";
+      subHeaderDiv.style.fontWeight = "700";
+      subHeaderDiv.style.marginTop = "12px";
+      subHeaderDiv.style.fontFamily = "'Times New Roman', Times, serif";
+      subHeaderDiv.setAttribute("align", "center");
+      
+      const paperMonth = String(config?.previewSettings?.month || config?.month || "OCTOBER").toUpperCase();
+      const paperYear = String(config?.previewSettings?.year || config?.year || "2025");
+      subHeaderDiv.innerHTML = `${paperMonth} - ${paperYear} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; CODE : ${exportPaperCode}`;
+
+      centerContainer.appendChild(h1);
+      centerContainer.appendChild(subHeaderDiv);
+      textCell.appendChild(centerContainer);
+
+      tr.appendChild(logoCell);
+      tr.appendChild(textCell);
+      headerTable.appendChild(tr);
+
+      headerWrapper.replaceWith(headerTable);
+    }
+  }
+
+  // 3. Convert Student Info / Metadata rows to Word-compatible Table
+  let nameNode: HTMLElement | null = null;
+  const allSpans = clone.querySelectorAll("span, div, p");
+  for (let i = 0; i < allSpans.length; i++) {
+    const el = allSpans[i] as HTMLElement;
+    if (el.textContent && el.textContent.includes("Name of the student")) {
+      if (!nameNode || nameNode.contains(el)) {
+        nameNode = el;
+      }
+    }
+  }
+
+  if (nameNode) {
+    let metaWrapper: HTMLElement | null = null;
+    let current: HTMLElement | null = nameNode;
+    while (current && current !== clone) {
+      if (current.textContent?.includes("Name of the student") && current.textContent?.includes("Class :")) {
+        metaWrapper = current;
+        break;
+      }
+      current = current.parentElement;
+    }
+
+    if (metaWrapper) {
+      const metaTable = document.createElement("table");
+      metaTable.className = "meta-table";
+      metaTable.style.width = "100%";
+      metaTable.style.borderCollapse = "collapse";
+      metaTable.style.marginTop = "10px";
+      metaTable.style.marginBottom = "10px";
+      metaTable.style.fontSize = "18px";
+      metaTable.style.fontFamily = "'Times New Roman', Times, serif";
+      metaTable.style.border = "none";
+      metaTable.setAttribute("border", "0");
+      metaTable.setAttribute("cellpadding", "0");
+      metaTable.setAttribute("cellspacing", "0");
+
+      const tr1 = document.createElement("tr");
+      const td1_1 = document.createElement("td");
+      td1_1.style.border = "none";
+      td1_1.style.padding = "4px 0";
+      td1_1.style.verticalAlign = "bottom";
+      td1_1.innerHTML = `Name of the student : <span style="border-bottom:1px solid #000; width:350px; display:inline-block;">&nbsp;</span>`;
+
+      const td1_2 = document.createElement("td");
+      td1_2.style.border = "none";
+      td1_2.style.padding = "4px 0";
+      td1_2.style.textAlign = "right";
+      td1_2.style.verticalAlign = "bottom";
+      td1_2.style.width = "150px";
+      td1_2.innerHTML = `Time : ${config.durationMinutes} min`;
+
+      tr1.appendChild(td1_1);
+      tr1.appendChild(td1_2);
+
+      const tr2 = document.createElement("tr");
+      const td2_1 = document.createElement("td");
+      td2_1.style.border = "none";
+      td2_1.style.padding = "4px 0";
+      td2_1.style.verticalAlign = "bottom";
+      td2_1.innerHTML = `Class : ${config.classLevel || ""} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Roll No.: <span style="border-bottom:1px solid #000; width:80px; display:inline-block;">&nbsp;</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date : <span style="border-bottom:1px solid #000; width:100px; display:inline-block;">&nbsp;</span>`;
+
+      const td2_2 = document.createElement("td");
+      td2_2.style.border = "none";
+      td2_2.style.padding = "4px 0";
+      td2_2.style.textAlign = "right";
+      td2_2.style.verticalAlign = "bottom";
+      td2_2.style.width = "250px";
+      td2_2.innerHTML = `Sign. of Invigilator : <span style="border-bottom:1px solid #000; width:80px; display:inline-block;">&nbsp;</span>`;
+
+      tr2.appendChild(td2_1);
+      tr2.appendChild(td2_2);
+
+      metaTable.appendChild(tr1);
+      metaTable.appendChild(tr2);
+
+      metaWrapper.replaceWith(metaTable);
+    }
+  }
+
+  // 4. Convert question columns (if 2 columns) to tables
+  clone.querySelectorAll(".paper-question-grid").forEach((gridNode) => {
+    const colCount = Number(gridNode.getAttribute("data-column-count") || "1");
+    if (colCount !== 2) {
+      (gridNode as HTMLElement).style.display = "block";
+      (gridNode as HTMLElement).style.width = "100%";
+      return;
+    }
+
+    const questions = Array.from(gridNode.children).filter(
+      (child) => !child.classList.contains("paper-column-divider")
+    ) as HTMLElement[];
+
+    const table = document.createElement("table");
+    table.className = "question-grid-table";
+    table.style.width = "100%";
+    table.style.borderCollapse = "collapse";
+    table.style.border = "none";
+    table.setAttribute("border", "0");
+    table.setAttribute("cellpadding", "0");
+    table.setAttribute("cellspacing", "0");
+
+    const tbody = document.createElement("tbody");
+
+    for (let i = 0; i < questions.length; i += 2) {
+      const tr = document.createElement("tr");
+
+      const td1 = document.createElement("td");
+      td1.className = "column-divider-cell";
+      td1.style.width = "50%";
+      td1.style.verticalAlign = "top";
+      td1.style.padding = "0 10px 10px 0";
+      td1.style.border = "none";
+      td1.style.borderRight = "1px solid #000";
+      td1.innerHTML = questions[i]?.outerHTML || "";
+
+      const td2 = document.createElement("td");
+      td2.style.width = "50%";
+      td2.style.verticalAlign = "top";
+      td2.style.padding = "0 0 10px 10px";
+      td2.style.border = "none";
+      td2.innerHTML = questions[i + 1]?.outerHTML || "";
+
+      tr.appendChild(td1);
+      tr.appendChild(td2);
+      tbody.appendChild(tr);
+    }
+
+    table.appendChild(tbody);
+    gridNode.replaceWith(table);
+  });
+
+  // 5. Convert MCQ options to tables
   clone.querySelectorAll(".options").forEach((optionsNode) => {
     const children = Array.from(optionsNode.children) as HTMLElement[];
     if (children.length === 0) return;
@@ -1270,6 +1537,8 @@ export const exportAsWord = (config: any) => {
     table.style.width = "100%";
     table.style.borderCollapse = "collapse";
     table.style.tableLayout = "fixed";
+    table.setAttribute("border", "0");
+    table.style.border = "none";
     const tbody = document.createElement("tbody");
 
     for (let i = 0; i < children.length; i += columns) {
@@ -1293,6 +1562,7 @@ export const exportAsWord = (config: any) => {
     optionsNode.replaceWith(table);
   });
 
+  // 6. Convert answers row to tables
   clone.querySelectorAll("span").forEach((spanNode) => {
     const labelText = (spanNode.textContent || "").trim();
     if (!/^answer\s*:\s*$/i.test(labelText)) return;
@@ -1302,6 +1572,10 @@ export const exportAsWord = (config: any) => {
 
     const answerTable = document.createElement("table");
     answerTable.className = "answer-table";
+    answerTable.setAttribute("border", "0");
+    answerTable.setAttribute("cellpadding", "0");
+    answerTable.setAttribute("cellspacing", "0");
+    answerTable.style.border = "none";
 
     const tbody = document.createElement("tbody");
     const tr = document.createElement("tr");
@@ -1353,6 +1627,20 @@ export const exportAsWord = (config: any) => {
         border: 1px solid black;
         padding: 5px;
       }
+      
+      /* Clear borders on layout tables for Word */
+      table.header-table, table.header-table td, table.header-table tr,
+      table.meta-table, table.meta-table td, table.meta-table tr,
+      table.options-table, table.options-table td, table.options-table tr,
+      table.answer-table, table.answer-table td, table.answer-table tr,
+      table.question-grid-table, table.question-grid-table td {
+        border: none !important;
+      }
+      
+      table.question-grid-table td.column-divider-cell {
+        border-right: 1px solid #000 !important;
+      }
+
       .options {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1368,17 +1656,6 @@ export const exportAsWord = (config: any) => {
       }
       .paper-question-grid {
         position: relative;
-      }
-      .paper-question-grid[data-column-count="2"] .paper-column-divider {
-        display: block;
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 50%;
-        width: 0;
-        border-left: 1px solid #000;
-        transform: translateX(-50%);
-        pointer-events: none;
       }
       .options-table {
         width: 100%;
@@ -1435,6 +1712,13 @@ export const exportAsWord = (config: any) => {
         object-fit: contain;
         border: 1px solid #000;
         padding: 2px;
+      }
+      
+      img.school-logo {
+        border: none !important;
+        padding: 0 !important;
+        max-width: 104px !important;
+        max-height: 104px !important;
       }
 
       .option-media {
