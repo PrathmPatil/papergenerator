@@ -81,6 +81,28 @@ interface Option {
   text: string;
   isCorrect: boolean;
 }
+
+type EditSubQuestionOption = {
+  id: string;
+  text: string;
+  mediaUrl?: string;
+  isCorrect: boolean;
+  imageFile?: File | null;
+  imagePreviewUrl?: string;
+};
+
+type EditSubQuestion = {
+  id: string;
+  type: Exclude<QuestionType, ""> | string;
+  text: string;
+  mediaUrl?: string;
+  correctAnswer: string;
+  marks: string;
+  negativeMarks: string;
+  options: EditSubQuestionOption[];
+  imageFile?: File | null;
+  imagePreviewUrl?: string;
+};
 interface QuestionFilterPayload {
   search?: string;
   classId?: string;
@@ -228,14 +250,18 @@ export default function QuestionBankPage() {
   const [editQuestionOpen, setEditQuestionOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<IQuestion | null>(null);
   const [editQuestionText, setEditQuestionText] = useState("");
+  const [editQuestionParagraph, setEditQuestionParagraph] = useState("");
   const [editQuestionImageFile, setEditQuestionImageFile] = useState<File | null>(null);
   const [editQuestionImagePreviewUrl, setEditQuestionImagePreviewUrl] = useState("");
   const [editQuestionImageUrl, setEditQuestionImageUrl] = useState("");
   const [editOptions, setEditOptions] = useState<IEditOption[]>([]);
+  const [editSubQuestions, setEditSubQuestions] = useState<EditSubQuestion[]>([]);
+  const [editQuestionAnswer, setEditQuestionAnswer] = useState("");
   const [editMarks, setEditMarks] = useState<string>("");
   const [editDifficulty, setEditDifficulty] = useState<DifficultyLevel>("easy");
   const [editTopicId, setEditTopicId] = useState("");
   const [isUpdatingSingle, setIsUpdatingSingle] = useState(false);
+  const [isLoadingEditQuestion, setIsLoadingEditQuestion] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage, setRecordsPerPage] = useState(10);
@@ -1330,9 +1356,120 @@ export default function QuestionBankPage() {
     );
   };
 
-  const handleOpenEditModal = (q: IQuestion) => {
+  const getSubQuestionImageUrl = (q: IQuestion, subQuestionId: string, subQuestion?: ISubQuestion) => {
+    const subIdLower = String(subQuestionId).trim().toLowerCase();
+    const subQuestionImage = q.media?.find(
+      (item) => {
+        const alt = String(item.alt || "").trim().toLowerCase();
+        return (
+          alt === `subquestion_${subIdLower}` ||
+          alt === subIdLower
+        );
+      }
+    );
+    return (
+      subQuestion?.mediaUrl ||
+      (subQuestion as any).url ||
+      subQuestionImage?.url ||
+      ""
+    );
+  };
+
+  const getSubOptionImageUrl = (q: IQuestion, subQuestionId: string, option: IOption, index: number) => {
+    const optionId = String(option.id || String.fromCharCode(65 + index)).trim();
+    const optionIdLower = optionId.toLowerCase();
+    const subIdLower = String(subQuestionId).trim().toLowerCase();
+
+    const subOptionImage = q.media?.find(
+      (item) => {
+        const alt = String(item.alt || "").trim().toLowerCase();
+        return (
+          alt === `suboption_${subIdLower}_${optionIdLower}` ||
+          alt === `suboption_${subIdLower}${optionIdLower}` ||
+          alt === `${subIdLower}_option_${optionIdLower}` ||
+          alt === `${subIdLower}_${optionIdLower}`
+        );
+      }
+    );
+
+    return (
+      option.mediaUrl ||
+      (option as any).image?.url ||
+      (option as any).url ||
+      subOptionImage?.url ||
+      ""
+    );
+  };
+
+  const isGroupedQuestionType = (type?: QuestionType | string) =>
+    type === "paragraph" || type === "image_subquestions";
+
+  const isSimpleAnswerQuestionType = (type?: QuestionType | string) =>
+    type === "short_answer" || type === "long_answer" || type === "true_false";
+
+  const createEmptyEditSubQuestion = (q: IQuestion, index: number, subQuestion?: ISubQuestion): EditSubQuestion => {
+    const optionIds = ["A", "B", "C", "D"];
+    const options = Array.isArray(subQuestion?.options) && subQuestion.options.length > 0
+      ? subQuestion.options.map((option, optionIndex) => ({
+          id: String(option.id || optionIds[optionIndex] || String(optionIndex + 1)),
+          text: String(option.text || ""),
+          mediaUrl: getSubOptionImageUrl(q, subQuestion?.id || `SQ${index + 1}`, option, optionIndex),
+          isCorrect: Boolean(option.isCorrect),
+          imageFile: null,
+          imagePreviewUrl: "",
+        }))
+      : optionIds.map((optionId) => ({
+          id: optionId,
+          text: "",
+          mediaUrl: "",
+          isCorrect: false,
+          imageFile: null,
+          imagePreviewUrl: "",
+        }));
+
+    return {
+      id: String(subQuestion?.id || `SQ${index + 1}`),
+      type: (subQuestion?.type || "mcq_text") as EditSubQuestion["type"],
+      text: String(subQuestion?.text || ""),
+      mediaUrl: getSubQuestionImageUrl(q, subQuestion?.id || `SQ${index + 1}`, subQuestion),
+      correctAnswer: String(subQuestion?.correctAnswer ?? ""),
+      marks: String(subQuestion?.marks ?? 1),
+      negativeMarks: String(subQuestion?.negativeMarks ?? 0),
+      options,
+      imageFile: null,
+      imagePreviewUrl: "",
+    };
+  };
+
+  const resetEditPreviewUrls = () => {
+    if (editQuestionImagePreviewUrl) {
+      URL.revokeObjectURL(editQuestionImagePreviewUrl);
+    }
+
+    editSubQuestions.forEach((subQuestion) => {
+      if (subQuestion.imagePreviewUrl) {
+        URL.revokeObjectURL(subQuestion.imagePreviewUrl);
+      }
+      subQuestion.options.forEach((option) => {
+        if (option.imagePreviewUrl) {
+          URL.revokeObjectURL(option.imagePreviewUrl);
+        }
+      });
+    });
+
+    editOptions.forEach((option) => {
+      if (option.imagePreviewUrl) {
+        URL.revokeObjectURL(option.imagePreviewUrl);
+      }
+    });
+  };
+
+  const populateEditQuestionState = (q: IQuestion) => {
+    resetEditPreviewUrls();
+
     setEditingQuestion(q);
     setEditQuestionText(String(q.text ?? ""));
+    setEditQuestionParagraph(String(q.paragraph ?? ""));
     setEditQuestionImageFile(null);
     setEditQuestionImagePreviewUrl("");
     setEditQuestionImageUrl(getQuestionImageUrl(q));
@@ -1349,6 +1486,12 @@ export default function QuestionBankPage() {
           }))
         : []
     );
+    setEditSubQuestions(
+      Array.isArray(q.subQuestions)
+        ? q.subQuestions.map((subQuestion, index) => createEmptyEditSubQuestion(q, index, subQuestion))
+        : []
+    );
+    setEditQuestionAnswer(String(q.correctAnswer ?? ""));
     setEditMarks(String(q.marks ?? ""));
     setEditDifficulty((q.difficulty as DifficultyLevel) || "easy");
     const topicId = String(q.topicId || "");
@@ -1363,7 +1506,30 @@ export default function QuestionBankPage() {
       );
     });
     setEditTopicId(String(topic?._id || topic?.id || topicId));
-    setEditQuestionOpen(true);
+  };
+
+  const handleOpenEditModal = async (q: IQuestion) => {
+    if (!q._id) {
+      showInfo({ title: "Missing question", description: "Question id is missing.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setIsLoadingEditQuestion(true);
+      const res: any = await getQuestionByIdApi(q._id);
+      if (!res?.success || !res?.question) {
+        showInfo({ title: "Load failed", description: res?.message || "Unable to load question details.", variant: "destructive" });
+        return;
+      }
+
+      populateEditQuestionState(res.question as IQuestion);
+      setEditQuestionOpen(true);
+    } catch (error) {
+      console.error("Failed to load question for editing", error);
+      showInfo({ title: "Load failed", description: "Unable to load question details.", variant: "destructive" });
+    } finally {
+      setIsLoadingEditQuestion(false);
+    }
   };
 
   const handleEditOptionTextChange = (optionIndex: number, text: string) => {
@@ -1380,6 +1546,101 @@ export default function QuestionBankPage() {
           : option
       )
     );
+  };
+
+  const handleEditSubQuestionImageChange = (subQuestionIndex: number, file?: File | null) => {
+    if (!file) return;
+
+    updateEditSubQuestion(subQuestionIndex, (subQuestion) => {
+      if (subQuestion.imagePreviewUrl) {
+        URL.revokeObjectURL(subQuestion.imagePreviewUrl);
+      }
+
+      return {
+        ...subQuestion,
+        mediaUrl: "",
+        imageFile: file,
+        imagePreviewUrl: URL.createObjectURL(file),
+      };
+    });
+  };
+
+  const handleEditSubQuestionRemoveImage = (subQuestionIndex: number) => {
+    updateEditSubQuestion(subQuestionIndex, (subQuestion) => {
+      if (subQuestion.imagePreviewUrl) {
+        URL.revokeObjectURL(subQuestion.imagePreviewUrl);
+      }
+
+      return {
+        ...subQuestion,
+        mediaUrl: "",
+        imageFile: null,
+        imagePreviewUrl: "",
+      };
+    });
+  };
+
+  const handleEditSubQuestionUseExistingImage = (subQuestionIndex: number) => {
+    updateEditSubQuestion(subQuestionIndex, (subQuestion) => {
+      if (subQuestion.imagePreviewUrl) {
+        URL.revokeObjectURL(subQuestion.imagePreviewUrl);
+      }
+
+      return {
+        ...subQuestion,
+        imageFile: null,
+        imagePreviewUrl: "",
+      };
+    });
+  };
+
+  const handleEditSubQuestionOptionTextChange = (subQuestionIndex: number, optionIndex: number, text: string) => {
+    updateEditSubQuestionOption(subQuestionIndex, optionIndex, (option) => ({
+      ...option,
+      text,
+      ...(text.trim() ? { mediaUrl: "", imageFile: null, imagePreviewUrl: "" } : {}),
+    }));
+  };
+
+  const handleEditSubQuestionOptionImageChange = (
+    subQuestionIndex: number,
+    optionIndex: number,
+    file?: File | null
+  ) => {
+    if (!file) return;
+
+    updateEditSubQuestionOption(subQuestionIndex, optionIndex, (option) => {
+      if (option.imagePreviewUrl) {
+        URL.revokeObjectURL(option.imagePreviewUrl);
+      }
+
+      return {
+        ...option,
+        text: "",
+        mediaUrl: "",
+        imageFile: file,
+        imagePreviewUrl: URL.createObjectURL(file),
+      };
+    });
+  };
+
+  const handleEditSubQuestionOptionRemoveImage = (subQuestionIndex: number, optionIndex: number) => {
+    updateEditSubQuestionOption(subQuestionIndex, optionIndex, (option) => {
+      if (option.imagePreviewUrl) {
+        URL.revokeObjectURL(option.imagePreviewUrl);
+      }
+
+      return {
+        ...option,
+        mediaUrl: "",
+        imageFile: null,
+        imagePreviewUrl: "",
+      };
+    });
+  };
+
+  const handleEditSubQuestionOptionUseText = (subQuestionIndex: number, optionIndex: number) => {
+    handleEditSubQuestionOptionRemoveImage(subQuestionIndex, optionIndex);
   };
 
   const handleEditQuestionImageChange = (file?: File | null) => {
@@ -1453,6 +1714,78 @@ export default function QuestionBankPage() {
     );
   };
 
+  const addEditSubQuestion = () => {
+    setEditSubQuestions((prev) => [...prev, createEmptyEditSubQuestion(editingQuestion || ({} as any), prev.length)]);
+  };
+
+  const removeEditSubQuestion = (index: number) => {
+    setEditSubQuestions((prev) => (prev.length <= 1 ? prev : prev.filter((_, itemIndex) => itemIndex !== index)));
+  };
+
+  const updateEditSubQuestion = (index: number, updater: (subQuestion: EditSubQuestion) => EditSubQuestion) => {
+    setEditSubQuestions((prev) => prev.map((subQuestion, itemIndex) => (itemIndex === index ? updater(subQuestion) : subQuestion)));
+  };
+
+  const updateEditSubQuestionField = (index: number, field: keyof EditSubQuestion, value: string) => {
+    updateEditSubQuestion(index, (subQuestion) => ({ ...subQuestion, [field]: value }));
+  };
+
+  const updateEditSubQuestionType = (index: number, type: EditSubQuestion["type"]) => {
+    updateEditSubQuestion(index, (subQuestion) => ({
+      ...subQuestion,
+      type,
+      correctAnswer: type === "mcq_text" ? subQuestion.correctAnswer : subQuestion.correctAnswer,
+      options:
+        type === "mcq_text"
+          ? subQuestion.options.length > 0
+            ? subQuestion.options
+            : ["A", "B", "C", "D"].map((optionId) => ({ id: optionId, text: "", mediaUrl: "", isCorrect: false }))
+          : subQuestion.options,
+    }));
+  };
+
+  const updateEditSubQuestionOption = (
+    subQuestionIndex: number,
+    optionIndex: number,
+    updater: (option: EditSubQuestionOption) => EditSubQuestionOption
+  ) => {
+    updateEditSubQuestion(subQuestionIndex, (subQuestion) => ({
+      ...subQuestion,
+      options: subQuestion.options.map((option, index) => (index === optionIndex ? updater(option) : option)),
+    }));
+  };
+
+  const addEditSubQuestionOption = (subQuestionIndex: number) => {
+    updateEditSubQuestion(subQuestionIndex, (subQuestion) => {
+      const nextId = String.fromCharCode(65 + subQuestion.options.length);
+      return {
+        ...subQuestion,
+        options: [...subQuestion.options, { id: nextId, text: "", mediaUrl: "", isCorrect: false }],
+      };
+    });
+  };
+
+  const removeEditSubQuestionOption = (subQuestionIndex: number, optionIndex: number) => {
+    updateEditSubQuestion(subQuestionIndex, (subQuestion) => {
+      if (subQuestion.options.length <= 2) return subQuestion;
+      return {
+        ...subQuestion,
+        options: subQuestion.options.filter((_, index) => index !== optionIndex),
+      };
+    });
+  };
+
+  const markEditSubQuestionCorrectOption = (subQuestionIndex: number, optionIndex: number) => {
+    updateEditSubQuestion(subQuestionIndex, (subQuestion) => ({
+      ...subQuestion,
+      options: subQuestion.options.map((option, index) => ({
+        ...option,
+        isCorrect: index === optionIndex,
+      })),
+      correctAnswer: subQuestion.options[optionIndex]?.id || "",
+    }));
+  };
+
   const handleUpdateSingleQuestion = async () => {
     if (!editingQuestion?._id) {
       showInfo({ title: "Missing question", description: "Question id is missing.", variant: "destructive" });
@@ -1468,6 +1801,14 @@ export default function QuestionBankPage() {
     const trimmedQuestionText = editQuestionText.trim();
     if (!trimmedQuestionText) {
       showInfo({ title: "Question text required", description: "Question text is required.", variant: "destructive" });
+      return;
+    }
+
+    const questionType = editingQuestion.type;
+    const normalizedQuestionParagraph = editQuestionParagraph.trim();
+
+    if (questionType === "paragraph" && !normalizedQuestionParagraph) {
+      showInfo({ title: "Paragraph required", description: "Paragraph text is required for paragraph questions.", variant: "destructive" });
       return;
     }
 
@@ -1498,6 +1839,47 @@ export default function QuestionBankPage() {
       return;
     }
 
+    if (isGroupedQuestionType(questionType) && editSubQuestions.length === 0) {
+      showInfo({ title: "Sub-questions required", description: "Add at least one sub-question.", variant: "destructive" });
+      return;
+    }
+
+    const serializedSubQuestions = editSubQuestions.map((subQuestion, index) => {
+      const normalizedType = (subQuestion.type || "mcq_text") as EditSubQuestion["type"];
+      const normalizedSubOptions = (subQuestion.options || []).map((option, optionIndex) => ({
+        id: option.id || String.fromCharCode(65 + optionIndex),
+        text: String(option.text || "").trim(),
+        mediaUrl: option.mediaUrl || "",
+        isCorrect: Boolean(option.isCorrect),
+      }));
+      const correctOption = normalizedSubOptions.find((option) => option.isCorrect);
+
+      return {
+        id: subQuestion.id || `SQ${index + 1}`,
+        type: normalizedType,
+        text: String(subQuestion.text || "").trim(),
+        mediaUrl: subQuestion.imageFile ? "" : subQuestion.mediaUrl || "",
+        options: normalizedType === "mcq_text" ? normalizedSubOptions : [],
+        correctAnswer:
+          normalizedType === "mcq_text"
+            ? correctOption?.id || ""
+            : String(subQuestion.correctAnswer || "").trim(),
+        marks: Number(subQuestion.marks) || 0,
+        negativeMarks: Number(subQuestion.negativeMarks) || 0,
+      };
+    });
+
+    const simpleAnswerPayload = isSimpleAnswerQuestionType(questionType)
+      ? { correctAnswer: editQuestionAnswer.trim() }
+      : {};
+
+    const groupedQuestionPayload = isGroupedQuestionType(questionType)
+      ? {
+          paragraph: questionType === "paragraph" ? normalizedQuestionParagraph : undefined,
+          subQuestions: serializedSubQuestions,
+        }
+      : {};
+
     try {
       setIsUpdatingSingle(true);
       const updatePayload = {
@@ -1511,10 +1893,18 @@ export default function QuestionBankPage() {
         marks: parsedMarks,
         difficulty: editDifficulty,
         topicId: editTopicId,
+        ...simpleAnswerPayload,
+        ...groupedQuestionPayload,
       };
 
       const hasReplacementImages =
-        Boolean(editQuestionImageFile) || editOptions.some((option) => option.imageFile);
+        Boolean(editQuestionImageFile) ||
+        editOptions.some((option) => option.imageFile) ||
+        editSubQuestions.some(
+          (subQuestion) =>
+            Boolean(subQuestion.imageFile) ||
+            subQuestion.options.some((option) => option.imageFile)
+        );
       let updateRequest: typeof updatePayload | FormData = updatePayload;
 
       if (hasReplacementImages) {
@@ -1528,6 +1918,17 @@ export default function QuestionBankPage() {
             const optionId = option.id || String.fromCharCode(65 + index);
             formData.append("media", option.imageFile, `option_${optionId}`);
           }
+        });
+        editSubQuestions.forEach((subQuestion, subQuestionIndex) => {
+          const subQuestionId = subQuestion.id || `SQ${subQuestionIndex + 1}`;
+          if (subQuestion.imageFile) {
+            formData.append("media", subQuestion.imageFile, `subquestion_${subQuestionId}`);
+          }
+          subQuestion.options.forEach((option, optionIndex) => {
+            if (!option.imageFile) return;
+            const optionId = option.id || String.fromCharCode(65 + optionIndex);
+            formData.append("media", option.imageFile, `suboption_${subQuestionId}_${optionId}`);
+          });
         });
         updateRequest = formData;
       }
@@ -2296,16 +2697,26 @@ export default function QuestionBankPage() {
 
                 {/* QUESTION IMAGES */}
                 <div className="flex flex-wrap gap-3">
-                  {selectedQuestion.media
-                    ?.filter((m) => !m.alt?.toLowerCase().startsWith("option_"))
-                    .map((img) => (
+                  {selectedQuestion.media && selectedQuestion.media.length > 0 ? (
+                    selectedQuestion.media
+                      ?.filter((m) => !m.alt?.toLowerCase().startsWith("option_"))
+                      .map((img) => (
+                        <img
+                          key={img._id || img.url || "question-media"}
+                          src={/^(data:|https?:\/\/)/.test(String(img.url || "")) ? img.url : `${baseURL || ""}${img.url || ""}`}
+                          alt={img.alt}
+                          className="max-h-40 rounded border"
+                        />
+                      ))
+                  ) : (
+                    getQuestionImageUrl(selectedQuestion) && (
                       <img
-                        key={img._id || img.url || "question-media"}
-                        src={/^(data:|https?:\/\/)/.test(String(img.url || "")) ? img.url : `${baseURL || ""}${img.url || ""}`}
-                        alt={img.alt}
+                        src={getDisplayMediaSrc(getQuestionImageUrl(selectedQuestion))}
+                        alt="Question"
                         className="max-h-40 rounded border"
                       />
-                    ))}
+                    )
+                  )}
                 </div>
               </div>
 
@@ -2370,6 +2781,15 @@ export default function QuestionBankPage() {
                       : "Instruction"}
                   </h3>
                   <p>{selectedQuestion.paragraph || selectedQuestion.text}</p>
+                  {selectedQuestion.type === "image_subquestions" && getQuestionImageUrl(selectedQuestion) && (
+                    <div className="mt-3 overflow-hidden rounded border bg-background p-2 max-w-2xl">
+                      <img
+                        src={getDisplayMediaSrc(getQuestionImageUrl(selectedQuestion))}
+                        alt="Instruction Image"
+                        className="max-h-80 rounded object-contain"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2392,12 +2812,22 @@ export default function QuestionBankPage() {
                           </span>
                         </div>
 
+                        {getSubQuestionImageUrl(selectedQuestion, sq.id || `SQ${index + 1}`, sq) && (
+                          <div className="overflow-hidden rounded border bg-background p-2">
+                            <img
+                              src={getDisplayMediaSrc(getSubQuestionImageUrl(selectedQuestion, sq.id || `SQ${index + 1}`, sq))}
+                              alt={sq.text || `Sub-question ${index + 1}`}
+                              className="max-h-56 w-full rounded object-contain"
+                            />
+                          </div>
+                        )}
+
                         {/* SUB MCQ */}
-                        {sq.type === "mcq_text" && (sq.options || []).length > 0 && (
+                        {(sq.type === "mcq_text" || sq.type === "mcq_image" || sq.type === "mcq") && (sq.options || []).length > 0 && (
                           <ul className="space-y-2">
                             {(sq.options || []).map((opt, optIndex) => {
                               const subOptionImageUrl = getDisplayMediaSrc(
-                                (opt as any).mediaUrl || (opt as any).image?.url || (opt as any).url || ""
+                                getSubOptionImageUrl(selectedQuestion, sq.id || `SQ${index + 1}`, opt, optIndex)
                               );
 
                               return (
@@ -2543,26 +2973,44 @@ export default function QuestionBankPage() {
 
       {/* SINGLE EDIT MODAL */}
       <Dialog open={editQuestionOpen} onOpenChange={setEditQuestionOpen}>
-        <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Edit Question</DialogTitle>
             <DialogDescription>
-              Edit question text, topic, marks, and difficulty for selected question.
+              Edit the question text, topic, marks, difficulty, and type-specific content for the selected question.
             </DialogDescription>
           </DialogHeader>
 
           <div className="min-w-0 space-y-4">
+            {isLoadingEditQuestion && (
+              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
+                Loading question details...
+              </div>
+            )}
+
             <div className="min-w-0">
-              <label className="text-sm font-medium">Question Text</label>
+              <label className="text-sm font-medium">{isGroupedQuestionType(editingQuestion?.type) || isSimpleAnswerQuestionType(editingQuestion?.type) ? "Instruction / Question Text" : "Question Text"}</label>
               <Textarea
                 value={editQuestionText}
                 onChange={(e) => setEditQuestionText(e.target.value)}
-                placeholder="Enter question text"
+                placeholder={isGroupedQuestionType(editingQuestion?.type) ? "Enter the instruction for this question set" : "Enter question text"}
                 className="min-h-[120px] break-words"
               />
             </div>
 
-            {(editingQuestion?.type === "mcq_image" || editQuestionImageUrl || editQuestionImagePreviewUrl) && (
+            {editingQuestion?.type === "paragraph" && (
+              <div className="min-w-0 space-y-2">
+                <label className="text-sm font-medium">Paragraph / Passage</label>
+                <Textarea
+                  value={editQuestionParagraph}
+                  onChange={(e) => setEditQuestionParagraph(e.target.value)}
+                  placeholder="Enter the full paragraph or passage"
+                  className="min-h-[180px] break-words"
+                />
+              </div>
+            )}
+
+            {(editingQuestion?.type === "mcq_image" || editingQuestion?.type === "image_subquestions" || editQuestionImageUrl || editQuestionImagePreviewUrl) && (
               <div className="min-w-0 space-y-2">
                 <label className="text-sm font-medium">Question Image</label>
                 {(editQuestionImagePreviewUrl || editQuestionImageUrl) ? (
@@ -2592,6 +3040,266 @@ export default function QuestionBankPage() {
                     onChange={(e) => handleEditQuestionImageChange(e.target.files?.[0] || null)}
                   />
                 )}
+              </div>
+            )}
+
+            {isSimpleAnswerQuestionType(editingQuestion?.type) && (
+              <div className="min-w-0 space-y-2">
+                <label className="text-sm font-medium">Correct Answer</label>
+                <Textarea
+                  value={editQuestionAnswer}
+                  onChange={(e) => setEditQuestionAnswer(e.target.value)}
+                  placeholder="Enter the expected answer"
+                  className="min-h-[100px] break-words"
+                />
+              </div>
+            )}
+
+            {isGroupedQuestionType(editingQuestion?.type) && (
+              <div className="min-w-0 space-y-3 rounded-md border bg-muted/20 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-sm font-medium">Sub-Questions</label>
+                  <Button type="button" variant="outline" size="sm" onClick={addEditSubQuestion}>
+                    <Plus className="mr-2 h-4 w-4" /> Add Sub-Question
+                  </Button>
+                </div>
+
+                <div className="space-y-4">
+                  {editSubQuestions.map((subQuestion, subQuestionIndex) => (
+                    <div key={`${subQuestion.id}-${subQuestionIndex}`} className="rounded-md border bg-background p-4 space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-medium">Sub-Question {subQuestionIndex + 1}</div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeEditSubQuestion(subQuestionIndex)}
+                          disabled={editSubQuestions.length <= 1}
+                        >
+                          <Trash className="mr-2 h-4 w-4 text-red-500" /> Remove
+                        </Button>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <label className="text-xs font-medium">Type</label>
+                          <Select
+                            value={subQuestion.type}
+                            onValueChange={(value) => updateEditSubQuestionType(subQuestionIndex, value as EditSubQuestion["type"])}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="mcq_text">MCQ</SelectItem>
+                              <SelectItem value="short_answer">Short Answer</SelectItem>
+                              <SelectItem value="long_answer">Long Answer</SelectItem>
+                              <SelectItem value="true_false">True / False</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Marks</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={subQuestion.marks}
+                            onChange={(e) => updateEditSubQuestionField(subQuestionIndex, "marks", e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium">Negative Marks</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={subQuestion.negativeMarks}
+                            onChange={(e) => updateEditSubQuestionField(subQuestionIndex, "negativeMarks", e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium">Question Text</label>
+                        <Textarea
+                          value={subQuestion.text}
+                          onChange={(e) => updateEditSubQuestionField(subQuestionIndex, "text", e.target.value)}
+                          className="min-h-[100px] break-words"
+                          placeholder="Enter sub-question text"
+                        />
+                      </div>
+
+                      {editingQuestion?.type === "image_subquestions" && (
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium">Sub-Question Image</label>
+                          {(subQuestion.imagePreviewUrl || subQuestion.mediaUrl) ? (
+                            <div className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-start">
+                              <img
+                                src={subQuestion.imagePreviewUrl || getDisplayMediaSrc(subQuestion.mediaUrl)}
+                                alt={subQuestion.text || `Sub-question ${subQuestionIndex + 1}`}
+                                className="max-h-36 w-full max-w-[220px] rounded border object-contain"
+                              />
+                              <div className="space-y-3">
+                                <p className="break-words text-xs text-muted-foreground">
+                                  {subQuestion.imageFile ? subQuestion.imageFile.name : "Current sub-question image"}
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-auto whitespace-normal text-left"
+                                    onClick={() => handleEditSubQuestionRemoveImage(subQuestionIndex)}
+                                  >
+                                    <Trash className="mr-2 h-4 w-4" />
+                                    Remove image
+                                  </Button>
+                                  <label
+                                    htmlFor={`edit-subquestion-image-${subQuestion.id || subQuestionIndex}`}
+                                    className="inline-flex min-h-9 cursor-pointer items-center justify-center whitespace-normal rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                                  >
+                                    <ImageIcon className="mr-2 h-4 w-4" />
+                                    Replace image
+                                  </label>
+                                  <Input
+                                    id={`edit-subquestion-image-${subQuestion.id || subQuestionIndex}`}
+                                    type="file"
+                                    accept="image/*"
+                                    className="sr-only"
+                                    onChange={(e) => handleEditSubQuestionImageChange(subQuestionIndex, e.target.files?.[0] || null)}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-auto whitespace-normal text-left"
+                                    onClick={() => handleEditSubQuestionUseExistingImage(subQuestionIndex)}
+                                  >
+                                    Keep current image
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <Input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => handleEditSubQuestionImageChange(subQuestionIndex, e.target.files?.[0] || null)}
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      {subQuestion.type === "mcq_text" ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <label className="text-xs font-medium">Options</label>
+                            <Button type="button" variant="outline" size="sm" onClick={() => addEditSubQuestionOption(subQuestionIndex)}>
+                              <Plus className="mr-2 h-4 w-4" /> Add Option
+                            </Button>
+                          </div>
+
+                          <div className="space-y-2">
+                            {subQuestion.options.map((option, optionIndex) => (
+                              <div key={`${subQuestion.id}-${option.id}-${optionIndex}`} className="grid gap-2 rounded-md border p-3">
+                                <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+                                  <Checkbox
+                                    checked={Boolean(option.isCorrect)}
+                                    onCheckedChange={() => markEditSubQuestionCorrectOption(subQuestionIndex, optionIndex)}
+                                    aria-label={`Mark option ${option.id} as correct`}
+                                  />
+                                  <Input
+                                    value={option.text}
+                                    onChange={(e) => handleEditSubQuestionOptionTextChange(subQuestionIndex, optionIndex, e.target.value)}
+                                    placeholder={`Option ${option.id}`}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => removeEditSubQuestionOption(subQuestionIndex, optionIndex)}
+                                    disabled={subQuestion.options.length <= 2}
+                                  >
+                                    <Trash className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </div>
+
+                                {(option.imagePreviewUrl || option.mediaUrl) ? (
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                                    <img
+                                      src={option.imagePreviewUrl || getDisplayMediaSrc(option.mediaUrl)}
+                                      alt={`Option ${option.id}`}
+                                      className="h-24 w-full max-w-[180px] rounded border object-contain"
+                                    />
+                                    <div className="space-y-2">
+                                      <p className="break-words text-xs text-muted-foreground">
+                                        {option.imageFile ? option.imageFile.name : "Current option image"}
+                                      </p>
+                                      <div className="flex flex-wrap gap-2">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-auto whitespace-normal text-left"
+                                          onClick={() => handleEditSubQuestionOptionRemoveImage(subQuestionIndex, optionIndex)}
+                                        >
+                                          <Trash className="mr-2 h-4 w-4" />
+                                          Remove image
+                                        </Button>
+                                        <label
+                                          htmlFor={`edit-subquestion-option-image-${subQuestion.id || subQuestionIndex}-${option.id || optionIndex}`}
+                                          className="inline-flex min-h-9 cursor-pointer items-center justify-center whitespace-normal rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                                        >
+                                          <ImageIcon className="mr-2 h-4 w-4" />
+                                          Replace image
+                                        </label>
+                                        <Input
+                                          id={`edit-subquestion-option-image-${subQuestion.id || subQuestionIndex}-${option.id || optionIndex}`}
+                                          type="file"
+                                          accept="image/*"
+                                          className="sr-only"
+                                          onChange={(e) => handleEditSubQuestionOptionImageChange(subQuestionIndex, optionIndex, e.target.files?.[0] || null)}
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-auto whitespace-normal text-left"
+                                          onClick={() => handleEditSubQuestionOptionUseText(subQuestionIndex, optionIndex)}
+                                        >
+                                          Replace with text
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                      id={`edit-subquestion-option-image-${subQuestion.id || subQuestionIndex}-${option.id || optionIndex}`}
+                                      type="file"
+                                      accept="image/*"
+                                      className="min-w-0"
+                                      onChange={(e) => handleEditSubQuestionOptionImageChange(subQuestionIndex, optionIndex, e.target.files?.[0] || null)}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="text-xs font-medium">Correct Answer</label>
+                          <Input
+                            value={subQuestion.correctAnswer}
+                            onChange={(e) => updateEditSubQuestionField(subQuestionIndex, "correctAnswer", e.target.value)}
+                            placeholder="Enter the answer"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
