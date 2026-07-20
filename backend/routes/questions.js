@@ -82,6 +82,7 @@ import {
 } from "../utils/questionUpdateValidation.js";
 import { buildQuestionListSortOptions } from "../utils/questionListSort.js";
 import { sanitizeQuestionsForList } from "../utils/questionListResponse.js";
+import { computeSelectionStats } from "../utils/selectionStats.js";
 import XLSX from "xlsx";
 import unzipper from "unzipper";
 
@@ -1316,6 +1317,7 @@ router.post("/", async (req, res) => {
       page = 1,
       limit = 10,
       selectedQuestions = [],
+      topicDistributions = [],
     } = req.body;
 
     const filter = await buildQuestionFilterFromPayload({
@@ -1335,74 +1337,108 @@ router.post("/", async (req, res) => {
     const listFields =
       "type classId subjectId topicId text marks negativeMarks difficulty usageCount lastUsedAt createdAt correctAnswer options subQuestions needsReview isDeleted";
 
-    let selectedQuestionDocs = [];
-    let remainingQuestions = [];
-
-    // ======================================================
-    // 1️⃣ FETCH SELECTED QUESTIONS FIRST (NO PAGINATION)
-    // ======================================================
-    if (selectedQuestions.length > 0) {
-      selectedQuestionDocs = await Question.find({
-        ...filter,
-        _id: { $in: selectedQuestions },
-      })
-        .select(listFields)
-        .lean();
-      // Preserve order of selectedQuestions array
-      const map = new Map(
-        selectedQuestionDocs.map((q) => [q._id.toString(), q]),
-      );
-
-      selectedQuestionDocs = selectedQuestions
-        .map((id) => map.get(id))
-        .filter(Boolean);
-    }
-
-    // ======================================================
-    // 2️⃣ FETCH REMAINING QUESTIONS (EXCLUDING SELECTED)
-    // ======================================================
-    const remainingFilter = {
-      ...filter,
-      ...(selectedQuestions.length && {
-        _id: { $nin: selectedQuestions },
-      }),
-    };
+    const selectedIds = Array.isArray(selectedQuestions)
+      ? selectedQuestions.map((id) => String(id)).filter(Boolean)
+      : [];
 
     const questionListSort = buildQuestionListSortOptions();
 
-    const [remainingDocs, totalRemaining] = await Promise.all([
-      Question.find(remainingFilter)
+    // Selected first (preserve client order), then remaining — paginate the COMBINED list
+    // so limit:10 never returns all selected + another full page.
+    let orderedSelected = [];
+    if (selectedIds.length > 0) {
+      const selectedDocs = await Question.find({
+        ...filter,
+        _id: { $in: selectedIds },
+      })
+        .select(listFields)
+        .lean();
+
+      const map = new Map(selectedDocs.map((q) => [q._id.toString(), q]));
+      orderedSelected = selectedIds.map((id) => map.get(id)).filter(Boolean);
+    }
+
+    const remainingFilter = {
+      ...filter,
+      ...(orderedSelected.length > 0 && {
+        _id: { $nin: orderedSelected.map((q) => q._id) },
+      }),
+    };
+
+    const selectedCount = orderedSelected.length;
+    const totalRemaining = await Question.countDocuments(remainingFilter);
+    const totalRecords = selectedCount + totalRemaining;
+
+    let pageDocs = [];
+
+    if (skip < selectedCount) {
+      const selectedSlice = orderedSelected.slice(skip, skip + pageSize);
+      const remainingNeeded = pageSize - selectedSlice.length;
+
+      let remainingDocs = [];
+      if (remainingNeeded > 0) {
+        remainingDocs = await Question.find(remainingFilter)
+          .select(listFields)
+          .sort(questionListSort)
+          .skip(0)
+          .limit(remainingNeeded)
+          .lean();
+      }
+
+      pageDocs = [...selectedSlice, ...remainingDocs];
+    } else {
+      const remainingSkip = skip - selectedCount;
+      pageDocs = await Question.find(remainingFilter)
         .select(listFields)
         .sort(questionListSort)
-        .skip(skip)
+        .skip(remainingSkip)
         .limit(pageSize)
-        .lean(),
+        .lean();
+    }
 
-      Question.countDocuments(remainingFilter),
-    ]);
+    const questions = sanitizeQuestionsForList(pageDocs);
 
-    remainingQuestions = remainingDocs;
-
-    // ======================================================
-    // 3️⃣ MERGE RESULT
-    // ======================================================
-    const questions = sanitizeQuestionsForList([
-      ...selectedQuestionDocs,
-      ...remainingQuestions,
-    ]);
+    // Full selected-marks total from DB (all selected IDs), independent of current page
+    const selectionStats = await computeSelectionStats(
+      selectedIds,
+      topicDistributions
+    );
 
     res.json({
       success: true,
       questions,
       count: questions.length,
-      selectedCount: selectedQuestionDocs.length,
-      totalRecords: totalRemaining + selectedQuestionDocs.length,
+      selectedCount,
+      totalRecords,
       currentPage,
-      totalPages: Math.ceil((totalRemaining + selectedQuestionDocs.length) / pageSize),
+      totalPages: Math.max(1, Math.ceil(totalRecords / pageSize) || 1),
+      selectionStats,
     });
   } catch (err) {
     console.error("❌ QUESTION FETCH ERROR:", err);
     res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      details: err.message,
+    });
+  }
+});
+
+router.post("/selection-stats", async (req, res) => {
+  try {
+    const { selectedQuestions = [], topicDistributions = [] } = req.body || {};
+    const selectionStats = await computeSelectionStats(
+      selectedQuestions,
+      topicDistributions
+    );
+
+    return res.json({
+      success: true,
+      selectionStats,
+    });
+  } catch (err) {
+    console.error("❌ SELECTION STATS ERROR:", err);
+    return res.status(500).json({
       success: false,
       error: "Internal Server Error",
       details: err.message,

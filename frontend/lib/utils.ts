@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { getClassNameById } from '@/lib/data'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -19,6 +20,18 @@ export function formatTopicTitle(value: string) {
     .join(" ")
 }
 
+/** Resolve internal class keys (e.g. class_3) to client-facing labels (Class 3). */
+export function formatClassLabel(value: unknown) {
+  const raw = String(value || "").trim()
+  if (!raw) return "-"
+  const fromCatalog = getClassNameById(raw)
+  if (fromCatalog && fromCatalog !== "Unknown Class") return fromCatalog
+  // Fallback: class_3 -> Class 3, jkg -> JKG
+  if (/^class_\d+$/i.test(raw)) {
+    return `Class ${raw.split("_")[1]}`
+  }
+  return raw.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
 export function mapPaperToPreviewConfig(paper: any) {
   const snapshots = Array.isArray(paper?.questionsSnapshot)
@@ -27,7 +40,8 @@ export function mapPaperToPreviewConfig(paper: any) {
 
   return {
     title: paper.title,
-    classLevel: paper.classId,
+    classLevel: formatClassLabel(paper.classId || paper.classLevel),
+    classId: paper.classId || "",
     durationMinutes: paper.durationMinutes,
     totalMarks: paper.totalMarks,
     negativeMarking: true,
@@ -48,10 +62,12 @@ export function mapPaperToPreviewConfig(paper: any) {
           subQuestions: Array.isArray(q?.subQuestions) ? q.subQuestions : [],
           options: Array.isArray(q?.options) ? q.options : [],
           media: Array.isArray(q?.media) ? q.media : [],
+          marks: Math.max(0, Number(q?.marks || 0)),
+          negativeMarks: Math.max(0, Number(q?.negativeMarks || 0)),
         }))
 
       const positiveMarks = sectionQuestions.reduce(
-        (sum: number, q: any) => sum + (q.marks || 1),
+        (sum: number, q: any) => sum + (q.marks || 0),
         0
       )
 
@@ -63,7 +79,7 @@ export function mapPaperToPreviewConfig(paper: any) {
       return {
         id: section.id,
         name: section.name,
-        marks: positiveMarks,
+        marks: positiveMarks || Number(section.marks || 0),
         questionCount: sectionQuestions.length,
         positiveMarks,
         negativeMarks,
@@ -73,3 +89,4 @@ export function mapPaperToPreviewConfig(paper: any) {
     }),
   }
 }
+

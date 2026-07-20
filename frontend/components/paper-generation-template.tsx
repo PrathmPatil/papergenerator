@@ -10,7 +10,7 @@ import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import Pagination from "./pagination";
 
-import { fetchAllQuestionsApi } from "@/utils/apis";
+import { fetchAllQuestionsApi, fetchSelectionStatsApi, type SelectionMarksStats } from "@/utils/apis";
 import { getClassNameById, getSubjectNameById } from "@/lib/data";
 import { formatTopicTitle } from "@/lib/utils";
 
@@ -38,6 +38,8 @@ interface SubjectState {
   activeTopicId: string;
   topicPages: Record<string, number>;
   topicTotalPages: Record<string, number>;
+  selectionStats: SelectionMarksStats | null;
+  statsLoading: boolean;
 }
 
 type SelectedMap = Record<string, string[]>;
@@ -137,23 +139,28 @@ export function PaperGenerationTemplate({
   useEffect(() => {
     if (!data?.subjectId) return;
 
-    const initial: Record<string, SubjectState> = {};
-    String(data.subjectId)
-      .split(",")
-      .map((x: string) => x.trim())
-      .filter(Boolean)
-      .forEach((id: string) => {
-        initial[id] = {
-          open: false,
-          loading: false,
-          questions: [],
-          activeTopicId: "",
-          topicPages: {},
-          topicTotalPages: {},
-        };
-      });
-
-    setSubjects(initial);
+    setSubjects((prev) => {
+      const initial: Record<string, SubjectState> = {};
+      String(data.subjectId)
+        .split(",")
+        .map((x: string) => x.trim())
+        .filter(Boolean)
+        .forEach((id: string) => {
+          const existing = prev[id];
+          initial[id] = {
+            open: existing?.open ?? false,
+            loading: false,
+            questions: existing?.questions ?? [],
+            activeTopicId: existing?.activeTopicId ?? "",
+            topicPages: existing?.topicPages ?? {},
+            topicTotalPages: existing?.topicTotalPages ?? {},
+            // Keep previously fetched header stats across template refreshes
+            selectionStats: existing?.selectionStats ?? null,
+            statsLoading: existing?.statsLoading ?? false,
+          };
+        });
+      return initial;
+    });
   }, [data?.subjectId]);
 
   useEffect(() => {
@@ -193,62 +200,140 @@ export function PaperGenerationTemplate({
     return map;
   }, [availableTopics]);
 
-  const questionById = useMemo(() => {
-    const map = new Map<string, IQuestion>();
-    Object.values(subjects).forEach((subjectState) => {
-      subjectState.questions.forEach((q) => {
-        map.set(String(q._id), q);
-      });
-    });
-    return map;
-  }, [subjects]);
-
-  const getSectionSelectionStats = (section: any) => {
-    const sectionId = getSectionId(section);
+  const emptyStats = (section: any): SelectionMarksStats & { hasRules: boolean } => {
     const rules = getSectionRules(section);
-    const selectedIds = selectedQuestions[sectionId] || [];
-
-    if (!rules) {
-      return {
-        totalRequiredMarks: 0,
-        totalSelectedMarks: selectedIds.reduce((sum, qid) => {
-          const q = questionById.get(String(qid));
-          return sum + Math.max(1, Number(q?.marks ?? 1));
-        }, 0),
-        requiredByTopicMarks: {} as Record<string, number>,
-        selectedByTopicMarks: {} as Record<string, number>,
-        hasRules: false,
-      };
-    }
-
     const requiredByTopicMarks: Record<string, number> = {};
-    rules.topicDistributions.forEach((item) => {
-      requiredByTopicMarks[item.topicId] = Math.max(0, Number(item.marks || 0));
+    (rules?.topicDistributions || []).forEach((item) => {
+      requiredByTopicMarks[String(item.topicId)] = Math.max(0, Number(item.marks || 0));
     });
-
-    const selectedByTopicMarks: Record<string, number> = {};
-    selectedIds.forEach((qid) => {
-      const q = questionById.get(String(qid));
-      if (!q?.topicId) return;
-      const mark = Math.max(1, Number(q.marks ?? 1));
-      selectedByTopicMarks[q.topicId] =
-        (selectedByTopicMarks[q.topicId] || 0) + mark;
-    });
-
+    const totalRequiredMarks = Object.values(requiredByTopicMarks).reduce((sum, n) => sum + n, 0);
     return {
-      totalRequiredMarks: Object.values(requiredByTopicMarks).reduce((sum, n) => sum + n, 0),
-      totalSelectedMarks: selectedIds.reduce((sum, qid) => {
-        const q = questionById.get(String(qid));
-        return sum + Math.max(1, Number(q?.marks ?? 1));
-      }, 0),
+      totalSelectedMarks: 0,
+      totalRequiredMarks,
+      selectedByTopicMarks: {},
       requiredByTopicMarks,
-      selectedByTopicMarks,
-      hasRules: true,
+      remainingMarks: totalRequiredMarks,
+      isComplete: false,
+      hasRules: Boolean(rules),
     };
   };
 
-  const getSelectConstraint = (q: IQuestion, section: any) => {
-    const stats = getSectionSelectionStats(section);
+  const getSectionSelectionStats = (section: any, subjectId: string) => {
+    const rules = getSectionRules(section);
+    const backendStats = subjects[subjectId]?.selectionStats;
+    if (!rules) {
+      return { ...emptyStats(section), hasRules: false };
+    }
+
+    if (backendStats) {
+      return {
+        totalSelectedMarks: Number(backendStats.totalSelectedMarks || 0),
+        totalRequiredMarks: Number(backendStats.totalRequiredMarks || 0),
+        selectedByTopicMarks: backendStats.selectedByTopicMarks || {},
+        requiredByTopicMarks: backendStats.requiredByTopicMarks || {},
+        remainingMarks: Number(
+          backendStats.remainingMarks ??
+            Number(backendStats.totalRequiredMarks || 0) - Number(backendStats.totalSelectedMarks || 0)
+        ),
+        isComplete: Boolean(backendStats.isComplete),
+        hasRules: true,
+      };
+    }
+
+    return { ...emptyStats(section), hasRules: true };
+  };
+
+  const refreshSelectionStats = async (subjectId: string, selectedIds: string[]) => {
+    const sec = data?.sections?.find((s: any) => String(s.subjectId) === String(subjectId));
+    const rules = sec ? getSectionRules(sec) : null;
+
+    setSubjects((p) => {
+      if (!p[subjectId]) return p;
+      return {
+        ...p,
+        [subjectId]: { ...p[subjectId], statsLoading: true },
+      };
+    });
+
+    try {
+      const res = await fetchSelectionStatsApi({
+        selectedQuestions: selectedIds,
+        topicDistributions: rules?.topicDistributions || [],
+      });
+
+      if (res?.success && res.selectionStats) {
+        setSubjects((p) => {
+          if (!p[subjectId]) return p;
+          return {
+            ...p,
+            [subjectId]: {
+              ...p[subjectId],
+              selectionStats: res.selectionStats,
+              statsLoading: false,
+            },
+          };
+        });
+      } else {
+        setSubjects((p) => {
+          if (!p[subjectId]) return p;
+          return {
+            ...p,
+            [subjectId]: { ...p[subjectId], statsLoading: false },
+          };
+        });
+      }
+    } catch (error) {
+      console.error("Failed to refresh selection stats", error);
+      setSubjects((p) => {
+        if (!p[subjectId]) return p;
+        return {
+          ...p,
+          [subjectId]: { ...p[subjectId], statsLoading: false },
+        };
+      });
+    }
+  };
+
+  // Load selected/target marks for collapsed headers (do not wait for accordion open)
+  const subjectsReadyKey = Object.keys(subjects).sort().join(",");
+  const selectionStatsKey = useMemo(() => {
+    if (!data?.sections?.length) return "";
+    return JSON.stringify(
+      (data.sections as any[]).map((sec) => ({
+        subjectId: String(sec?.subjectId || ""),
+        sectionId: getSectionId(sec),
+        selected: selectedQuestions[getSectionId(sec)] || [],
+        rules: getSectionRules(sec)?.topicDistributions || [],
+      }))
+    );
+  }, [data?.sections, selectedQuestions]);
+
+  useEffect(() => {
+    if (!selectionStatsKey || !subjectsReadyKey) return;
+
+    const subjectIds = String(data?.subjectId || "")
+      .split(",")
+      .map((x: string) => x.trim())
+      .filter(Boolean);
+
+    subjectIds.forEach((subjectId) => {
+      if (!subjects[subjectId]) return;
+
+      const sec = data?.sections?.find(
+        (s: any) => String(s.subjectId) === String(subjectId)
+      );
+      if (!sec || !getSectionRules(sec)) return;
+
+      const sectionId = getSectionId(sec);
+      const selectedIds = sectionId ? selectedQuestions[sectionId] || [] : [];
+      void refreshSelectionStats(subjectId, selectedIds);
+    });
+    // refreshSelectionStats closes over latest data/selectedQuestions; key deps gate re-runs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionStatsKey, subjectsReadyKey]);
+
+  const getSelectConstraint = (q: IQuestion, section: any, subjectId: string) => {
+    const stats = getSectionSelectionStats(section, subjectId);
     if (!stats.hasRules) {
       return { allowed: true, reason: "" };
     }
@@ -260,7 +345,7 @@ export function PaperGenerationTemplate({
     }
 
     const selectedForTopicMarks = stats.selectedByTopicMarks[topicId] || 0;
-    const questionMarks = Math.max(1, Number(q.marks ?? 1));
+    const questionMarks = Math.max(0, Number(q.marks ?? 0));
 
     if (selectedForTopicMarks + questionMarks > requiredForTopicMarks) {
       return {
@@ -289,7 +374,7 @@ export function PaperGenerationTemplate({
       (s: any) => String(s.subjectId) === String(subjectId)
     );
     const sectionId = sec ? getSectionId(sec) : "";
-
+    const rules = sec ? getSectionRules(sec) : null;
     const selectedForThisSection = sectionId ? selectedQuestions[sectionId] || [] : [];
 
     const payload: any = {
@@ -300,6 +385,7 @@ export function PaperGenerationTemplate({
       type: data.type,
       difficulty: data.difficulty,
       selectedQuestions: selectedForThisSection,
+      topicDistributions: rules?.topicDistributions || [],
       topicId: activeTopicId,
     };
 
@@ -324,6 +410,8 @@ export function PaperGenerationTemplate({
             ...p[subjectId].topicTotalPages,
             [activeTopicId]: nextTotalPages,
           },
+          selectionStats: res?.selectionStats || p[subjectId].selectionStats,
+          statsLoading: false,
         },
       };
     });
@@ -395,7 +483,7 @@ export function PaperGenerationTemplate({
         const currentPage = state.topicPages[activeTopicId] || 1;
         const totalPages = state.topicTotalPages[activeTopicId] || 1;
         const sectionId = sec ? getSectionId(sec) : "";
-        const stats = sec ? getSectionSelectionStats(sec) : null;
+        const stats = sec ? getSectionSelectionStats(sec, subjectId) : null;
 
         return (
           <Card key={subjectId} className="p-4">
@@ -407,7 +495,18 @@ export function PaperGenerationTemplate({
                 <h2 className="text-lg font-semibold">{getSubjectNameById(subjectId)}</h2>
                 {stats?.hasRules && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    Selected {stats.totalSelectedMarks} / Required {stats.totalRequiredMarks} marks
+                    Questions selected:{" "}
+                    <span className="font-medium text-foreground">{stats.totalSelectedMarks}</span> marks
+                    {" · "}
+                    Target for this section:{" "}
+                    <span className="font-medium text-foreground">{stats.totalRequiredMarks}</span> marks
+                    {state.statsLoading
+                      ? " · Updating…"
+                      : stats.totalSelectedMarks < stats.totalRequiredMarks
+                        ? ` · Still need ${stats.totalRequiredMarks - stats.totalSelectedMarks}`
+                        : stats.totalSelectedMarks === stats.totalRequiredMarks
+                          ? " · Complete"
+                          : ` · Over by ${stats.totalSelectedMarks - stats.totalRequiredMarks}`}
                   </p>
                 )}
               </div>
@@ -453,11 +552,14 @@ export function PaperGenerationTemplate({
                             key={topicId}
                             variant={selected >= required ? "default" : "secondary"}
                           >
-                            {topicNameById.get(topicId) || "Topic"}: {selected}/{required} marks
+                            {topicNameById.get(topicId) || "Topic"}: selected {selected} / target {required}
                           </Badge>
                         );
                       })}
                     </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Selected marks are calculated on the server from all checked questions (same on every page).
+                    </p>
                   </div>
                 )}
 
@@ -470,67 +572,52 @@ export function PaperGenerationTemplate({
                     onCheckedChange={() => {
                       if (!sectionId) return;
 
-                      setSelectedQuestions((prev) => {
-                        const current = prev[sectionId] || [];
+                      const current = selectedQuestions[sectionId] || [];
+                      const allVisibleSelected =
+                        state.questions.length > 0 &&
+                        state.questions.every((qq) => current.includes(qq._id));
 
-                        const allVisibleSelected =
-                          state.questions.length > 0 &&
-                          state.questions.every((qq) => current.includes(qq._id));
+                      let nextIds: string[] = current;
 
-                        if (allVisibleSelected) {
-                          const next = current.filter((id) => !state.questions.some((qq) => qq._id === id));
-                          return { ...prev, [sectionId]: next };
-                        }
-
-                        // Try to add visible questions while respecting section rules
+                      if (allVisibleSelected) {
+                        nextIds = current.filter((id) => !state.questions.some((qq) => qq._id === id));
+                      } else {
                         const rules = getSectionRules(sec);
                         if (!rules) {
                           const set = new Set(current);
                           state.questions.forEach((qq) => qq._id && set.add(qq._id));
-                          return { ...prev, [sectionId]: Array.from(set) };
+                          nextIds = Array.from(set);
+                        } else {
+                          const stats = getSectionSelectionStats(sec, subjectId);
+                          const selectedByTopicMarks = { ...(stats.selectedByTopicMarks || {}) };
+                          let totalSelectedMarks = Number(stats.totalSelectedMarks || 0);
+                          const totalRequiredMarks = Number(stats.totalRequiredMarks || 0);
+                          const snapshot = [...current];
+
+                          for (const qq of state.questions) {
+                            if (!qq._id) continue;
+                            if (snapshot.includes(qq._id)) continue;
+
+                            const topicId = String(qq.topicId || "");
+                            const qMarks = Math.max(0, Number(qq.marks ?? 0));
+                            const requiredForTopic = stats.requiredByTopicMarks[topicId] || 0;
+                            if (!requiredForTopic) continue;
+
+                            const alreadyForTopic = selectedByTopicMarks[topicId] || 0;
+                            if (alreadyForTopic + qMarks > requiredForTopic) continue;
+                            if (totalSelectedMarks + qMarks > totalRequiredMarks) continue;
+
+                            snapshot.push(qq._id);
+                            selectedByTopicMarks[topicId] = alreadyForTopic + qMarks;
+                            totalSelectedMarks += qMarks;
+                          }
+
+                          nextIds = snapshot;
                         }
+                      }
 
-                        const requiredByTopicMarks: Record<string, number> = {};
-                        rules.topicDistributions.forEach((item) => {
-                          requiredByTopicMarks[item.topicId] = Math.max(0, Number(item.marks || 0));
-                        });
-
-                        let totalRequiredMarks = Object.values(requiredByTopicMarks).reduce((s, n) => s + n, 0);
-
-                        const selectedByTopicMarks: Record<string, number> = {};
-                        let totalSelectedMarks = 0;
-
-                        const snapshot = [...current];
-                        snapshot.forEach((id) => {
-                          const qq = questionById.get(String(id));
-                          if (!qq?.topicId) return;
-                          const m = Math.max(1, Number(qq.marks ?? 1));
-                          selectedByTopicMarks[qq.topicId] = (selectedByTopicMarks[qq.topicId] || 0) + m;
-                          totalSelectedMarks += m;
-                        });
-
-                        for (const qq of state.questions) {
-                          if (!qq._id) continue;
-                          if (snapshot.includes(qq._id)) continue;
-
-                          const topicId = String(qq.topicId || "");
-                          const qMarks = Math.max(1, Number(qq.marks ?? 1));
-
-                          const requiredForTopic = requiredByTopicMarks[topicId] || 0;
-                          if (!requiredForTopic) continue;
-
-                          const alreadyForTopic = selectedByTopicMarks[topicId] || 0;
-                          if (alreadyForTopic + qMarks > requiredForTopic) continue;
-
-                          if (totalSelectedMarks + qMarks > totalRequiredMarks) continue;
-
-                          snapshot.push(qq._id);
-                          selectedByTopicMarks[topicId] = (selectedByTopicMarks[topicId] || 0) + qMarks;
-                          totalSelectedMarks += qMarks;
-                        }
-
-                        return { ...prev, [sectionId]: snapshot };
-                      });
+                      setSelectedQuestions((prev) => ({ ...prev, [sectionId]: nextIds }));
+                      void refreshSelectionStats(subjectId, nextIds);
                     }}
                     aria-label="Select all questions in current page"
                   />
@@ -540,7 +627,9 @@ export function PaperGenerationTemplate({
                 {state.questions.map((q) => {
                   const checked =
                     !!sectionId && (selectedQuestions[sectionId] || []).includes(q._id);
-                  const constraint = sec ? getSelectConstraint(q, sec) : { allowed: true, reason: "" };
+                  const constraint = sec
+                    ? getSelectConstraint(q, sec, subjectId)
+                    : { allowed: true, reason: "" };
                   const disabled = !checked && !constraint.allowed;
 
                   return (
@@ -555,19 +644,17 @@ export function PaperGenerationTemplate({
                             return;
                           }
 
-                          setSelectedQuestions((prev) => {
-                            const current = prev[sectionId] || [];
-                            const exists = current.includes(q._id);
+                          const current = selectedQuestions[sectionId] || [];
+                          const exists = current.includes(q._id);
+                          const next =
+                            val === true
+                              ? exists
+                                ? current
+                                : [...current, q._id]
+                              : current.filter((id) => id !== q._id);
 
-                            const next =
-                              val === true
-                                ? exists
-                                  ? current
-                                  : [...current, q._id]
-                                : current.filter((id) => id !== q._id);
-
-                            return { ...prev, [sectionId]: next };
-                          });
+                          setSelectedQuestions((prev) => ({ ...prev, [sectionId]: next }));
+                          void refreshSelectionStats(subjectId, next);
                         }}
                       />
 

@@ -777,6 +777,18 @@ router.get("/edit/:id", async (req, res) => {
       marks: sec.marks,
       questions: paper.sections.find((s) => s.id === sec.id)?.questions || [],
       subjectId: sec.subjectId,
+      // Preserve topic mark allocations so edit UI can hydrate them
+      rules: sec.rules
+        ? {
+            marksPerQuestion: Math.max(1, Number(sec.rules.marksPerQuestion || 1)),
+            topicDistributions: Array.isArray(sec.rules.topicDistributions)
+              ? sec.rules.topicDistributions.map((rule) => ({
+                  topicId: String(rule.topicId || ""),
+                  marks: Math.max(0, Number(rule.marks || 0)),
+                }))
+              : [],
+          }
+        : { marksPerQuestion: 1, topicDistributions: [] },
     }));
 
     const paperData = await enrichPaperSnapshots(paper);
