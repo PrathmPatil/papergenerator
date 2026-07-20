@@ -1640,6 +1640,8 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
 
     const files = req.files || [];
     const optionMediaMap = {};
+    const subQuestionMediaMap = {};
+    const subOptionMediaMap = {};
     const questionMedia = [];
 
     files.forEach((file) => {
@@ -1654,6 +1656,16 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
         optionMediaMap[token.replace("option_", "").trim().toUpperCase()] = url;
         return;
       }
+      if (token.startsWith("subquestion_")) {
+        const sqId = token.replace("subquestion_", "").trim().toUpperCase();
+        subQuestionMediaMap[sqId] = url;
+        return;
+      }
+      if (token.startsWith("suboption_")) {
+        const key = token.replace("suboption_", "").trim().toUpperCase();
+        subOptionMediaMap[key] = url;
+        return;
+      }
 
       questionMedia.push({
         url,
@@ -1662,7 +1674,56 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
       });
     });
 
-    const { text, options, correctAnswer, marks, difficulty, topicId } = body;
+    const normalizeSubQuestionOptions = (subQuestionId, options = []) =>
+      (Array.isArray(options) ? options : [])
+        .map((option, index) => {
+          const optionId = String(option?.id || option?.optionId || String.fromCharCode(65 + index)).trim() || String.fromCharCode(65 + index);
+          const textValue = String(option?.text || option?.value || option?.label || "").trim();
+          
+          const cleanSqId = String(subQuestionId).trim().toUpperCase();
+          const cleanOptId = String(optionId).trim().toUpperCase();
+          const uploadKey = `${cleanSqId}_${cleanOptId}`;
+          const mediaUrl = subOptionMediaMap[uploadKey] || String(option?.mediaUrl || option?.image?.url || option?.url || "").trim();
+
+          return {
+            id: optionId,
+            text: mediaUrl ? "" : textValue,
+            mediaUrl,
+            isCorrect: Boolean(option?.isCorrect),
+          };
+        })
+        .filter((option) => option.text || option.mediaUrl || option.isCorrect);
+
+    const normalizeSubQuestions = (subQuestions = []) =>
+      (Array.isArray(subQuestions) ? subQuestions : []).map((subQuestion, index) => {
+        const sqId = String(subQuestion?.id || `SQ${index + 1}`).trim() || `SQ${index + 1}`;
+        const cleanSqId = sqId.trim().toUpperCase();
+        const normalizedOptions = normalizeSubQuestionOptions(sqId, subQuestion?.options);
+        const correctOptionIds = normalizedOptions.filter((option) => option.isCorrect).map((option) => option.id).filter(Boolean);
+        const fallbackCorrectAnswer = subQuestion?.correctAnswer;
+
+        const mediaUrl = subQuestionMediaMap[cleanSqId] || String(subQuestion?.mediaUrl || "").trim();
+
+        return {
+          id: sqId,
+          type: normalizeQuestionType(subQuestion?.type || "mcq_text", "mcq_text"),
+          text: String(subQuestion?.text || "").trim(),
+          mediaUrl: mediaUrl,
+          options: normalizedOptions,
+          marks: Number.isFinite(Number(subQuestion?.marks)) ? Number(subQuestion.marks) : 0,
+          negativeMarks: Number.isFinite(Number(subQuestion?.negativeMarks)) ? Number(subQuestion.negativeMarks) : 0,
+          correctAnswer:
+            correctOptionIds.length > 0
+              ? correctOptionIds.join(",")
+              : fallbackCorrectAnswer === undefined || fallbackCorrectAnswer === null
+                ? ""
+                : typeof fallbackCorrectAnswer === "boolean"
+                  ? fallbackCorrectAnswer
+                  : String(fallbackCorrectAnswer).trim(),
+        };
+      });
+
+    const { text, paragraph, options, subQuestions, correctAnswer, marks, difficulty, topicId } = body;
 
     const update = {};
 
@@ -1699,6 +1760,10 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
         });
       }
       update.text = normalizedText;
+    }
+
+    if (paragraph !== undefined) {
+      update.paragraph = String(paragraph).trim();
     }
 
     if (options !== undefined) {
@@ -1742,6 +1807,17 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
       update.correctAnswer = correctOptions[0]?.id;
     } else if (correctAnswer !== undefined) {
       update.correctAnswer = String(correctAnswer || "").trim();
+    }
+
+    if (subQuestions !== undefined) {
+      if (!Array.isArray(subQuestions)) {
+        return res.status(400).json({
+          success: false,
+          message: "subQuestions must be an array",
+        });
+      }
+
+      update.subQuestions = normalizeSubQuestions(subQuestions);
     }
 
     if (questionMedia.length > 0) {

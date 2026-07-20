@@ -319,12 +319,14 @@ export const updateQuestionApi = async (
     | FormData
     | {
         text?: string;
+        paragraph?: string;
         options?: {
           id?: string;
           text?: string;
           mediaUrl?: string;
           isCorrect?: boolean;
         }[];
+        subQuestions?: any[];
         correctAnswer?: string;
         marks?: number;
         difficulty?: "easy" | "medium" | "hard";
