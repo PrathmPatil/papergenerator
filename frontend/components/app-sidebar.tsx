@@ -80,23 +80,23 @@ export function AppSidebar() {
     >
       <div
         className={cn(
-          "relative flex h-14 items-center border-b px-3",
+          "relative flex h-14 items-start border-b px-3 pt-3",
           collapsed ? "justify-center" : "justify-between"
         )}
       >
         <div
           className={cn(
-            "flex min-w-0 items-center",
+            "flex min-w-0 items-start",
             collapsed ? "justify-center" : "gap-2"
           )}
         >
           <img
             src="/app-icon.png"
             alt="PaperGenerator"
-            className="h-8 w-8 shrink-0 rounded-lg object-cover"
+            className="mt-0.5 h-8 w-8 shrink-0 rounded-lg object-cover"
           />
           {!collapsed && (
-            <span className="truncate text-lg font-bold tracking-tight text-primary">
+            <span className="truncate text-lg font-bold leading-8 tracking-tight text-primary">
               PaperGenerator
             </span>
           )}
@@ -105,7 +105,10 @@ export function AppSidebar() {
           type="button"
           variant="ghost"
           size="icon"
-          className={cn("h-8 w-8", collapsed && "absolute left-14 z-10 border bg-background shadow-sm")}
+          className={cn(
+            "mt-0.5 h-8 w-8",
+            collapsed && "absolute left-14 z-10 border bg-background shadow-sm"
+          )}
           onClick={() => setCollapsed((value) => !value)}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -126,15 +129,15 @@ export function AppSidebar() {
               href={link.href}
               title={collapsed ? link.name : undefined}
               className={cn(
-                "flex items-center rounded-md py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                "flex items-start rounded-md py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
                 collapsed ? "justify-center px-2" : "gap-3 px-3",
                 pathname === link.href
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground"
               )}
             >
-              <link.icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span className="truncate">{link.name}</span>}
+              <link.icon className="mt-0.5 h-4 w-4 shrink-0" />
+              {!collapsed && <span className="truncate leading-5">{link.name}</span>}
             </Link>
           ))}
         </nav>
@@ -143,17 +146,17 @@ export function AppSidebar() {
       <div className={cn("border-t", collapsed ? "p-2" : "p-4")}>
         <div
           className={cn(
-            "mb-4 flex items-center",
+            "mb-4 flex items-start",
             collapsed ? "justify-center" : "gap-3"
           )}
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             {user.name?.charAt(0) || "U"}
           </div>
           {!collapsed && (
-            <div className="overflow-hidden">
-              <p className="truncate text-sm font-medium">{user.name}</p>
-              <p className="truncate text-xs text-muted-foreground capitalize">
+            <div className="overflow-hidden pt-0.5">
+              <p className="truncate text-sm font-medium leading-5">{user.name}</p>
+              <p className="truncate text-xs leading-4 text-muted-foreground capitalize">
                 {user.role}
               </p>
             </div>

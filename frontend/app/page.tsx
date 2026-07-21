@@ -28,7 +28,8 @@ export default function LoginPage() {
   const [errors, setErrors] = useState<FormErrors>({})
 
   useEffect(() => {
-    // if (user) router.push("/dashboard")
+    // Only redirect from login when already authenticated — do not force dashboard on every page refresh
+    if (user) router.replace("/dashboard");
   }, [user, router])
 
   const validateForm = (): boolean => {

@@ -40,6 +40,11 @@ import {
 } from "@/utils/apis";
 import type { ClassLevel, Sections, Topic } from "@/lib/types";
 import { showInfo } from "@/components/app-dialog-provider";
+import {
+  hydrateEditSections,
+  summarizeMarksBalance,
+  validateMarksDistribution,
+} from "@/lib/marks-validation";
 
 const STEPS = [
   { id: 1, title: "Basic Details" },
@@ -178,8 +183,16 @@ export default function EditPaperPage() {
   const getSubjectMarks = (subjectId: string) =>
     sections.find((s) => s.subjectId === subjectId)?.marks || 0;
 
-  const totalAllocated = selectedSubjects.reduce((sum, id) => sum + getSubjectMarks(id), 0);
-  const remainingMarks = totalMarks - totalAllocated;
+  const marksBalance = summarizeMarksBalance(totalMarks, selectedSubjects, sections as any);
+  const remainingMarks = marksBalance.displayRemaining;
+  const marksValidationError = validateMarksDistribution({
+    totalMarks,
+    selectedSubjects,
+    sections: sections as any,
+    subjectNames: Object.fromEntries(SUBJECTS.map((s) => [s.id, s.name])),
+    topicNames: Object.fromEntries(availableTopics.map((t) => [t.id, t.name])),
+  });
+  const canProceedFromConfiguration = !marksValidationError;
 
   const updateSubjectMarks = (subject: { id: string; name: string }, value: number) => {
     setSections((prev) => {
@@ -296,40 +309,14 @@ export default function EditPaperPage() {
     );
   };
 
-  const validateDistributionBeforeNext = () => {
-    for (const subjectId of selectedSubjects) {
-      const subject = SUBJECTS.find((s) => s.id === subjectId);
-      const section = sections.find((s) => s.subjectId === subjectId) as any;
-      const rules = getSectionRules(subjectId);
-
-      if (!subject || !section) {
-        return `Please set marks for ${subject?.name || "a subject"}.`;
-      }
-
-      const subjectTopics = getSelectedTopicsForSubject(subjectId);
-      if (subjectTopics.length === 0) {
-        return `Please select at least one topic for ${subject.name}.`;
-      }
-
-      const topicMarksSum = (rules.topicDistributions || []).reduce(
-        (sum: number, item: any) => sum + Number(item.marks || 0),
-        0
-      );
-
-      if (topicMarksSum !== Number(section.marks || 0)) {
-        return `Topic marks for ${subject.name} must equal subject marks (${section.marks}).`;
-      }
-
-      for (const rule of rules.topicDistributions || []) {
-        if (rule.marks <= 0) {
-          const topicName = availableTopics.find((t) => t.id === rule.topicId)?.name || "topic";
-          return `Please assign marks for ${topicName} in ${subject.name}.`;
-        }
-      }
-    }
-
-    return "";
-  };
+  const validateDistributionBeforeNext = () =>
+    validateMarksDistribution({
+      totalMarks,
+      selectedSubjects,
+      sections: sections as any,
+      subjectNames: Object.fromEntries(SUBJECTS.map((s) => [s.id, s.name])),
+      topicNames: Object.fromEntries(availableTopics.map((t) => [t.id, t.name])),
+    });
 
   const handleNext = async () => {
     if (currentStep === 3) {
@@ -408,11 +395,19 @@ export default function EditPaperPage() {
         setSelectedClass(currentPaper.classId as ClassLevel);
         setTotalMarks(currentPaper.totalMarks);
         setDuration(currentPaper.durationMinutes);
-        setSections(currentSections);
+
+        // Paper subject marks + template topic rules: keep mismatches visible for the user to fix
+        const hydratedSections = hydrateEditSections({
+          paperSections: currentPaper.sections,
+          editSections: currentSections,
+          templateSections: currentTemplate?.sections || [],
+        });
+
+        setSections(hydratedSections as any);
         setSelectedSubjects(
           Array.from(
             new Set(
-              currentSections
+              hydratedSections
                 .map((s: any) => String(s.subjectId || ""))
                 .filter(Boolean)
             )
@@ -421,7 +416,7 @@ export default function EditPaperPage() {
         setSelectedTopics(
           Array.from(
             new Set(
-              (currentTemplate?.sections || []).flatMap((section: any) =>
+              hydratedSections.flatMap((section: any) =>
                 Array.isArray(section?.rules?.topicDistributions)
                   ? section.rules.topicDistributions.map((rule: any) => String(rule.topicId))
                   : []
@@ -539,12 +534,37 @@ export default function EditPaperPage() {
       const nextSections = prevSections
         .filter((section) => selectedSubjects.includes(section.subjectId || ""))
         .map((section: any) => {
+          const existingRules = Array.isArray(section.rules?.topicDistributions)
+            ? section.rules.topicDistributions
+            : [];
+
+          // Topics for this subject may still be loading — keep saved marks intact
+          const topicsLoadedForSubject = availableTopics.some(
+            (t) => getTopicSubjectId(t) === section.subjectId
+          );
+          if (!topicsLoadedForSubject && existingRules.length > 0) {
+            return section;
+          }
+
           const subjectTopicIds = getSelectedTopicsForSubject(section.subjectId).map((topic) => topic.id);
-          const existingRules = Array.isArray(section.rules?.topicDistributions) ? section.rules.topicDistributions : [];
           const distributions = subjectTopicIds.map((topicId) => {
-            const existing = existingRules.find((item: any) => item.topicId === topicId);
+            const existing = existingRules.find(
+              (item: any) => String(item.topicId) === String(topicId)
+            );
             return { topicId, marks: Number(existing?.marks || 0) };
           });
+
+          // Preserve selected-topic marks while topic metadata is still catching up
+          for (const rule of existingRules) {
+            const ruleTopicId = String(rule.topicId || "");
+            if (!ruleTopicId) continue;
+            if (distributions.some((d) => String(d.topicId) === ruleTopicId)) continue;
+            if (!selectedTopics.includes(ruleTopicId)) continue;
+            distributions.push({
+              topicId: ruleTopicId,
+              marks: Math.max(0, Number(rule.marks || 0)),
+            });
+          }
 
           let allocated = distributions.reduce((sum, item) => sum + Number(item.marks || 0), 0);
           if (allocated > section.marks) {
@@ -870,6 +890,12 @@ export default function EditPaperPage() {
                   <span className={`font-semibold ${remainingMarks < 0 ? "text-red-600" : remainingMarks === 0 ? "text-green-600" : "text-yellow-600"}`}>{remainingMarks}</span>
                 </div>
 
+                {marksValidationError && (
+                  <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    {marksValidationError}
+                  </div>
+                )}
+
                 <div className="space-y-4">
                   {selectedSubjects.length > 0 ? (
                     selectedSubjects.map((subjectId) => {
@@ -879,11 +905,10 @@ export default function EditPaperPage() {
                       const usedMarks = selectedSubjects.filter((id) => id !== subject.id).reduce((sum, id) => sum + getSubjectMarks(id), 0);
                       const currentMarks = getSubjectMarks(subject.id);
                       const maxAllowed = Math.max(0, totalMarks - usedMarks);
-                      const safeCurrent = Math.max(0, Math.min(currentMarks, maxAllowed));
                       const rules = getSectionRules(subject.id);
                       const topicChoices = getSelectedTopicsForSubject(subject.id);
                       const allocatedTopicMarks = (rules.topicDistributions || []).reduce((sum: number, item: any) => sum + Number(item.marks || 0), 0);
-                      const topicMarksRemaining = safeCurrent - allocatedTopicMarks;
+                      const topicMarksRemaining = currentMarks - allocatedTopicMarks;
 
                       return (
                         <div key={subject.id} className="rounded-lg border p-4 space-y-4">
@@ -892,13 +917,13 @@ export default function EditPaperPage() {
                               <p className="text-base font-semibold">{subject.name}</p>
                               <p className="text-xs text-muted-foreground">Subject marks {">"} topic marks {">"} question marks</p>
                             </div>
-                            <Badge variant={topicMarksRemaining === 0 ? "default" : "secondary"}>{safeCurrent} / {totalMarks} marks</Badge>
+                            <Badge variant={topicMarksRemaining === 0 ? "default" : "secondary"}>{currentMarks} / {totalMarks} marks</Badge>
                           </div>
 
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                               <Label className="text-xs">Subject Marks</Label>
-                              <Input type="number" min={0} max={maxAllowed} step={1} value={safeCurrent} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => {
+                              <Input type="number" min={0} max={maxAllowed} step={1} value={currentMarks} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => {
                                 const val = toSafeInt(e.target.value, 0);
                                 updateSubjectMarks(subject, Math.max(0, Math.min(val, maxAllowed)));
                               }} />
@@ -923,7 +948,7 @@ export default function EditPaperPage() {
                               <div className="grid gap-3 md:grid-cols-2">
                                 {topicChoices.map((topic) => {
                                   const currentTopicMarks = rules.topicDistributions.find((item: any) => item.topicId === topic.id)?.marks || 0;
-                                  const maxTopicAllowed = Math.max(0, safeCurrent - (allocatedTopicMarks - currentTopicMarks));
+                                  const maxTopicAllowed = Math.max(0, currentMarks - (allocatedTopicMarks - currentTopicMarks));
 
                                   return (
                                     <div key={topic.id} className="rounded-md border bg-background p-3 space-y-2">
@@ -943,7 +968,7 @@ export default function EditPaperPage() {
                           </div>
 
                           <div className="w-full bg-gray-200 h-2 rounded">
-                            <div className="bg-primary h-2 rounded transition-all duration-300" style={{ width: `${totalMarks === 0 ? 0 : Math.min(100, Math.max(0, (safeCurrent / totalMarks) * 100))}%` }} />
+                            <div className="bg-primary h-2 rounded transition-all duration-300" style={{ width: `${totalMarks === 0 ? 0 : Math.min(100, Math.max(0, (currentMarks / totalMarks) * 100))}%` }} />
                           </div>
                         </div>
                       );
@@ -985,7 +1010,11 @@ export default function EditPaperPage() {
                 </Button>
               </div>
             ) : (
-              <Button onClick={handleNext} disabled={isGenerating}>
+              <Button
+                onClick={handleNext}
+                disabled={isGenerating || (currentStep === 3 && !canProceedFromConfiguration)}
+                title={currentStep === 3 && marksValidationError ? marksValidationError : undefined}
+              >
                 {isGenerating ? (
                   <>Generating...</>
                 ) : currentStep === 3 ? (
@@ -1012,6 +1041,12 @@ export default function EditPaperPage() {
             <div className="flex justify-between"><span className="text-muted-foreground">Subjects</span><span>{selectedSubjects.length}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Topics</span><span>{selectedTopics.length}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Total Marks</span><span>{totalMarks}</span></div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Marks Balance</span>
+              <span className={remainingMarks === 0 ? "text-green-600" : "text-red-600"}>
+                {remainingMarks === 0 ? "Balanced" : `${remainingMarks} remaining`}
+              </span>
+            </div>
             <div className="pt-4 border-t text-xs text-muted-foreground">This edit flow now mirrors the generator flow.</div>
           </CardContent>
         </Card>

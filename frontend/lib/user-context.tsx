@@ -35,14 +35,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user) {
       localStorage.setItem("user", JSON.stringify(user));
-      router.push("/dashboard");
-      // localStorage.setItem("paper_setter_user", JSON.stringify(user))
-    } else {
-      // localStorage.removeItem("user");
-      // localStorage.removeItem("token");
-      // router.push("/");
     }
-  }, [user, router]);
+  }, [user]);
 
   useEffect(() => {
     if (token) {

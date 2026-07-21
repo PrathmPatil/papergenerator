@@ -153,11 +153,23 @@ export const bulkUploadTopicsApi = async (payload: FormData) => {
 
 // http://localhost:5000/api/questions/
 
+export interface SelectionMarksStats {
+  totalSelectedMarks: number;
+  totalRequiredMarks: number;
+  selectedByTopicMarks: Record<string, number>;
+  requiredByTopicMarks: Record<string, number>;
+  selectedCount?: number;
+  remainingMarks?: number;
+  isComplete?: boolean;
+}
+
 interface FetchQuestionsResponse {
   success: boolean;
   questions: IQuestion[];
   totalRecords?: number;
   totalPages?: number;
+  currentPage?: number;
+  selectionStats?: SelectionMarksStats;
 }
 
 interface QuestionFilterPayload {
@@ -169,10 +181,14 @@ interface QuestionFilterPayload {
   difficulty?: string;
   createdFrom?: string;
   createdTo?: string;
+  selectedQuestions?: string[];
+  topicDistributions?: { topicId: string; marks: number }[];
+  page?: number;
+  limit?: number;
 }
 
 export async function fetchAllQuestionsApi(
-  filters: QuestionFilterPayload & { page?: number; limit?: number }
+  filters: QuestionFilterPayload
 ): Promise<FetchQuestionsResponse> {
   const res = await apiClient({
     url: "/api/questions/",
@@ -182,6 +198,20 @@ export async function fetchAllQuestionsApi(
   });
 
   return res as unknown as FetchQuestionsResponse;
+}
+
+export async function fetchSelectionStatsApi(payload: {
+  selectedQuestions?: string[];
+  topicDistributions?: { topicId: string; marks: number }[];
+}): Promise<{ success: boolean; selectionStats: SelectionMarksStats }> {
+  const res = await apiClient({
+    url: "/api/questions/selection-stats",
+    method: "POST",
+    data: payload,
+    timeout: 30000,
+  });
+
+  return res as unknown as { success: boolean; selectionStats: SelectionMarksStats };
 }
 
 export const getQuestionByIdApi = async (id: string) => {
