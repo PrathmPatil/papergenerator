@@ -44,6 +44,7 @@ export function mapPaperToPreviewConfig(paper: any) {
     classId: paper.classId || "",
     durationMinutes: paper.durationMinutes,
     totalMarks: paper.totalMarks,
+    code: paper.code || (paper._id ? String(paper._id).slice(-6) : ""),
     negativeMarking: true,
 
     sections: paper.sections.map((section: any) => {
@@ -59,8 +60,26 @@ export function mapPaperToPreviewConfig(paper: any) {
           type: q?.type || "",
           text: q?.text || "",
           paragraph: q?.paragraph || "",
-          subQuestions: Array.isArray(q?.subQuestions) ? q.subQuestions : [],
-          options: Array.isArray(q?.options) ? q.options : [],
+          subQuestions: (Array.isArray(q?.subQuestions) ? q.subQuestions : []).map((sub: any) => ({
+            ...sub,
+            options: (Array.isArray(sub?.options) ? sub.options : []).map((opt: any, index: number) => ({
+              ...opt,
+              id: opt?.id ?? String.fromCharCode(65 + index),
+              text: opt?.text || "",
+              isCorrect: Boolean(opt?.isCorrect),
+              mediaUrl: opt?.mediaUrl || "",
+            })),
+            correctAnswer: sub?.correctAnswer,
+            matches: sub?.matches,
+            marks: Math.max(0, Number(sub?.marks || 0)),
+          })),
+          options: (Array.isArray(q?.options) ? q.options : []).map((opt: any, index: number) => ({
+            ...opt,
+            id: opt?.id ?? String.fromCharCode(65 + index),
+            text: opt?.text || "",
+            isCorrect: Boolean(opt?.isCorrect),
+            mediaUrl: opt?.mediaUrl || "",
+          })),
           media: Array.isArray(q?.media) ? q.media : [],
           correctAnswer: q?.correctAnswer,
           matches: q?.matches,

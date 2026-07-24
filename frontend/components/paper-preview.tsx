@@ -8,9 +8,11 @@ import { Label } from "@/components/ui/label";
 import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown } from "lucide-react";
 import { formatClassLabel } from "@/lib/utils";
 import {
+  buildAnswerKeyExcelHtml,
   buildAnswerKeyHtml,
   buildAnswerKeySections,
   buildAnswerKeyStyles,
+  formatMarksLabel,
 } from "@/lib/answer-utils";
 import {
   DropdownMenu,
@@ -1348,7 +1350,6 @@ export const handleFullPreview = (config: any) => {
           }
 
           body {
-            padding: 24px 16px 40px;
             box-sizing: border-box;
             min-height: 100vh;
             font-family: 'Times New Roman', Times, serif;
@@ -1358,7 +1359,10 @@ export const handleFullPreview = (config: any) => {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 22px;
+            gap: 28px;
+            /* Vertical padding around the page stack (scrolls with content) */
+            padding: 48px 24px 64px;
+            box-sizing: border-box;
           }
 
           .paper-page {
@@ -1370,6 +1374,7 @@ export const handleFullPreview = (config: any) => {
             position: relative;
             overflow: hidden;
             box-sizing: border-box;
+            margin: 0;
           }
 
           .paper-page-clip {
@@ -2560,8 +2565,9 @@ export const exportAnswerKeyAsPDF = async (config: any) => {
 
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(10);
+    const classLabel = formatClassLabel(config?.classLevel || config?.classId);
     const metaParts = [
-      config?.classLevel ? `Class: ${config.classLevel}` : "",
+      classLabel && classLabel !== "-" ? `Class: ${classLabel}` : "",
       config?.totalMarks !== undefined && config?.totalMarks !== null
         ? `Total Marks: ${config.totalMarks}`
         : "",
@@ -2578,6 +2584,16 @@ export const exportAnswerKeyAsPDF = async (config: any) => {
     pdf.line(marginX, y, pageWidth - marginX, y);
     y += 8;
 
+    const hasEntries = sections.some((section) => section.entries.length > 0);
+    if (!hasEntries) {
+      ensureSpace(12);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(11);
+      pdf.text("No answers available for this paper.", pageWidth / 2, y, { align: "center" });
+      pdf.save(getAnswerKeyFileName(config, "pdf"));
+      return;
+    }
+
     sections.forEach((section) => {
       if (!section.entries.length) return;
 
@@ -2587,7 +2603,7 @@ export const exportAnswerKeyAsPDF = async (config: any) => {
       pdf.text(section.name.toUpperCase(), marginX, y);
       y += 6;
 
-      const colWidths = [22, contentWidth - 22 - 24, 24];
+      const colWidths = [24, contentWidth - 24 - 32, 32];
       const drawTableHeader = () => {
         ensureSpace(10);
         pdf.setFont("helvetica", "bold");
@@ -2595,7 +2611,7 @@ export const exportAnswerKeyAsPDF = async (config: any) => {
         let x = marginX;
         ["Q. No.", "Answer", "Marks"].forEach((label, index) => {
           pdf.rect(x, y, colWidths[index], 8);
-          pdf.text(label, x + 2, y + 5.5);
+          pdf.text(label, x + colWidths[index] / 2, y + 5.5, { align: "center" });
           x += colWidths[index];
         });
         y += 8;
@@ -2607,19 +2623,20 @@ export const exportAnswerKeyAsPDF = async (config: any) => {
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(10);
 
-        const answerLines = pdf.splitTextToSize(entry.answer, colWidths[1] - 4);
-        const marksLabel = entry.marks ? `[${entry.marks}]` : "";
+        const answerText = String(entry.answer || "—");
+        const answerLines = pdf.splitTextToSize(answerText, colWidths[1] - 4);
+        const marksLabel = formatMarksLabel(entry.marks);
         const rowHeight = Math.max(8, answerLines.length * 4.8 + 2);
 
         ensureSpace(rowHeight + 2);
 
         let x = marginX;
         pdf.rect(x, y, colWidths[0], rowHeight);
-        pdf.text(entry.label, x + colWidths[0] / 2, y + 5.5, { align: "center" });
+        pdf.text(String(entry.label), x + colWidths[0] / 2, y + 5.5, { align: "center" });
         x += colWidths[0];
 
         pdf.rect(x, y, colWidths[1], rowHeight);
-        pdf.text(answerLines, x + 2, y + 5.5);
+        pdf.text(answerLines, x + colWidths[1] / 2, y + 5.5, { align: "center" });
         x += colWidths[1];
 
         pdf.rect(x, y, colWidths[2], rowHeight);
@@ -2690,15 +2707,19 @@ export const exportAnswerKeyAsExcel = (config: any) => {
           </x:ExcelWorkbook>
         </xml>
         <![endif]-->
-        <style>${buildAnswerKeyStyles()}</style>
+        <style>
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1px solid #000; padding: 6px 8px; font-family: Calibri, Arial, sans-serif; font-size: 12pt; vertical-align: middle; }
+          th { background: #f3f3f3; font-weight: 700; }
+        </style>
       </head>
       <body>
-        ${buildAnswerKeyHtml(config)}
+        ${buildAnswerKeyExcelHtml(config)}
       </body>
     </html>
   `;
 
-  const blob = new Blob([html], {
+  const blob = new Blob(["\ufeff", html], {
     type: "application/vnd.ms-excel;charset=utf-8;",
   });
 

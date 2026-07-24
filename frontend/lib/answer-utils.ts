@@ -1,3 +1,5 @@
+import { formatClassLabel } from "@/lib/utils";
+
 export interface AnswerKeyEntry {
   label: string;
   answer: string;
@@ -9,26 +11,73 @@ export interface AnswerKeySection {
   entries: AnswerKeyEntry[];
 }
 
+const OPTION_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+export const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+export const formatMarksLabel = (marks: unknown) => {
+  const value = Number(marks);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  return `[${value} ${value === 1 ? "Mark" : "Marks"}]`;
+};
+
 const formatMixedAnswer = (value: unknown): string => {
   if (value === undefined || value === null) return "";
   if (typeof value === "boolean") return value ? "True" : "False";
-  if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean)
+      .join(", ");
+  }
   if (typeof value === "object") {
     return Object.entries(value as Record<string, unknown>)
-      .map(([key, entry]) => `${key} → ${String(entry ?? "")}`)
+      .map(([key, entry]) => `${key} → ${String(entry ?? "").trim()}`)
+      .filter((part) => !part.endsWith("→"))
       .join("; ");
   }
-  return String(value).trim();
+
+  const text = String(value).trim();
+  if (!text) return "";
+  if (/^(true|false)$/i.test(text)) {
+    return text.toLowerCase() === "true" ? "True" : "False";
+  }
+  return text;
+};
+
+const resolveOptionLetter = (option: any, index: number): string => {
+  const rawId = String(option?.id ?? "").trim().toUpperCase();
+  if (/^[A-Z]$/.test(rawId)) return rawId;
+
+  if (/^\d+$/.test(rawId)) {
+    const numeric = Number(rawId);
+    if (numeric >= 1 && numeric <= 26) return OPTION_LETTERS[numeric - 1];
+    if (numeric >= 0 && numeric <= 25) return OPTION_LETTERS[numeric];
+  }
+
+  if (index >= 0 && index < OPTION_LETTERS.length) {
+    return OPTION_LETTERS[index];
+  }
+
+  return rawId || String(index + 1);
 };
 
 export const getCorrectAnswer = (question: any): string => {
   const options = Array.isArray(question?.options) ? question.options : [];
   const correctOptions = options
-    .filter((option) => option?.isCorrect)
-    .map((option) => String(option?.id || "").trim().toUpperCase())
-    .filter(Boolean);
+    .map((option: any, index: number) => ({ option, index }))
+    .filter(({ option }) => Boolean(option?.isCorrect))
+    .map(({ option, index }) => resolveOptionLetter(option, index));
 
-  if (correctOptions.length > 0) return correctOptions.join(", ");
+  if (correctOptions.length > 0) {
+    return [...new Set(correctOptions)].join(", ");
+  }
 
   const formatted = formatMixedAnswer(question?.correctAnswer);
   if (formatted) return formatted;
@@ -79,13 +128,37 @@ export const buildAnswerKeySections = (config: any): AnswerKeySection[] => {
   });
 };
 
+const buildAnswerKeyMetaHtml = (config: any) => {
+  const classLevel = formatClassLabel(config?.classLevel || config?.classId);
+  const totalMarks = config?.totalMarks ?? "";
+  const durationMinutes = config?.durationMinutes ?? "";
+  const paperCode = String(config?.code || "").trim();
+
+  const cells = [
+    classLevel && classLevel !== "-"
+      ? `<td><strong>Class:</strong> ${escapeHtml(classLevel)}</td>`
+      : "",
+    totalMarks !== "" && totalMarks !== null && totalMarks !== undefined
+      ? `<td><strong>Total Marks:</strong> ${escapeHtml(totalMarks)}</td>`
+      : "",
+    durationMinutes
+      ? `<td><strong>Duration:</strong> ${escapeHtml(durationMinutes)} min</td>`
+      : "",
+    paperCode ? `<td><strong>Code:</strong> ${escapeHtml(paperCode)}</td>` : "",
+  ].filter(Boolean);
+
+  if (!cells.length) return "";
+
+  return `
+    <table class="answer-key-meta-table">
+      <tr>${cells.join("")}</tr>
+    </table>
+  `;
+};
+
 export const buildAnswerKeyHtml = (config: any): string => {
   const sections = buildAnswerKeySections(config);
   const title = String(config?.title || "Question Paper");
-  const classLevel = String(config?.classLevel || config?.classId || "");
-  const totalMarks = config?.totalMarks ?? "";
-  const durationMinutes = config?.durationMinutes ?? "";
-  const paperCode = String(config?.code || "");
 
   const sectionBlocks = sections
     .map((section) => {
@@ -93,11 +166,9 @@ export const buildAnswerKeyHtml = (config: any): string => {
         .map(
           (entry) => `
             <tr>
-              <td style="width: 80px; text-align: center; font-weight: 600;">${entry.label}</td>
-              <td>${entry.answer}</td>
-              <td style="width: 90px; text-align: center;">${
-                entry.marks ? `[${entry.marks} Mark${entry.marks === 1 ? "" : "s"}]` : ""
-              }</td>
+              <td class="col-qno">${escapeHtml(entry.label)}</td>
+              <td class="col-answer">${escapeHtml(entry.answer)}</td>
+              <td class="col-marks">${escapeHtml(formatMarksLabel(entry.marks))}</td>
             </tr>
           `
         )
@@ -107,13 +178,13 @@ export const buildAnswerKeyHtml = (config: any): string => {
 
       return `
         <div class="answer-key-section">
-          <h3>${section.name}</h3>
-          <table>
+          <h3>${escapeHtml(section.name)}</h3>
+          <table class="answer-key-table">
             <thead>
               <tr>
-                <th>Q. No.</th>
-                <th>Answer</th>
-                <th>Marks</th>
+                <th class="col-qno">Q. No.</th>
+                <th class="col-answer">Answer</th>
+                <th class="col-marks">Marks</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -127,87 +198,167 @@ export const buildAnswerKeyHtml = (config: any): string => {
     <div id="answer-key-document">
       <div class="answer-key-header">
         <h1>Answer Key</h1>
-        <h2>${title}</h2>
-        <div class="answer-key-meta">
-          ${classLevel ? `<span><strong>Class:</strong> ${classLevel}</span>` : ""}
-          ${totalMarks !== "" ? `<span><strong>Total Marks:</strong> ${totalMarks}</span>` : ""}
-          ${durationMinutes !== "" ? `<span><strong>Duration:</strong> ${durationMinutes} min</span>` : ""}
-          ${paperCode ? `<span><strong>Code:</strong> ${paperCode}</span>` : ""}
-        </div>
+        <h2>${escapeHtml(title)}</h2>
+        ${buildAnswerKeyMetaHtml(config)}
       </div>
-      ${sectionBlocks}
+      ${sectionBlocks || `<p class="answer-key-empty">No answers available for this paper.</p>`}
     </div>
+  `;
+};
+
+/** Flat worksheet layout that opens cleanly in Excel. */
+export const buildAnswerKeyExcelHtml = (config: any): string => {
+  const sections = buildAnswerKeySections(config);
+  const title = String(config?.title || "Question Paper");
+  const classLevel = formatClassLabel(config?.classLevel || config?.classId);
+  const totalMarks = config?.totalMarks ?? "";
+  const durationMinutes = config?.durationMinutes ?? "";
+  const paperCode = String(config?.code || "").trim();
+
+  const bodyRows = sections
+    .flatMap((section) =>
+      section.entries.map(
+        (entry) => `
+          <tr>
+            <td>${escapeHtml(section.name)}</td>
+            <td style="text-align:center;">${escapeHtml(entry.label)}</td>
+            <td style="text-align:center;font-weight:700;">${escapeHtml(entry.answer)}</td>
+            <td style="text-align:center;">${escapeHtml(formatMarksLabel(entry.marks))}</td>
+          </tr>
+        `
+      )
+    )
+    .join("");
+
+  return `
+    <table border="1" cellspacing="0" cellpadding="6">
+      <tr>
+        <th colspan="4" style="font-size:18px;text-align:center;">Answer Key</th>
+      </tr>
+      <tr>
+        <th colspan="4" style="font-size:14px;text-align:center;">${escapeHtml(title)}</th>
+      </tr>
+      <tr>
+        <td><strong>Class</strong></td>
+        <td>${escapeHtml(classLevel !== "-" ? classLevel : "")}</td>
+        <td><strong>Total Marks</strong></td>
+        <td>${escapeHtml(totalMarks)}</td>
+      </tr>
+      <tr>
+        <td><strong>Duration</strong></td>
+        <td>${durationMinutes ? `${escapeHtml(durationMinutes)} min` : ""}</td>
+        <td><strong>Code</strong></td>
+        <td>${escapeHtml(paperCode)}</td>
+      </tr>
+      <tr>
+        <th>Section</th>
+        <th>Q. No.</th>
+        <th>Answer</th>
+        <th>Marks</th>
+      </tr>
+      ${bodyRows || `<tr><td colspan="4">No answers available for this paper.</td></tr>`}
+    </table>
   `;
 };
 
 export const buildAnswerKeyStyles = () => `
   body {
     margin: 0;
-    padding: 24px;
+    padding: 18px;
     font-family: "Times New Roman", Times, serif;
     color: #000;
     background: #fff;
   }
 
   #answer-key-document {
-    max-width: 800px;
+    width: 100%;
+    max-width: 700px;
     margin: 0 auto;
   }
 
   .answer-key-header {
     text-align: center;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
     border-bottom: 2px solid #000;
-    padding-bottom: 16px;
+    padding-bottom: 12px;
   }
 
   .answer-key-header h1 {
-    margin: 0 0 8px;
-    font-size: 24px;
+    margin: 0 0 6px;
+    font-size: 22px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
 
   .answer-key-header h2 {
-    margin: 0 0 12px;
-    font-size: 18px;
+    margin: 0 0 10px;
+    font-size: 16px;
     font-weight: 600;
   }
 
-  .answer-key-meta {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 12px 24px;
-    font-size: 13px;
+  .answer-key-meta-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 auto;
+  }
+
+  .answer-key-meta-table td {
+    border: none !important;
+    padding: 2px 10px;
+    font-size: 12px;
+    text-align: center;
   }
 
   .answer-key-section {
-    margin-top: 24px;
+    margin-top: 18px;
   }
 
   .answer-key-section h3 {
-    margin: 0 0 10px;
-    font-size: 16px;
+    margin: 0 0 8px;
+    font-size: 14px;
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }
 
-  table {
+  .answer-key-table {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 8px;
+    table-layout: fixed;
+    margin-bottom: 6px;
   }
 
-  th, td {
+  .answer-key-table th,
+  .answer-key-table td {
     border: 1px solid #000;
-    padding: 8px 10px;
-    font-size: 14px;
-    vertical-align: top;
+    padding: 7px 8px;
+    font-size: 13px;
+    vertical-align: middle;
   }
 
-  th {
+  .answer-key-table th {
     background: #f3f3f3;
     font-weight: 700;
+  }
+
+  .col-qno {
+    width: 70px;
+    text-align: center;
+    font-weight: 600;
+  }
+
+  .col-answer {
+    text-align: center;
+    font-weight: 700;
+  }
+
+  .col-marks {
+    width: 90px;
+    text-align: center;
+  }
+
+  .answer-key-empty {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 14px;
   }
 `;
