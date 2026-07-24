@@ -72,8 +72,8 @@ export const getCorrectAnswer = (question: any): string => {
   const options = Array.isArray(question?.options) ? question.options : [];
   const correctOptions = options
     .map((option: any, index: number) => ({ option, index }))
-    .filter(({ option }) => Boolean(option?.isCorrect))
-    .map(({ option, index }) => resolveOptionLetter(option, index));
+    .filter((item: { option: any; index: number }) => Boolean(item.option?.isCorrect))
+    .map((item: { option: any; index: number }) => resolveOptionLetter(item.option, item.index));
 
   if (correctOptions.length > 0) {
     return [...new Set(correctOptions)].join(", ");
