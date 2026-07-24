@@ -1,13 +1,33 @@
 import mongoose from "mongoose";
 
+const SnapshotOptionSchema = new mongoose.Schema({
+  id: String,
+  text: String,
+  mediaUrl: String,
+  isCorrect: Boolean,
+}, { _id: false });
+
+const SnapshotSubQuestionSchema = new mongoose.Schema({
+  id: String,
+  type: String,
+  text: String,
+  mediaUrl: String,
+  options: [SnapshotOptionSchema],
+  marks: Number,
+  negativeMarks: Number,
+  correctAnswer: mongoose.Schema.Types.Mixed,
+}, { _id: false });
+
 const SnapshotQuestionSchema = new mongoose.Schema({
   questionId: String,
   type: String,
   text: String,
   paragraph: String,
   media: [{ url: String, alt: String }],
-  options: [{ id: String, text: String, mediaUrl: String }],
-  subQuestions: [{}],
+  options: [SnapshotOptionSchema],
+  subQuestions: [SnapshotSubQuestionSchema],
+  correctAnswer: mongoose.Schema.Types.Mixed,
+  matches: mongoose.Schema.Types.Mixed,
   marks: Number,
   negativeMarks: Number
 }, { _id: false });

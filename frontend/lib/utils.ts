@@ -62,6 +62,8 @@ export function mapPaperToPreviewConfig(paper: any) {
           subQuestions: Array.isArray(q?.subQuestions) ? q.subQuestions : [],
           options: Array.isArray(q?.options) ? q.options : [],
           media: Array.isArray(q?.media) ? q.media : [],
+          correctAnswer: q?.correctAnswer,
+          matches: q?.matches,
           marks: Math.max(0, Number(q?.marks || 0)),
           negativeMarks: Math.max(0, Number(q?.negativeMarks || 0)),
         }))

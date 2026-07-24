@@ -351,6 +351,55 @@ const drawImageIfExists = (doc, imageUrl, options = {}) => {
   }
 };
 
+const mergeSnapshotOptions = (snapshotOptions = [], fullOptions = []) => {
+  const full = Array.isArray(fullOptions) ? fullOptions : [];
+  const snap = Array.isArray(snapshotOptions) ? snapshotOptions : [];
+
+  if (full.length === 0) return snap;
+  if (snap.length === 0) return full;
+
+  const fullById = new Map(
+    full.map((option) => [String(option?.id || "").trim().toUpperCase(), option])
+  );
+
+  return snap.map((option) => {
+    const fullOption = fullById.get(String(option?.id || "").trim().toUpperCase());
+    if (!fullOption) return option;
+
+    return {
+      ...option,
+      isCorrect: fullOption.isCorrect ?? option.isCorrect,
+      text: option.text || fullOption.text || "",
+      mediaUrl: option.mediaUrl || fullOption.mediaUrl || "",
+    };
+  });
+};
+
+const mergeSnapshotSubQuestions = (snapshotSubQuestions = [], fullSubQuestions = []) => {
+  const full = Array.isArray(fullSubQuestions) ? fullSubQuestions : [];
+  const snap = Array.isArray(snapshotSubQuestions) ? snapshotSubQuestions : [];
+
+  if (full.length === 0) return snap;
+  if (snap.length === 0) return full;
+
+  return snap.map((subQuestion, index) => {
+    const fullSubQuestion =
+      full.find((item) => String(item?.id || "") === String(subQuestion?.id || "")) ||
+      full[index] ||
+      {};
+
+    return {
+      ...fullSubQuestion,
+      ...subQuestion,
+      options: mergeSnapshotOptions(subQuestion?.options, fullSubQuestion?.options),
+      correctAnswer:
+        subQuestion?.correctAnswer !== undefined && subQuestion?.correctAnswer !== null
+          ? subQuestion.correctAnswer
+          : fullSubQuestion?.correctAnswer,
+    };
+  });
+};
+
 const enrichPaperSnapshots = async (paperDoc) => {
   const paper = typeof paperDoc?.toObject === "function" ? paperDoc.toObject() : paperDoc;
   if (!paper) return null;
@@ -388,6 +437,21 @@ const enrichPaperSnapshots = async (paperDoc) => {
     const snapshot = snapshotById.get(questionId) || {};
     const fullQuestion = questionById.get(questionId) || {};
 
+    const snapshotSubQuestions = Array.isArray(snapshot?.subQuestions)
+      ? snapshot.subQuestions
+      : Array.isArray(fullQuestion?.subQuestions)
+        ? fullQuestion.subQuestions
+        : [];
+    const fullSubQuestions = Array.isArray(fullQuestion?.subQuestions)
+      ? fullQuestion.subQuestions
+      : [];
+    const snapshotOptions = Array.isArray(snapshot?.options)
+      ? snapshot.options
+      : Array.isArray(fullQuestion?.options)
+        ? fullQuestion.options
+        : [];
+    const fullOptions = Array.isArray(fullQuestion?.options) ? fullQuestion.options : [];
+
     return {
       ...fullQuestion,
       ...snapshot,
@@ -395,21 +459,21 @@ const enrichPaperSnapshots = async (paperDoc) => {
       type: snapshot?.type || fullQuestion?.type || "",
       text: snapshot?.text || fullQuestion?.text || "",
       paragraph: snapshot?.paragraph || fullQuestion?.paragraph || "",
-      subQuestions: Array.isArray(snapshot?.subQuestions)
-        ? snapshot.subQuestions
-        : Array.isArray(fullQuestion?.subQuestions)
-          ? fullQuestion.subQuestions
-          : [],
-      options: Array.isArray(snapshot?.options)
-        ? snapshot.options
-        : Array.isArray(fullQuestion?.options)
-          ? fullQuestion.options
-          : [],
+      subQuestions: mergeSnapshotSubQuestions(snapshotSubQuestions, fullSubQuestions),
+      options: mergeSnapshotOptions(snapshotOptions, fullOptions),
       media: Array.isArray(snapshot?.media)
         ? snapshot.media
         : Array.isArray(fullQuestion?.media)
           ? fullQuestion.media
           : [],
+      correctAnswer:
+        snapshot?.correctAnswer !== undefined && snapshot?.correctAnswer !== null
+          ? snapshot.correctAnswer
+          : fullQuestion?.correctAnswer,
+      matches:
+        snapshot?.matches !== undefined && snapshot?.matches !== null
+          ? snapshot.matches
+          : fullQuestion?.matches,
       marks: snapshot?.marks ?? fullQuestion?.marks ?? 1,
       negativeMarks: snapshot?.negativeMarks ?? fullQuestion?.negativeMarks ?? 0,
     };
@@ -553,6 +617,8 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
           media: q.media,
           options: q.options,
           subQuestions: q.subQuestions,
+          correctAnswer: q.correctAnswer,
+          matches: q.matches,
           marks: q.marks,
           negativeMarks: q.negativeMarks,
         });
@@ -719,6 +785,8 @@ router.post("/generate", requireStaff, async (req, res) => {
           media: q.media,
           options: q.options,
           subQuestions: q.subQuestions,
+          correctAnswer: q.correctAnswer,
+          matches: q.matches,
           marks: q.marks,
           negativeMarks: q.negativeMarks,
         })

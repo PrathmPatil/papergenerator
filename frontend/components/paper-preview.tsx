@@ -5,8 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FileText, Eye, Plus, Printer, Trash2 } from "lucide-react";
+import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown } from "lucide-react";
 import { formatClassLabel } from "@/lib/utils";
+import {
+  buildAnswerKeyHtml,
+  buildAnswerKeySections,
+  buildAnswerKeyStyles,
+} from "@/lib/answer-utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const PAGE_MARGIN_MM = 12;
@@ -1275,6 +1286,30 @@ export function PaperPreview({ config }: { config: any }) {
             Export Excel
           </Button>
 
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary">
+                <KeyRound className="mr-2 h-4 w-4" />
+                Download Answer Key
+                <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => void exportAnswerKeyAsPDF(config)}>
+                <FileText className="mr-2 h-4 w-4" />
+                PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void exportAnswerKeyAsWord(config)}>
+                <FileText className="mr-2 h-4 w-4" />
+                Word
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportAnswerKeyAsExcel(config)}>
+                <FileText className="mr-2 h-4 w-4" />
+                Excel
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Button onClick={() => printPaper(config)}>
             <Printer className="mr-2 h-4 w-4" />
             Print
@@ -2486,4 +2521,193 @@ export const printPaper = (config: any) => {
   `);
 
   win.document.close();
+};
+
+const getAnswerKeyFileName = (config: any, extension: string) => {
+  const baseTitle = String(config?.title || "paper")
+    .trim()
+    .replace(/[<>:"/\\|?*]+/g, "")
+    .replace(/\s+/g, " ");
+  return `${baseTitle || "paper"} - Answer Key.${extension}`;
+};
+
+export const exportAnswerKeyAsPDF = async (config: any) => {
+  try {
+    const { jsPDF } = await import("jspdf");
+    const sections = buildAnswerKeySections(config);
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const marginX = 14;
+    const contentWidth = pageWidth - marginX * 2;
+    let y = 18;
+
+    const ensureSpace = (height: number) => {
+      if (y + height <= pageHeight - 14) return;
+      pdf.addPage();
+      y = 18;
+    };
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(18);
+    pdf.text("ANSWER KEY", pageWidth / 2, y, { align: "center" });
+    y += 8;
+
+    pdf.setFontSize(13);
+    pdf.text(String(config?.title || "Question Paper"), pageWidth / 2, y, { align: "center" });
+    y += 7;
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    const metaParts = [
+      config?.classLevel ? `Class: ${config.classLevel}` : "",
+      config?.totalMarks !== undefined && config?.totalMarks !== null
+        ? `Total Marks: ${config.totalMarks}`
+        : "",
+      config?.durationMinutes ? `Duration: ${config.durationMinutes} min` : "",
+      config?.code ? `Code: ${config.code}` : "",
+    ].filter(Boolean);
+
+    if (metaParts.length > 0) {
+      pdf.text(metaParts.join("   |   "), pageWidth / 2, y, { align: "center" });
+      y += 8;
+    }
+
+    pdf.setDrawColor(0, 0, 0);
+    pdf.line(marginX, y, pageWidth - marginX, y);
+    y += 8;
+
+    sections.forEach((section) => {
+      if (!section.entries.length) return;
+
+      ensureSpace(12);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(12);
+      pdf.text(section.name.toUpperCase(), marginX, y);
+      y += 6;
+
+      const colWidths = [22, contentWidth - 22 - 24, 24];
+      const drawTableHeader = () => {
+        ensureSpace(10);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(10);
+        let x = marginX;
+        ["Q. No.", "Answer", "Marks"].forEach((label, index) => {
+          pdf.rect(x, y, colWidths[index], 8);
+          pdf.text(label, x + 2, y + 5.5);
+          x += colWidths[index];
+        });
+        y += 8;
+      };
+
+      drawTableHeader();
+
+      section.entries.forEach((entry) => {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(10);
+
+        const answerLines = pdf.splitTextToSize(entry.answer, colWidths[1] - 4);
+        const marksLabel = entry.marks ? `[${entry.marks}]` : "";
+        const rowHeight = Math.max(8, answerLines.length * 4.8 + 2);
+
+        ensureSpace(rowHeight + 2);
+
+        let x = marginX;
+        pdf.rect(x, y, colWidths[0], rowHeight);
+        pdf.text(entry.label, x + colWidths[0] / 2, y + 5.5, { align: "center" });
+        x += colWidths[0];
+
+        pdf.rect(x, y, colWidths[1], rowHeight);
+        pdf.text(answerLines, x + 2, y + 5.5);
+        x += colWidths[1];
+
+        pdf.rect(x, y, colWidths[2], rowHeight);
+        if (marksLabel) {
+          pdf.text(marksLabel, x + colWidths[2] / 2, y + 5.5, { align: "center" });
+        }
+
+        y += rowHeight;
+      });
+
+      y += 6;
+    });
+
+    pdf.save(getAnswerKeyFileName(config, "pdf"));
+  } catch (error) {
+    console.error("ANSWER KEY PDF ERROR:", error);
+  }
+};
+
+export const exportAnswerKeyAsWord = async (config: any) => {
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+          xmlns:w="urn:schemas-microsoft-com:office:word"
+          xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="UTF-8" />
+        <title>${String(config?.title || "Answer Key")} - Answer Key</title>
+        <style>${buildAnswerKeyStyles()}</style>
+      </head>
+      <body>
+        ${buildAnswerKeyHtml(config)}
+      </body>
+    </html>
+  `;
+
+  const blob = new Blob(["\ufeff", html], {
+    type: "application/msword;charset=utf-8",
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = getAnswerKeyFileName(config, "doc");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+export const exportAnswerKeyAsExcel = (config: any) => {
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+          xmlns:x="urn:schemas-microsoft-com:office:excel"
+          xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="UTF-8" />
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>Answer Key</x:Name>
+                <x:WorksheetOptions>
+                  <x:DisplayGridlines/>
+                </x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>${buildAnswerKeyStyles()}</style>
+      </head>
+      <body>
+        ${buildAnswerKeyHtml(config)}
+      </body>
+    </html>
+  `;
+
+  const blob = new Blob([html], {
+    type: "application/vnd.ms-excel;charset=utf-8;",
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = getAnswerKeyFileName(config, "xls");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 };
