@@ -12,7 +12,7 @@ export const SUBJECTS = [
   { id: "physics", name: "Physics", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
   { id: "chemistry", name: "Chemistry", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
   { id: "biology", name: "Biology", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
-  { id: "mental_ability", name: "Mental Ability", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "mental_ability", name: "Mental Ability", classLevels: ["class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
   { id: "achievers_section", name: "Achievers Section", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
   { id: "logical_reasoning", name: "Logical Reasoning", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
 ];
