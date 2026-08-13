@@ -605,7 +605,17 @@ const parseDateOnly = (value, endOfDay = false) => {
 };
 
 async function buildQuestionFilterFromPayload(payload = {}) {
-  const { classId, subjectId, topicId, type, difficulty, search, createdFrom, createdTo } = payload;
+  const {
+    classId,
+    subjectId,
+    topicId,
+    type,
+    difficulty,
+    search,
+    createdFrom,
+    createdTo,
+    textMcqWithOptionImages,
+  } = payload;
   const filter = {
     $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
   };
@@ -656,6 +666,33 @@ async function buildQuestionFilterFromPayload(payload = {}) {
     if (fromDate) createdAt.$gte = fromDate;
     if (toDate) createdAt.$lt = toDate;
     if (Object.keys(createdAt).length > 0) filter.createdAt = createdAt;
+  }
+
+  // Text MCQs that actually carry option images (likely should be mcq_image)
+  if (textMcqWithOptionImages === true || textMcqWithOptionImages === "true") {
+    filter.type = "mcq_text";
+    filter.$and = [
+      ...(Array.isArray(filter.$and) ? filter.$and : []),
+      {
+        $or: [
+          {
+            options: {
+              $elemMatch: {
+                mediaUrl: { $exists: true, $type: "string", $ne: "" },
+              },
+            },
+          },
+          {
+            media: {
+              $elemMatch: {
+                alt: { $regex: /^option[_-]/i },
+                url: { $exists: true, $type: "string", $ne: "" },
+              },
+            },
+          },
+        ],
+      },
+    ];
   }
 
   return filter;
@@ -1314,6 +1351,7 @@ router.post("/", async (req, res) => {
       search,
       createdFrom,
       createdTo,
+      textMcqWithOptionImages,
       page = 1,
       limit = 10,
       selectedQuestions = [],
@@ -1329,13 +1367,14 @@ router.post("/", async (req, res) => {
       search,
       createdFrom,
       createdTo,
+      textMcqWithOptionImages,
     });
 
     const pageSize = Math.max(Number(limit), 1);
     const currentPage = Math.max(Number(page), 1);
     const skip = (currentPage - 1) * pageSize;
     const listFields =
-      "type classId subjectId topicId text marks negativeMarks difficulty usageCount lastUsedAt createdAt correctAnswer options subQuestions needsReview isDeleted";
+      "type classId subjectId topicId text marks negativeMarks difficulty usageCount lastUsedAt createdAt correctAnswer options subQuestions needsReview isDeleted media.alt";
 
     const selectedIds = Array.isArray(selectedQuestions)
       ? selectedQuestions.map((id) => String(id)).filter(Boolean)
@@ -1448,9 +1487,11 @@ router.post("/selection-stats", async (req, res) => {
 
 router.post("/export-excel", async (req, res) => {
   try {
-    const { classId, subjectId, topicId, type, difficulty, search, createdFrom, createdTo } = req.body || {};
+    const { classId, subjectId, topicId, type, difficulty, search, createdFrom, createdTo, textMcqWithOptionImages } = req.body || {};
+    const reviewImageMismatch =
+      textMcqWithOptionImages === true || textMcqWithOptionImages === "true";
     const hasDateFilter = Boolean(String(createdFrom || "").trim() || String(createdTo || "").trim());
-    const requiredFilters = hasDateFilter ? {} : { classId, subjectId, topicId };
+    const requiredFilters = hasDateFilter || reviewImageMismatch ? {} : { classId, subjectId, topicId };
     const missingFilters = Object.entries(requiredFilters)
       .filter(([, value]) => !String(value || "").trim() || String(value).trim() === "all")
       .map(([key]) => key);
@@ -1481,6 +1522,7 @@ router.post("/export-excel", async (req, res) => {
       search,
       createdFrom,
       createdTo,
+      textMcqWithOptionImages: reviewImageMismatch,
     });
 
     const questions = await Question.find(filter).sort({ createdAt: -1 }).lean();
@@ -1922,7 +1964,7 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
 // BULK UPDATE QUESTION META (marks / difficulty / topic)
 router.put("/bulk-update", async (req, res) => {
   try {
-    const { ids, marks, difficulty, topicId } = req.body || {};
+    const { ids, marks, difficulty, topicId, type } = req.body || {};
 
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({
@@ -1979,10 +2021,21 @@ router.put("/bulk-update", async (req, res) => {
       }
     }
 
+    if (type !== undefined) {
+      const normalizedType = normalizeQuestionType(type, "");
+      if (!normalizedType) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid question type",
+        });
+      }
+      update.type = normalizedType;
+    }
+
     if (Object.keys(update).length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Nothing to update. Provide marks, difficulty, and/or topic",
+        message: "Nothing to update. Provide marks, difficulty, topic, and/or type",
       });
     }
 

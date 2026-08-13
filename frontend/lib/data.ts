@@ -15,6 +15,7 @@ export const SUBJECTS = [
   { id: "mental_ability", name: "Mental Ability", classLevels: ["class_5", "class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
   { id: "achievers_section", name: "Achievers Section", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
   { id: "logical_reasoning", name: "Logical Reasoning", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },
+  { id: "social_science", name: "Social Science", classLevels: ["class_6", "class_7", "class_8", "class_9", "class_10", "class_11", "class_12"] },  
 ];
 
 const SUBJECT_ALIASES: Record<string, string> = {
@@ -84,6 +85,10 @@ const SUBJECT_ALIASES: Record<string, string> = {
   // Logical Reasoning
   logicalreasoning: "logical_reasoning",
   lr: "logical_reasoning",
+
+  // Social Science
+  socialscience: "social_science",
+  ss: "social_science",
 };
 
 const normalizeSubjectKey = (value: string) =>

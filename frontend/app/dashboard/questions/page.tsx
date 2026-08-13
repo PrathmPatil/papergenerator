@@ -205,6 +205,8 @@ export interface IQuestion {
   needsReview?: boolean;
   usageCount?: number;
   lastUsedAt?: Date | string | null;
+  hasOptionMedia?: boolean;
+  needsTypeReview?: boolean;
 }
 
 /* ----------------------------------------
@@ -222,6 +224,7 @@ export default function QuestionBankPage() {
   const [filterDifficulty, setFilterDifficulty] = useState("all");
   const [filterCreatedFrom, setFilterCreatedFrom] = useState("");
   const [filterCreatedTo, setFilterCreatedTo] = useState("");
+  const [reviewTextMcqWithImages, setReviewTextMcqWithImages] = useState(false);
   const [topics, setTopics] = useState<TopicOption[]>([]);
   const [topicsLoading, setTopicsLoading] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -292,6 +295,7 @@ export default function QuestionBankPage() {
     filterDifficulty,
     filterCreatedFrom,
     filterCreatedTo,
+    reviewTextMcqWithImages,
     currentPage,
     recordsPerPage,
   ]);
@@ -376,10 +380,15 @@ export default function QuestionBankPage() {
     classId: filterClass !== "all" ? filterClass : undefined,
     subjectId: filterSubject !== "all" ? filterSubject : undefined,
     topicId: filterTopic !== "all" ? filterTopic : undefined,
-    type: filterType !== "all" ? filterType : undefined,
+    type: reviewTextMcqWithImages
+      ? "mcq_text"
+      : filterType !== "all"
+        ? filterType
+        : undefined,
     difficulty: filterDifficulty !== "all" ? filterDifficulty : undefined,
     createdFrom: isValidDisplayDate(filterCreatedFrom) ? filterCreatedFrom || undefined : undefined,
     createdTo: isValidDisplayDate(filterCreatedTo) ? filterCreatedTo || undefined : undefined,
+    textMcqWithOptionImages: reviewTextMcqWithImages || undefined,
     ...overrides,
   });
 
@@ -403,13 +412,14 @@ export default function QuestionBankPage() {
       .replace(/^_+|_+$/g, "") || fallback;
 
   const handleDownloadFilteredExcel = async () => {
-    const missingFilters = hasCreatedDateFilter
-      ? []
-      : [
-          filterClass === "all" ? "Class" : "",
-          filterSubject === "all" ? "Subject" : "",
-          filterTopic === "all" ? "Topic" : "",
-        ].filter(Boolean);
+    const missingFilters =
+      hasCreatedDateFilter || reviewTextMcqWithImages
+        ? []
+        : [
+            filterClass === "all" ? "Class" : "",
+            filterSubject === "all" ? "Subject" : "",
+            filterTopic === "all" ? "Topic" : "",
+          ].filter(Boolean);
 
     if (missingFilters.length > 0) {
       showInfo({
@@ -1310,6 +1320,7 @@ export default function QuestionBankPage() {
     setFilterDifficulty("all");
     setFilterCreatedFrom("");
     setFilterCreatedTo("");
+    setReviewTextMcqWithImages(false);
   };
 
   const debouncedSetSearchTerm = useMemo(
@@ -2011,6 +2022,55 @@ export default function QuestionBankPage() {
     setBulkEditOpen(true);
   };
 
+  const handleBulkConvertToImageMcq = async () => {
+    if (selectedQuestionIds.length === 0) {
+      showInfo({
+        title: "No questions selected",
+        description: "Select questions to convert to Image MCQ.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Convert ${selectedQuestionIds.length} selected question(s) from Text MCQ to Image MCQ?\n\nReview each question first. This only changes the type.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsBulkUpdating(true);
+      const res: any = await bulkUpdateQuestionsApi({
+        ids: selectedQuestionIds,
+        type: "mcq_image",
+      });
+
+      if (!res?.success) {
+        showInfo({
+          title: "Convert failed",
+          description: res?.message || "Could not update question type.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      showInfo({
+        title: "Converted",
+        description: `${res.modifiedCount || selectedQuestionIds.length} question(s) set to mcq_image.`,
+      });
+      setSelectedQuestionIds([]);
+      await fetchQuestions();
+    } catch (error) {
+      console.error("Convert to image MCQ failed", error);
+      showInfo({
+        title: "Convert failed",
+        description: "Check console/network and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsBulkUpdating(false);
+    }
+  };
+
   const handleBulkDelete = async () => {
     if (selectedQuestionIds.length === 0) {
       toast({
@@ -2440,13 +2500,46 @@ export default function QuestionBankPage() {
         </CardContent>
       </Card>
 
+      <Card className={reviewTextMcqWithImages ? "border-amber-300 bg-amber-50/40" : undefined}>
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Review: Text MCQ with option images</p>
+            <p className="text-xs text-muted-foreground">
+              Finds questions saved as <span className="font-medium">mcq_text</span> that also have
+              option images. Open each one, then convert to Image MCQ or delete.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant={reviewTextMcqWithImages ? "default" : "outline"}
+            onClick={() => {
+              setReviewTextMcqWithImages((prev) => !prev);
+              setFilterType("mcq_text");
+              setCurrentPage(1);
+            }}
+          >
+            <ImageIcon className="mr-2 h-4 w-4" />
+            {reviewTextMcqWithImages ? "Review ON" : "Show mismatches"}
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* TABLE */}
       <Card>
         <div className="px-6 pt-4 flex items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
             {selectedQuestionIds.length} selected
+            {reviewTextMcqWithImages ? ` · reviewing mismatches (${totalRecords})` : ""}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <Button
+              variant="outline"
+              onClick={handleBulkConvertToImageMcq}
+              disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting || isClearingUsage}
+            >
+              <ImageIcon className="mr-2 h-4 w-4" />
+              Convert to Image MCQ
+            </Button>
             <Button
               variant="outline"
               onClick={handleOpenBulkEdit}
@@ -2539,9 +2632,16 @@ export default function QuestionBankPage() {
                           {q.text}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">
-                            {q.type.replace("_", " ")}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <Badge variant="outline">
+                              {q.type.replace("_", " ")}
+                            </Badge>
+                            {(q.needsTypeReview || (reviewTextMcqWithImages && q.hasOptionMedia)) && (
+                              <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">
+                                Image options
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>{getClassNameById(q.classId)}</TableCell>
                         <TableCell>

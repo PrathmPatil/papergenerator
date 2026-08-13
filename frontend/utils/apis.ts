@@ -377,6 +377,7 @@ export const bulkUpdateQuestionsApi = async (payload: {
   marks?: number;
   difficulty?: "easy" | "medium" | "hard";
   topicId?: string;
+  type?: string;
 }) => {
   const response = await apiClient({
     url: "/api/questions/bulk-update",

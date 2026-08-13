@@ -4,8 +4,25 @@ const isEmbeddedDataUrl = (value) =>
 const stripEmbeddedMediaUrl = (value) =>
   isEmbeddedDataUrl(value) ? "" : value || "";
 
+const hasNonEmptyMediaUrl = (value) =>
+  typeof value === "string" && value.trim().length > 0;
+
+const questionHasOptionMedia = (question = {}) => {
+  const options = Array.isArray(question?.options) ? question.options : [];
+  if (options.some((option) => hasNonEmptyMediaUrl(option?.mediaUrl))) {
+    return true;
+  }
+
+  const media = Array.isArray(question?.media) ? question.media : [];
+  return media.some((item) => {
+    const alt = String(item?.alt || "").toLowerCase();
+    return alt.startsWith("option_") || alt.startsWith("option-");
+  });
+};
+
 export const sanitizeQuestionForList = (question = {}) => {
   const sanitized = { ...question };
+  const hasOptionMedia = questionHasOptionMedia(question);
 
   delete sanitized.media;
   delete sanitized.paragraph;
@@ -42,6 +59,9 @@ export const sanitizeQuestionForList = (question = {}) => {
 
   sanitized.mediaUrl = stripEmbeddedMediaUrl(sanitized.mediaUrl);
   sanitized.hasMedia = Boolean(question?.media?.length || sanitized.mediaUrl);
+  sanitized.hasOptionMedia = hasOptionMedia;
+  sanitized.needsTypeReview =
+    String(question?.type || "") === "mcq_text" && hasOptionMedia;
 
   return sanitized;
 };
