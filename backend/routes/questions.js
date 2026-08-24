@@ -1440,7 +1440,8 @@ router.post("/", async (req, res) => {
     // Full selected-marks total from DB (all selected IDs), independent of current page
     const selectionStats = await computeSelectionStats(
       selectedIds,
-      topicDistributions
+      topicDistributions,
+      req.body?.subQuestionSelections || []
     );
 
     res.json({
@@ -1465,10 +1466,11 @@ router.post("/", async (req, res) => {
 
 router.post("/selection-stats", async (req, res) => {
   try {
-    const { selectedQuestions = [], topicDistributions = [] } = req.body || {};
+    const { selectedQuestions = [], topicDistributions = [], subQuestionSelections = [] } = req.body || {};
     const selectionStats = await computeSelectionStats(
       selectedQuestions,
-      topicDistributions
+      topicDistributions,
+      subQuestionSelections
     );
 
     return res.json({

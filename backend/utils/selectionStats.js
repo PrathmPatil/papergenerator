@@ -8,7 +8,8 @@ import Question from "../models/Question.js";
  */
 export async function computeSelectionStats(
   selectedQuestions = [],
-  topicDistributions = []
+  topicDistributions = [],
+  subQuestionSelections = []
 ) {
   const selectedIds = Array.isArray(selectedQuestions)
     ? [...new Set(selectedQuestions.map((id) => String(id || "")).filter(Boolean))]
@@ -29,6 +30,18 @@ export async function computeSelectionStats(
   const selectedByTopicMarks = {};
   let totalSelectedMarks = 0;
   let resolvedSelectedCount = 0;
+  const selectedSubQuestionsByQuestionId = new Map(
+    (Array.isArray(subQuestionSelections) ? subQuestionSelections : [])
+      .map((selection) => [
+        String(selection?.questionId || ""),
+        new Set(
+          (Array.isArray(selection?.subQuestionIds) ? selection.subQuestionIds : [])
+            .map((id) => String(id || ""))
+            .filter(Boolean)
+        ),
+      ])
+      .filter(([questionId]) => Boolean(questionId))
+  );
 
   if (selectedIds.length > 0) {
     const objectIds = selectedIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
@@ -36,7 +49,7 @@ export async function computeSelectionStats(
       _id: { $in: objectIds },
       isDeleted: { $ne: true },
     })
-      .select("marks topicId")
+      .select("marks topicId subQuestions")
       .lean();
 
     const byId = new Map(docs.map((doc) => [String(doc._id), doc]));
@@ -44,7 +57,16 @@ export async function computeSelectionStats(
     selectedIds.forEach((id) => {
       const doc = byId.get(id);
       if (!doc) return;
-      const marks = Math.max(0, Number(doc.marks || 0));
+      const selectedSubQuestionIds = selectedSubQuestionsByQuestionId.get(id);
+      const marks = selectedSubQuestionIds
+        ? (Array.isArray(doc.subQuestions) ? doc.subQuestions : []).reduce(
+            (sum, subQuestion, index) =>
+              selectedSubQuestionIds.has(String(subQuestion?._id || subQuestion?.id || index + 1))
+                ? sum + Math.max(0, Number(subQuestion?.marks || 0))
+                : sum,
+            0
+          )
+        : Math.max(0, Number(doc.marks || 0));
       const topicId = String(doc.topicId || "");
       totalSelectedMarks += marks;
       resolvedSelectedCount += 1;

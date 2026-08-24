@@ -43,6 +43,7 @@ interface SubjectState {
 }
 
 type SelectedMap = Record<string, string[]>;
+type SelectedSubQuestionMap = Record<string, Record<string, string[]>>;
 
 interface TopicDistributionRule {
   topicId: string;
@@ -120,12 +121,15 @@ export function PaperGenerationTemplate({
   data,
   paperGenerateFunction,
   selectedQuestionsEdit = null,
+  selectedSubQuestionsEdit = null,
+  subQuestionSelectionChange,
   selectedTopics = [],
   availableTopics = [],
 }: any) {
   const PAGE_SIZE = 10;
   const [subjects, setSubjects] = useState<Record<string, SubjectState>>({});
   const [selectedQuestions, setSelectedQuestions] = useState<SelectedMap>({});
+  const [selectedSubQuestions, setSelectedSubQuestions] = useState<SelectedSubQuestionMap>({});
 
   const [selectedQuestion, setSelectedQuestion] = useState<IQuestion | null>(null);
   const [viewModalOpen, setViewModalOpen] = useState(false);
@@ -181,6 +185,16 @@ export function PaperGenerationTemplate({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.sections, selectedQuestionsEdit]);
 
+  useEffect(() => {
+    const next = selectedSubQuestionsEdit && typeof selectedSubQuestionsEdit === "object"
+      ? selectedSubQuestionsEdit as SelectedSubQuestionMap
+      : {};
+    if (JSON.stringify(selectedSubQuestions) !== JSON.stringify(next)) {
+      setSelectedSubQuestions(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSubQuestionsEdit]);
+
   const lastSentSnapRef = useRef<string>("");
   useEffect(() => {
     if (!selectedQuestions || Object.keys(selectedQuestions).length === 0) return;
@@ -191,6 +205,50 @@ export function PaperGenerationTemplate({
     lastSentSnapRef.current = snap;
     parentSyncRef.current?.(selectedQuestions);
   }, [selectedQuestions]);
+
+  const lastSentSubQuestionSnapRef = useRef<string>("");
+  useEffect(() => {
+    const snap = JSON.stringify(selectedSubQuestions);
+    if (snap === lastSentSubQuestionSnapRef.current) return;
+    lastSentSubQuestionSnapRef.current = snap;
+    subQuestionSelectionChange?.(selectedSubQuestions);
+  }, [selectedSubQuestions, subQuestionSelectionChange]);
+
+  const getSubQuestionId = (subQuestion: any, index: number) =>
+    String(subQuestion?._id ?? subQuestion?.id ?? index + 1);
+
+  const getSelectedSubQuestionIds = (sectionId: string, question: IQuestion) => {
+    const allIds = (Array.isArray(question.subQuestions) ? question.subQuestions : [])
+      .map(getSubQuestionId);
+    const saved = selectedSubQuestions[sectionId]?.[question._id];
+    return Array.isArray(saved) ? saved : allIds;
+  };
+
+  const getSelectedSubQuestionMarks = (sectionId: string, question: IQuestion) => {
+    const selectedIds = new Set(getSelectedSubQuestionIds(sectionId, question));
+    return (Array.isArray(question.subQuestions) ? question.subQuestions : []).reduce(
+      (sum, subQuestion, index) =>
+        selectedIds.has(getSubQuestionId(subQuestion, index))
+          ? sum + Math.max(0, Number(subQuestion?.marks || 0))
+          : sum,
+      0
+    );
+  };
+
+  const updateSubQuestionSelection = (sectionId: string, questionId: string, ids: string[]) => {
+    setSelectedSubQuestions((previous) => ({
+      ...previous,
+      [sectionId]: { ...(previous[sectionId] || {}), [questionId]: ids },
+    }));
+  };
+
+  const removeSubQuestionSelection = (sectionId: string, questionId: string) => {
+    setSelectedSubQuestions((previous) => {
+      const section = { ...(previous[sectionId] || {}) };
+      delete section[questionId];
+      return { ...previous, [sectionId]: section };
+    });
+  };
 
   const topicNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -246,6 +304,7 @@ export function PaperGenerationTemplate({
   const refreshSelectionStats = async (subjectId: string, selectedIds: string[]) => {
     const sec = data?.sections?.find((s: any) => String(s.subjectId) === String(subjectId));
     const rules = sec ? getSectionRules(sec) : null;
+    const sectionId = sec ? getSectionId(sec) : "";
 
     setSubjects((p) => {
       if (!p[subjectId]) return p;
@@ -258,6 +317,9 @@ export function PaperGenerationTemplate({
     try {
       const res = await fetchSelectionStatsApi({
         selectedQuestions: selectedIds,
+        subQuestionSelections: Object.entries(selectedSubQuestions[sectionId] || {}).map(
+          ([questionId, subQuestionIds]) => ({ questionId, subQuestionIds })
+        ),
         topicDistributions: rules?.topicDistributions || [],
       });
 
@@ -303,10 +365,11 @@ export function PaperGenerationTemplate({
         subjectId: String(sec?.subjectId || ""),
         sectionId: getSectionId(sec),
         selected: selectedQuestions[getSectionId(sec)] || [],
+        subQuestionSelections: selectedSubQuestions[getSectionId(sec)] || {},
         rules: getSectionRules(sec)?.topicDistributions || [],
       }))
     );
-  }, [data?.sections, selectedQuestions]);
+  }, [data?.sections, selectedQuestions, selectedSubQuestions]);
 
   useEffect(() => {
     if (!selectionStatsKey || !subjectsReadyKey) return;
@@ -347,14 +410,21 @@ export function PaperGenerationTemplate({
     const selectedForTopicMarks = stats.selectedByTopicMarks[topicId] || 0;
     const questionMarks = Math.max(0, Number(q.marks ?? 0));
 
-    if (selectedForTopicMarks + questionMarks > requiredForTopicMarks) {
+    // A passage can be included with only the sub-questions needed to satisfy
+    // the section quota. The exact selected marks are checked server-side once
+    // its sub-questions are chosen.
+    const minimumSelectableMarks = Array.isArray(q.subQuestions) && q.subQuestions.length > 0
+      ? Math.min(...q.subQuestions.map((subQuestion: any) => Math.max(0, Number(subQuestion?.marks || 0))))
+      : questionMarks;
+
+    if (selectedForTopicMarks + minimumSelectableMarks > requiredForTopicMarks) {
       return {
         allowed: false,
         reason: `${topicNameById.get(topicId) || "Topic"} marks quota filled`,
       };
     }
 
-    if (stats.totalSelectedMarks + questionMarks > stats.totalRequiredMarks) {
+    if (stats.totalSelectedMarks + minimumSelectableMarks > stats.totalRequiredMarks) {
       return { allowed: false, reason: "Section marks quota reached" };
     }
 
@@ -385,6 +455,9 @@ export function PaperGenerationTemplate({
       type: data.type,
       difficulty: data.difficulty,
       selectedQuestions: selectedForThisSection,
+      subQuestionSelections: Object.entries(selectedSubQuestions[sectionId] || {}).map(
+        ([questionId, subQuestionIds]) => ({ questionId, subQuestionIds })
+      ),
       topicDistributions: rules?.topicDistributions || [],
       topicId: activeTopicId,
     };
@@ -616,8 +689,26 @@ export function PaperGenerationTemplate({
                         }
                       }
 
-                      setSelectedQuestions((prev) => ({ ...prev, [sectionId]: nextIds }));
-                      void refreshSelectionStats(subjectId, nextIds);
+                          setSelectedQuestions((prev) => ({ ...prev, [sectionId]: nextIds }));
+                          if (allVisibleSelected) {
+                            setSelectedSubQuestions((previous) => {
+                              const sectionSelections = { ...(previous[sectionId] || {}) };
+                              state.questions.forEach((question) => delete sectionSelections[question._id]);
+                              return { ...previous, [sectionId]: sectionSelections };
+                            });
+                          } else {
+                            setSelectedSubQuestions((previous) => {
+                              const sectionSelections = { ...(previous[sectionId] || {}) };
+                              state.questions.forEach((question) => {
+                                if (!nextIds.includes(question._id) || !Array.isArray(question.subQuestions) || question.subQuestions.length === 0) return;
+                                if (!sectionSelections[question._id]) {
+                                  sectionSelections[question._id] = question.subQuestions.map(getSubQuestionId);
+                                }
+                              });
+                              return { ...previous, [sectionId]: sectionSelections };
+                            });
+                          }
+                          void refreshSelectionStats(subjectId, nextIds);
                     }}
                     aria-label="Select all questions in current page"
                   />
@@ -654,6 +745,11 @@ export function PaperGenerationTemplate({
                               : current.filter((id) => id !== q._id);
 
                           setSelectedQuestions((prev) => ({ ...prev, [sectionId]: next }));
+                          if (val === true && Array.isArray(q.subQuestions) && q.subQuestions.length > 0) {
+                            updateSubQuestionSelection(sectionId, q._id, q.subQuestions.map(getSubQuestionId));
+                          } else if (val !== true) {
+                            removeSubQuestionSelection(sectionId, q._id);
+                          }
                           void refreshSelectionStats(subjectId, next);
                         }}
                       />
@@ -708,13 +804,65 @@ export function PaperGenerationTemplate({
 
                       {/* Inline expanded sub-questions */}
                       {expandedQuestions[String(q._id)] && Array.isArray(q.subQuestions) && q.subQuestions.length > 0 && (
-                        <div className="mt-3 space-y-2 border-t pt-3">
-                          {q.subQuestions.map((sq: any, idx: number) => (
-                            <div key={sq._id || sq.id || idx} className="p-2 rounded bg-muted/10">
-                              <div className="flex justify-between items-start">
-                                <p className="font-medium">{idx + 1}. {sq.text || "Untitled"}</p>
-                                <span className="text-xs text-muted-foreground">{String(sq.type || "").replace("_", " ")} | Marks: {sq.marks}</span>
-                              </div>
+                        <div className="mt-3 space-y-1 border-t pt-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+                            <div>
+                              <p className="text-sm font-medium">Choose questions from this passage</p>
+                              <p className="text-xs text-muted-foreground">
+                                {getSelectedSubQuestionIds(sectionId, q).length} of {q.subQuestions.length} selected · {getSelectedSubQuestionMarks(sectionId, q)} marks
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              disabled={!checked}
+                              onClick={() => {
+                                const selectedIds = getSelectedSubQuestionIds(sectionId, q);
+                                const allIds = q.subQuestions!.map(getSubQuestionId);
+                                const next = selectedIds.length === allIds.length ? [] : allIds;
+                                updateSubQuestionSelection(sectionId, q._id, next);
+                                if (next.length === 0) {
+                                  const nextQuestionIds = (selectedQuestions[sectionId] || []).filter((id) => id !== q._id);
+                                  setSelectedQuestions((previous) => ({ ...previous, [sectionId]: nextQuestionIds }));
+                                  void refreshSelectionStats(subjectId, nextQuestionIds);
+                                }
+                              }}
+                            >
+                              {getSelectedSubQuestionIds(sectionId, q).length === q.subQuestions.length ? "Clear all" : "Select all"}
+                            </Button>
+                          </div>
+                          {!checked && (
+                            <p className="text-xs text-muted-foreground">Select the paragraph question first, then choose its sub-questions.</p>
+                          )}
+                          {q.subQuestions.map((sq: any, idx: number) => {
+                            const subQuestionId = getSubQuestionId(sq, idx);
+                            const subQuestionChecked = getSelectedSubQuestionIds(sectionId, q).includes(subQuestionId);
+                            return (
+                            <label key={sq._id || sq.id || idx} className={`block py-2 transition ${checked ? "cursor-pointer hover:bg-muted/20" : "opacity-60"}`}>
+                              <div className="flex items-start gap-2.5">
+                                <Checkbox
+                                  checked={subQuestionChecked}
+                                  disabled={!checked}
+                                  onCheckedChange={(value) => {
+                                    const current = getSelectedSubQuestionIds(sectionId, q);
+                                    const next = value === true
+                                      ? Array.from(new Set([...current, subQuestionId]))
+                                      : current.filter((id) => id !== subQuestionId);
+                                    updateSubQuestionSelection(sectionId, q._id, next);
+                                    if (next.length === 0) {
+                                      const nextQuestionIds = (selectedQuestions[sectionId] || []).filter((id) => id !== q._id);
+                                      setSelectedQuestions((previous) => ({ ...previous, [sectionId]: nextQuestionIds }));
+                                      void refreshSelectionStats(subjectId, nextQuestionIds);
+                                    }
+                                  }}
+                                  aria-label={`Select sub-question ${idx + 1}`}
+                                />
+                                <div className="flex-1">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="font-medium">{idx + 1}. {sq.text || "Untitled"}</p>
+                                    <span className="shrink-0 text-xs text-muted-foreground">{String(sq.type || "").replace("_", " ")} · {sq.marks ?? 0} marks</span>
+                                  </div>
 
                               {(Array.isArray(sq.media) && sq.media.length > 0) || sq.mediaUrl ? (
                                 <div className="flex flex-wrap gap-2 mt-2">
@@ -734,8 +882,10 @@ export function PaperGenerationTemplate({
                                   ))}
                                 </ul>
                               )}
-                            </div>
-                          ))}
+                                </div>
+                              </div>
+                            </label>
+                          )})}
                         </div>
                       )}
                     </div>

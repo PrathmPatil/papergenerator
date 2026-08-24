@@ -596,19 +596,50 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
     let totalMarks = 0;
 
     for (const sec of selectedQuestions) {
-      const qs = await Question.find({ _id: { $in: sec.questions } });
+      const selectedQuestionIds = Array.isArray(sec.questions)
+        ? sec.questions.map((id) => String(id || "")).filter(Boolean)
+        : [];
+      const requestedSubQuestions = new Map(
+        (Array.isArray(sec.subQuestionSelections) ? sec.subQuestionSelections : [])
+          .map((selection) => [
+            String(selection?.questionId || ""),
+            new Set(
+              (Array.isArray(selection?.subQuestionIds) ? selection.subQuestionIds : [])
+                .map((id) => String(id || ""))
+                .filter(Boolean)
+            ),
+          ])
+          .filter(([questionId]) => Boolean(questionId))
+      );
+      const qs = await Question.find({ _id: { $in: selectedQuestionIds } });
 
-      const sectionMarks = qs.reduce((sum, q) => sum + (q.marks || 1), 0);
+      const questionSnapshots = qs.map((q) => {
+        const questionId = q._id.toString();
+        const selectedSubQuestionIds = requestedSubQuestions.get(questionId);
+        const allSubQuestions = Array.isArray(q.subQuestions) ? q.subQuestions : [];
+        const subQuestions = selectedSubQuestionIds
+          ? allSubQuestions.filter((subQuestion, index) =>
+              selectedSubQuestionIds.has(String(subQuestion?._id || subQuestion?.id || index + 1))
+            )
+          : allSubQuestions;
+        const marks = selectedSubQuestionIds
+          ? subQuestions.reduce((sum, subQuestion) => sum + Math.max(0, Number(subQuestion?.marks || 0)), 0)
+          : q.marks || 1;
+
+        return { q, subQuestions, marks };
+      });
+
+      const sectionMarks = questionSnapshots.reduce((sum, question) => sum + question.marks, 0);
       totalMarks += sectionMarks;
 
       sections.push({
         id: sec.sectionId,
         name: template.sections.find((s) => s.id === sec.sectionId)?.name,
         marks: sectionMarks,
-        questions: qs.map((q) => q._id.toString()),
+        questions: questionSnapshots.map(({ q }) => q._id.toString()),
       });
 
-      qs.forEach((q) => {
+      questionSnapshots.forEach(({ q, subQuestions, marks }) => {
         snapshots.push({
           questionId: q._id,
           type: q.type,
@@ -616,10 +647,10 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
           paragraph: q.paragraph,
           media: q.media,
           options: q.options,
-          subQuestions: q.subQuestions,
+          subQuestions,
           correctAnswer: q.correctAnswer,
           matches: q.matches,
-          marks: q.marks,
+          marks,
           negativeMarks: q.negativeMarks,
         });
       });

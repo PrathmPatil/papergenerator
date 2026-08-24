@@ -118,6 +118,7 @@ export default function GeneratePaperPage() {
 
   const [fetchedQuestions, setFetchedQuestions] = useState<any[]>([]);
   const [selectedQuestions, setSelectedQuestions] = useState<Record<string, string[]>>({});
+  const [selectedSubQuestions, setSelectedSubQuestions] = useState<Record<string, Record<string, string[]>>>({});
   const [sections, setSections] = useState<SectionConfig[]>([]);
   const [isNameExist, setIsTitleExist] = useState(false);
 
@@ -722,6 +723,9 @@ const handleSave = async () => {
     const sectionPayload = template.sections.map((section: any) => ({
       sectionId: section.id,
       questions: selectedQuestions?.[section.id] || [],
+      subQuestionSelections: Object.entries(selectedSubQuestions?.[section.id] || {}).map(
+        ([questionId, subQuestionIds]) => ({ questionId, subQuestionIds })
+      ),
     }));
 
     const payload = {
@@ -1342,6 +1346,8 @@ const handleSave = async () => {
                 data={template}
                 paperGenerateFunction={setSelectedQuestions}
                 selectedQuestionsEdit={selectedQuestions}
+                selectedSubQuestionsEdit={selectedSubQuestions}
+                subQuestionSelectionChange={setSelectedSubQuestions}
                 selectedTopics={selectedTopics}
                 availableTopics={availableTopics}
               />

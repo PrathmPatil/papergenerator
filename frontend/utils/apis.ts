@@ -182,6 +182,7 @@ interface QuestionFilterPayload {
   createdFrom?: string;
   createdTo?: string;
   selectedQuestions?: string[];
+  subQuestionSelections?: { questionId: string; subQuestionIds: string[] }[];
   topicDistributions?: { topicId: string; marks: number }[];
   page?: number;
   limit?: number;
@@ -202,6 +203,7 @@ export async function fetchAllQuestionsApi(
 
 export async function fetchSelectionStatsApi(payload: {
   selectedQuestions?: string[];
+  subQuestionSelections?: { questionId: string; subQuestionIds: string[] }[];
   topicDistributions?: { topicId: string; marks: number }[];
 }): Promise<{ success: boolean; selectionStats: SelectionMarksStats }> {
   const res = await apiClient({

@@ -139,6 +139,7 @@ export default function EditPaperPage() {
 
   const [sections, setSections] = useState<Sections[]>([]);
   const [selectedQuestions, setSelectedQuestions] = useState<Record<string, string[]>>({});
+  const [selectedSubQuestions, setSelectedSubQuestions] = useState<Record<string, Record<string, string[]>>>({});
   const [isGenerating, setIsGenerating] = useState(false);
 
   const toSafeInt = (value: unknown, fallback = 0) => {
@@ -637,6 +638,9 @@ export default function EditPaperPage() {
       const sectionPayload = template.sections.map((section: any) => ({
         sectionId: section.id,
         questions: selectedQuestions?.[section.id] || [],
+        subQuestionSelections: Object.entries(selectedSubQuestions?.[section.id] || {}).map(
+          ([questionId, subQuestionIds]) => ({ questionId, subQuestionIds })
+        ),
       }));
 
       const payload = {
@@ -985,6 +989,8 @@ export default function EditPaperPage() {
                 data={template}
                 paperGenerateFunction={setSelectedQuestions}
                 selectedQuestionsEdit={selectedQuestions}
+                selectedSubQuestionsEdit={selectedSubQuestions}
+                subQuestionSelectionChange={setSelectedSubQuestions}
                 selectedTopics={selectedTopics}
                 availableTopics={availableTopics}
               />
