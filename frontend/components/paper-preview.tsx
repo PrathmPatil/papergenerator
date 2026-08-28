@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown } from "lucide-react";
 import { formatClassLabel } from "@/lib/utils";
 import {
@@ -22,7 +23,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const PAGE_MARGIN_MM = 12;
+// Word's "Narrow" page margin is 0.5 in (12.7 mm).
+const PAGE_MARGIN_MM = 12.7;
 const SCHOOL_LOGO_SRC = "/school%20logo.png";
 const MONTH_OPTIONS = [
   "JANUARY",
@@ -157,7 +159,7 @@ const buildStandalonePaperStyles = (
       white-space: normal !important;
       overflow-wrap: anywhere !important;
       word-break: break-word !important;
-      font-size: clamp(13px, 2.5vw, 20px) !important;
+      font-size: 18px !important;
       line-height: 1.2 !important;
       margin: 0 !important;
     }
@@ -486,12 +488,17 @@ const waitForImagesInDocument = async (doc: Document) => {
 };
 
 export function PaperPreview({ config }: { config: any }) {
-  const [fontSize, setFontSize] = useState(Number(config?.previewSettings?.fontSize || 13));
+  const [fontSize, setFontSize] = useState(Number(config?.previewSettings?.fontSize || 14));
   const [orientation, setOrientation] = useState(config?.previewSettings?.orientation === "landscape" ? "landscape" : "portrait");
   const [columnCount, setColumnCount] = useState(Math.min(2, Math.max(1, Number(config?.previewSettings?.columnCount || 1))));
   const [paperMonth, setPaperMonth] = useState(String(config?.previewSettings?.month || config?.month || "OCTOBER").toUpperCase());
-  const [paperYear, setPaperYear] = useState(String(config?.previewSettings?.year || config?.year || "2025"));
+  const [paperYear, setPaperYear] = useState(
+    String(config?.previewSettings?.year || config?.year || new Date().getFullYear())
+  );
   const [paperCode, setPaperCode] = useState(String(config?.previewSettings?.code || config?.code || ""));
+  const [answerLinesEnabled, setAnswerLinesEnabled] = useState(
+    config?.previewSettings?.answerLinesEnabled !== false
+  );
   const [dynamicStudentInstructions, setDynamicStudentInstructions] = useState<string[]>(() =>
     normalizeInstructionLines(config?.previewSettings?.studentInstructions ?? config?.instructions)
   );
@@ -508,7 +515,7 @@ export function PaperPreview({ config }: { config: any }) {
 
   const previewStyles = useMemo(() => {
     const parsedFontSize = Number(fontSize);
-    const safeFontSize = Number.isFinite(parsedFontSize) && parsedFontSize >= 0 ? parsedFontSize : 13;
+    const safeFontSize = Number.isFinite(parsedFontSize) && parsedFontSize >= 0 ? parsedFontSize : 14;
     const safeColumnCount = Math.max(1, Math.min(2, Number(columnCount) || 1));
     const safeOrientation = orientation === "landscape" ? "landscape" : "portrait";
 
@@ -586,7 +593,10 @@ export function PaperPreview({ config }: { config: any }) {
     );
   };
 
-  const renderAnswerLine = (label = "Answer") => (
+  const renderAnswerLine = (label = "Answer") => {
+    if (!answerLinesEnabled) return null;
+
+    return (
     <div
       className="answer-row"
       style={{
@@ -610,7 +620,8 @@ export function PaperPreview({ config }: { config: any }) {
         &nbsp;
       </span>
     </div>
-  );
+    );
+  };
 
   const renderSubQuestion = (subQuestion: any, index: number) => {
     const options = Array.isArray(subQuestion?.options) ? subQuestion.options : [];
@@ -865,7 +876,7 @@ export function PaperPreview({ config }: { config: any }) {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
           <div className="space-y-2">
-            <Label htmlFor="preview-font-size">Font Size</Label>
+            <Label htmlFor="preview-font-size">Question Text Size</Label>
             <Input
               id="preview-font-size"
               type="number"
@@ -929,6 +940,17 @@ export function PaperPreview({ config }: { config: any }) {
               id="preview-paper-code"
               value={paperCode}
               onChange={(e) => setPaperCode(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2 md:col-span-1">
+            <Label htmlFor="preview-answer-lines" className="cursor-pointer">
+              Answer Lines
+            </Label>
+            <Switch
+              id="preview-answer-lines"
+              checked={answerLinesEnabled}
+              onCheckedChange={setAnswerLinesEnabled}
+              aria-label="Enable answer lines"
             />
           </div>
         </div>
@@ -1026,7 +1048,7 @@ export function PaperPreview({ config }: { config: any }) {
             <h1
               className="paper-main-title"
               style={{
-                fontSize: "clamp(13px, 2.5vw, 20px)",
+                fontSize: "18px",
                 fontWeight: "bold",
                 lineHeight: 1.2,
                 margin: 0,
@@ -1227,7 +1249,7 @@ export function PaperPreview({ config }: { config: any }) {
 
             <h2
               style={{
-                fontSize: "14px",
+                fontSize: "16px",
                 fontWeight: "bold",
                 marginBottom: "6px",
               }}
@@ -1454,7 +1476,7 @@ export const handleFullPreview = (config: any) => {
             white-space: normal !important;
             overflow-wrap: anywhere !important;
             word-break: break-word !important;
-            font-size: clamp(13px, 2.5vw, 20px) !important;
+            font-size: 18px !important;
             line-height: 1.2 !important;
             margin: 0 !important;
           }
@@ -2135,7 +2157,7 @@ export const exportAsWord = async (config: any) => {
   // Keep title size Word-friendly (clamp() is ignored / blown up by Word)
   clone.querySelectorAll(".paper-main-title").forEach((titleNode) => {
     const title = titleNode as HTMLElement;
-    title.style.fontSize = "16px";
+    title.style.fontSize = "18px";
     title.style.lineHeight = "1.25";
     title.style.margin = "0";
     title.style.fontWeight = "700";
@@ -2368,7 +2390,7 @@ export const exportAsWord = async (config: any) => {
         padding-left: 8px !important;
       }
       .paper-main-title {
-        font-size: 16px !important;
+        font-size: 18px !important;
         line-height: 1.25 !important;
         margin: 0 !important;
         font-weight: 700 !important;

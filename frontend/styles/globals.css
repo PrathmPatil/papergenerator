@@ -202,7 +202,7 @@
 
 @page {
   size: A4;
-  margin: 12mm;
+  margin: 12.7mm;
 }
 
 * {
@@ -227,6 +227,7 @@
 /* Prevent ugly word breaking */
 #paper-preview, 
 #paper-preview * {
+  font-family: "Times New Roman", Times, serif !important;
   word-break: keep-all !important;   /* do not break words */
   overflow-wrap: normal !important;  /* don't force breaking */
   hyphens: none !important;          /* no hyphenation */
@@ -247,7 +248,7 @@
 
 @page {
   size: A4;
-  margin: 12mm;
+  margin: 12.7mm;
 }
 
 @media print {
