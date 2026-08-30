@@ -210,6 +210,7 @@ import Question from "../models/Question.js";
 import PaperTemplate from "../models/PaperTemplate.js";
 import PDFDocument from "pdfkit";
 import Paper from "../models/Paper.js";
+import UserSetting from "../models/UserSetting.js";
 import { requireStaff } from "../middleware/tokenVerification.middleware.js";
 const router = express.Router();
 
@@ -299,6 +300,25 @@ const applyQuestionUsageChange = async (oldQuestionIds = [], newQuestionIds = []
   });
 
   await applyQuestionUsageDelta(deltaByQuestionId);
+};
+
+// ✅ Helper function to save paper preview updated timestamp
+const savePaperPreviewUpdated = async (userId) => {
+  if (!userId) return;
+  try {
+    await UserSetting.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          userId,
+          paperPreviewUpdated: new Date(),
+        },
+      },
+      { upsert: true, new: true }
+    );
+  } catch (err) {
+    console.warn("Failed to save paper preview updated timestamp:", err.message);
+  }
 };
 
 const toLocalUploadPath = (url = "") => {
@@ -674,6 +694,10 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
 
       await paper.save();
       await applyQuestionUsageChange(oldQuestionIds, getPaperQuestionIds(paper));
+      
+      // ✅ Save paper preview updated timestamp
+      const userId = req.user?.id || req.user?._id || req.body.userId;
+      await savePaperPreviewUpdated(userId);
     }
 
     // ============================
@@ -693,6 +717,10 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
 
       await paper.save();
       await applyQuestionUsageChange([], getPaperQuestionIds(paper));
+      
+      // ✅ Save paper preview updated timestamp
+      const userId = req.user?.id || req.user?._id || req.body.userId;
+      await savePaperPreviewUpdated(userId);
     }
 
     return res.json({ success: true, paper });
@@ -706,13 +734,34 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
 router.put("/:id", requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
-    const { title } = req.body;
+    const { title, previewSettings } = req.body;
 
     const paper = await Paper.findOne({ _id: id, isDeleted: false });
     if (!paper) return res.status(404).json({ error: "Paper not found" });
 
-    paper.title = title;
+    if (typeof title === "string") paper.title = title;
+    if (previewSettings && typeof previewSettings === "object") {
+      const fontSize = Number(previewSettings.fontSize);
+      const columnCount = Number(previewSettings.columnCount);
+
+      paper.previewSettings = {
+        fontSize: Number.isFinite(fontSize) && fontSize >= 0 ? fontSize : 14,
+        orientation: previewSettings.orientation === "landscape" ? "landscape" : "portrait",
+        columnCount: Number.isFinite(columnCount) ? Math.min(2, Math.max(1, columnCount)) : 1,
+        month: String(previewSettings.month || "OCTOBER").toUpperCase(),
+        year: String(previewSettings.year || new Date().getFullYear()),
+        code: String(previewSettings.code || ""),
+        answerLinesEnabled: previewSettings.answerLinesEnabled !== false,
+        studentInstructions: Array.isArray(previewSettings.studentInstructions)
+          ? previewSettings.studentInstructions.map((line) => String(line || "").trim()).filter(Boolean)
+          : [],
+      };
+    }
     await paper.save();
+
+    // ✅ Save paper preview updated timestamp
+    const userId = req.user?.id || req.user?._id || req.body.userId;
+    await savePaperPreviewUpdated(userId);
 
     return res.json({ success: true, paper });
   } catch (err) {
@@ -836,6 +885,11 @@ router.post("/generate", requireStaff, async (req, res) => {
 
     await paper.save();
     await applyQuestionUsageChange([], getPaperQuestionIds(paper));
+    
+    // ✅ Save paper preview updated timestamp
+    const userId = req.user?.id || req.user?._id || req.body.userId;
+    await savePaperPreviewUpdated(userId);
+    
     res.json({ success: true, paper });
   } catch (err) {
     console.log(err);

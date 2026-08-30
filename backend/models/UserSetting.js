@@ -19,6 +19,9 @@ const userSchema = new mongoose.Schema(
     },
 
     notifications: notificationSchema,
+    
+    // ✅ Paper preview update tracking
+    paperPreviewUpdated: { type: Date, default: null },
   },
   { timestamps: true }
 );

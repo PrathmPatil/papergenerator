@@ -25,8 +25,12 @@ export const sanitizeQuestionForList = (question = {}) => {
   const hasOptionMedia = questionHasOptionMedia(question);
 
   delete sanitized.media;
-  delete sanitized.paragraph;
   delete sanitized.ocrText;
+
+  // The paper generator's question viewer needs the complete passage for
+  // paragraph-type questions. It is plain text, unlike media/OCR payloads,
+  // so keep it in the list response.
+  sanitized.paragraph = typeof question?.paragraph === "string" ? question.paragraph : "";
 
   if (Array.isArray(sanitized.options)) {
     sanitized.options = sanitized.options.map((option) => ({

@@ -1374,7 +1374,7 @@ router.post("/", async (req, res) => {
     const currentPage = Math.max(Number(page), 1);
     const skip = (currentPage - 1) * pageSize;
     const listFields =
-      "type classId subjectId topicId text marks negativeMarks difficulty usageCount lastUsedAt createdAt correctAnswer options subQuestions needsReview isDeleted media.alt";
+      "type classId subjectId topicId text paragraph marks negativeMarks difficulty usageCount lastUsedAt createdAt correctAnswer options subQuestions needsReview isDeleted media.alt";
 
     const selectedIds = Array.isArray(selectedQuestions)
       ? selectedQuestions.map((id) => String(id)).filter(Boolean)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -487,21 +487,42 @@ const waitForImagesInDocument = async (doc: Document) => {
   );
 };
 
-export function PaperPreview({ config }: { config: any }) {
-  const [fontSize, setFontSize] = useState(Number(config?.previewSettings?.fontSize || 14));
+export function PaperPreview({
+  config,
+  onPreviewSettingsChange,
+}: {
+  config: any;
+  onPreviewSettingsChange?: (settings: any) => void;
+}) {
+  const previewSettingsChangeRef = useRef(onPreviewSettingsChange);
+  previewSettingsChangeRef.current = onPreviewSettingsChange;
+  const [fontSize, setFontSize] = useState(Number(config?.previewSettings?.fontSize ?? 14));
   const [orientation, setOrientation] = useState(config?.previewSettings?.orientation === "landscape" ? "landscape" : "portrait");
-  const [columnCount, setColumnCount] = useState(Math.min(2, Math.max(1, Number(config?.previewSettings?.columnCount || 1))));
-  const [paperMonth, setPaperMonth] = useState(String(config?.previewSettings?.month || config?.month || "OCTOBER").toUpperCase());
+  const [columnCount, setColumnCount] = useState(Math.min(2, Math.max(1, Number(config?.previewSettings?.columnCount ?? 1))));
+  const [paperMonth, setPaperMonth] = useState(String(config?.previewSettings?.month ?? config?.month ?? "OCTOBER").toUpperCase());
   const [paperYear, setPaperYear] = useState(
-    String(config?.previewSettings?.year || config?.year || new Date().getFullYear())
+    String(config?.previewSettings?.year ?? config?.year ?? new Date().getFullYear())
   );
-  const [paperCode, setPaperCode] = useState(String(config?.previewSettings?.code || config?.code || ""));
+  const [paperCode, setPaperCode] = useState(String(config?.previewSettings?.code ?? config?.code ?? ""));
   const [answerLinesEnabled, setAnswerLinesEnabled] = useState(
     config?.previewSettings?.answerLinesEnabled !== false
   );
   const [dynamicStudentInstructions, setDynamicStudentInstructions] = useState<string[]>(() =>
     normalizeInstructionLines(config?.previewSettings?.studentInstructions ?? config?.instructions)
   );
+
+  useEffect(() => {
+    previewSettingsChangeRef.current?.({
+      fontSize: Number.isFinite(Number(fontSize)) ? Math.max(0, Number(fontSize)) : 14,
+      orientation: orientation === "landscape" ? "landscape" : "portrait",
+      columnCount: Math.min(2, Math.max(1, Number(columnCount) || 1)),
+      month: String(paperMonth || "OCTOBER").toUpperCase(),
+      year: String(paperYear || new Date().getFullYear()),
+      code: String(paperCode || ""),
+      answerLinesEnabled,
+      studentInstructions: dynamicStudentInstructions,
+    });
+  }, [answerLinesEnabled, columnCount, dynamicStudentInstructions, fontSize, orientation, paperCode, paperMonth, paperYear]);
 
   const cell = {
     border: "1px solid black",

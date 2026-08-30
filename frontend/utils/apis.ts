@@ -603,6 +603,15 @@ export const updateThemeApi = async (id: string, payload: any) => {
   return response;
 }
 
+// ✅ Save paper preview updated timestamp
+export const savePaperPreviewUpdatedApi = async (id: string) => {
+  const response = await apiClient({
+    url: `/api/setting/${id}/paper-preview-updated`,
+    method: "PUT",
+  });
+  return response;
+}
+
 // GET /api/papers/export/:id  (download pdf)
 export const exportPaperPdfApi = async (id: string): Promise<Blob> => {
   const response = await apiClient({

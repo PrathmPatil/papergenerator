@@ -72,4 +72,24 @@ router.put("/:userId/theme", verifyToken, authorizeUser, async (req, res) => {
   }
 });
 
+// ✅ Save paper preview updated setting
+router.put("/:userId/paper-preview-updated", verifyToken, authorizeUser, async (req, res) => {
+  try {
+    const updated = await UserSetting.findOneAndUpdate(
+      { userId: req.params.userId },
+      {
+        $set: {
+          userId: req.params.userId,
+          paperPreviewUpdated: new Date(),
+        },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    res.json({ success: true, message: "Paper preview updated timestamp saved", data: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 export default router;

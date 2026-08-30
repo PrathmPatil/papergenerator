@@ -132,6 +132,7 @@ export function PaperGenerationTemplate({
   const [selectedSubQuestions, setSelectedSubQuestions] = useState<SelectedSubQuestionMap>({});
 
   const [selectedQuestion, setSelectedQuestion] = useState<IQuestion | null>(null);
+  const [selectedQuestionContext, setSelectedQuestionContext] = useState({ sectionId: "", subjectId: "" });
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [expandedQuestions, setExpandedQuestions] = useState<Record<string, boolean>>({});
 
@@ -795,6 +796,7 @@ export function PaperGenerationTemplate({
                           variant="secondary"
                           onClick={() => {
                             setSelectedQuestion(q);
+                            setSelectedQuestionContext({ sectionId, subjectId });
                             setViewModalOpen(true);
                           }}
                         >
@@ -958,11 +960,47 @@ export function PaperGenerationTemplate({
 
                 {Array.isArray(selectedQuestion.subQuestions) && selectedQuestion.subQuestions.length > 0 && (
                   <div className="mt-4 space-y-3">
-                    <h3 className="text-lg font-semibold">Sub-Questions</h3>
-                    {selectedQuestion.subQuestions.map((sq: any, idx: number) => (
+                    <div>
+                      <h3 className="text-lg font-semibold">Sub-Questions</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Select the sub-questions to include with this paragraph.
+                      </p>
+                    </div>
+                    {selectedQuestion.subQuestions.map((sq: any, idx: number) => {
+                      const sectionId = selectedQuestionContext.sectionId;
+                      const subjectId = selectedQuestionContext.subjectId;
+                      const subQuestionId = getSubQuestionId(sq, idx);
+                      const parentSelected = Boolean(sectionId && (selectedQuestions[sectionId] || []).includes(selectedQuestion._id));
+                      const subQuestionSelected = parentSelected && getSelectedSubQuestionIds(sectionId, selectedQuestion).includes(subQuestionId);
+
+                      return (
                       <div key={sq._id || sq.id || idx} className="rounded-lg border bg-muted/20 p-4 space-y-3">
                         <div className="flex justify-between items-start">
-                          <p className="font-medium">{idx + 1}. {sq.text || 'Untitled'}</p>
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={subQuestionSelected}
+                              disabled={!sectionId || !subjectId}
+                              onCheckedChange={(value) => {
+                                if (!sectionId || !subjectId) return;
+                                const parentQuestionIds = selectedQuestions[sectionId] || [];
+                                const currentlySelected = parentSelected
+                                  ? getSelectedSubQuestionIds(sectionId, selectedQuestion)
+                                  : [];
+                                const nextSubQuestionIds = value === true
+                                  ? Array.from(new Set([...currentlySelected, subQuestionId]))
+                                  : currentlySelected.filter((id) => id !== subQuestionId);
+                                const nextQuestionIds = nextSubQuestionIds.length > 0
+                                  ? Array.from(new Set([...parentQuestionIds, selectedQuestion._id]))
+                                  : parentQuestionIds.filter((id) => id !== selectedQuestion._id);
+
+                                setSelectedQuestions((previous) => ({ ...previous, [sectionId]: nextQuestionIds }));
+                                updateSubQuestionSelection(sectionId, selectedQuestion._id, nextSubQuestionIds);
+                                void refreshSelectionStats(subjectId, nextQuestionIds);
+                              }}
+                              aria-label={`Select sub-question ${idx + 1}`}
+                            />
+                            <p className="font-medium">{idx + 1}. {sq.text || 'Untitled'}</p>
+                          </div>
                           <span className="text-xs text-muted-foreground capitalize">{String(sq.type || '').replace('_', ' ')} | Marks: {sq.marks}</span>
                         </div>
 
@@ -981,7 +1019,8 @@ export function PaperGenerationTemplate({
                           </ul>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

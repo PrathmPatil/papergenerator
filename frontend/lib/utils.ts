@@ -39,6 +39,7 @@ export function mapPaperToPreviewConfig(paper: any) {
     : []
 
   return {
+    id: paper._id,
     title: paper.title,
     classLevel: formatClassLabel(paper.classId || paper.classLevel),
     classId: paper.classId || "",
@@ -46,6 +47,7 @@ export function mapPaperToPreviewConfig(paper: any) {
     totalMarks: paper.totalMarks,
     code: paper.code || (paper._id ? String(paper._id).slice(-6) : ""),
     negativeMarking: true,
+    previewSettings: paper.previewSettings,
 
     sections: paper.sections.map((section: any) => {
       const sectionQuestionIds = new Set(

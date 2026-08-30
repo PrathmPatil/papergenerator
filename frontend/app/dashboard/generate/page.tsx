@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useUser } from "@/lib/user-context";
 import { ChevronRight, Wand2, Save, RefreshCw, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +38,7 @@ import {
   fetchTopicsApi,
   createTopicApi,
   isTitleExist,
+  updatePaperName,
 } from "@/utils/apis";
 import dynamic from "next/dynamic";
 import { mapPaperToPreviewConfig } from "@/lib/utils";
@@ -83,6 +85,7 @@ export default function GeneratePaperPage() {
   const [currentStep, setCurrentStep] = useState(1);
 
   const [previewConfig, setPreviewConfig] = useState<any>(null);
+  const [isSavingPreview, setIsSavingPreview] = useState(false);
   
   // Form State
   const [paperTitle, setPaperTitle] = useState("Unit Test 1");
@@ -760,6 +763,31 @@ const handleSave = async () => {
   }
 };
 
+  const handlePreviewSettingsSave = async () => {
+    if (!previewConfig?.id) {
+      showInfo({ title: "Paper not found", description: "Generate the paper before saving preview settings.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setIsSavingPreview(true);
+      const res: any = await updatePaperName(previewConfig.id, {
+        previewSettings: previewConfig.previewSettings,
+      });
+      if (!res?.success) throw new Error(res?.error || "Failed to save preview settings");
+
+      setPreviewConfig((current: any) => ({
+        ...current,
+        previewSettings: res.paper?.previewSettings || current.previewSettings,
+      }));
+      showInfo({ title: "Preview settings saved", description: "Your paper preview settings have been saved." });
+    } catch (error) {
+      showInfo({ title: "Save failed", description: error instanceof Error ? error.message : "Failed to save preview settings", variant: "destructive" });
+    } finally {
+      setIsSavingPreview(false);
+    }
+  };
+
 
   const selectedSubjectNames = useMemo(() => {
     const result = filteredSubjects
@@ -1354,7 +1382,12 @@ const handleSave = async () => {
             ) }
 
             {currentStep === 5 && previewConfig && (
-              <PaperPreview config={previewConfig} />
+              <PaperPreview
+                config={previewConfig}
+                onPreviewSettingsChange={(previewSettings) =>
+                  setPreviewConfig((current: any) => ({ ...current, previewSettings }))
+                }
+              />
             )}
           </CardContent>
           <CardFooter className="flex justify-between border-t pt-6">
@@ -1374,6 +1407,10 @@ const handleSave = async () => {
                   <Save className="mr-2 h-4 w-4" />Save Paper
                 </Button>
               </div>
+            ) : currentStep === 5 ? (
+              <Button onClick={handlePreviewSettingsSave} disabled={isSavingPreview}>
+                <Save className="mr-2 h-4 w-4" /> {isSavingPreview ? "Saving..." : "Save"}
+              </Button>
             ) : (
               <Button onClick={handleNext} disabled={isGenerating}>
                 {isGenerating ? (

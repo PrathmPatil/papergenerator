@@ -37,6 +37,7 @@ import {
   createTopicApi,
   generatePaperApiManual,
   createPaperTemplateApi,
+  updatePaperName,
 } from "@/utils/apis";
 import type { ClassLevel, Sections, Topic } from "@/lib/types";
 import { showInfo } from "@/components/app-dialog-provider";
@@ -111,6 +112,7 @@ export default function EditPaperPage() {
   const [paper, setPaper] = useState<Paper | null>(null);
   const [template, setTemplate] = useState<any>(null);
   const [previewConfig, setPreviewConfig] = useState<any>(null);
+  const [isSavingPreview, setIsSavingPreview] = useState(false);
 
   const [paperTitle, setPaperTitle] = useState("");
   const [selectedClass, setSelectedClass] = useState<ClassLevel | "">("");
@@ -668,6 +670,32 @@ export default function EditPaperPage() {
     }
   };
 
+  const handlePreviewSettingsSave = async () => {
+    if (!paper?._id || !previewConfig?.previewSettings) {
+      showInfo({ title: "Paper not loaded", description: "The preview settings cannot be saved yet.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setIsSavingPreview(true);
+      const res: any = await updatePaperName(paper._id, {
+        previewSettings: previewConfig.previewSettings,
+      });
+      if (!res?.success) throw new Error(res?.error || "Failed to save preview settings");
+
+      setPaper(res.paper);
+      setPreviewConfig((current: any) => ({
+        ...current,
+        previewSettings: res.paper?.previewSettings || current.previewSettings,
+      }));
+      showInfo({ title: "Preview settings saved", description: "Your paper preview settings have been saved." });
+    } catch (error) {
+      showInfo({ title: "Save failed", description: error instanceof Error ? error.message : "Failed to save preview settings", variant: "destructive" });
+    } finally {
+      setIsSavingPreview(false);
+    }
+  };
+
   const handlePrint = () => {
     if (previewConfig) {
       printPaper(previewConfig);
@@ -997,7 +1025,12 @@ export default function EditPaperPage() {
             )}
 
             {currentStep === 5 && previewConfig && (
-              <PaperPreview config={previewConfig} />
+              <PaperPreview
+                config={previewConfig}
+                onPreviewSettingsChange={(previewSettings) =>
+                  setPreviewConfig((current: any) => ({ ...current, previewSettings }))
+                }
+              />
             )}
           </CardContent>
 
@@ -1015,6 +1048,10 @@ export default function EditPaperPage() {
                   <Save className="mr-2 h-4 w-4" /> Save Changes
                 </Button>
               </div>
+            ) : currentStep === 5 ? (
+              <Button onClick={handlePreviewSettingsSave} disabled={isSavingPreview}>
+                <Save className="mr-2 h-4 w-4" /> {isSavingPreview ? "Saving..." : "Save"}
+              </Button>
             ) : (
               <Button
                 onClick={handleNext}
