@@ -40,6 +40,8 @@ const MONTH_OPTIONS = [
   "NOVEMBER",
   "DECEMBER",
 ];
+const getCurrentPaperMonth = () =>
+  new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date()).toUpperCase();
 
 const DEFAULT_STUDENT_INSTRUCTIONS = [
   "All the questions are compulsory.",
@@ -499,7 +501,9 @@ export function PaperPreview({
   const [fontSize, setFontSize] = useState(Number(config?.previewSettings?.fontSize ?? 14));
   const [orientation, setOrientation] = useState(config?.previewSettings?.orientation === "landscape" ? "landscape" : "portrait");
   const [columnCount, setColumnCount] = useState(Math.min(2, Math.max(1, Number(config?.previewSettings?.columnCount ?? 1))));
-  const [paperMonth, setPaperMonth] = useState(String(config?.previewSettings?.month ?? config?.month ?? "OCTOBER").toUpperCase());
+  const [paperMonth, setPaperMonth] = useState(
+    String(config?.previewSettings?.month ?? config?.month ?? getCurrentPaperMonth()).toUpperCase()
+  );
   const [paperYear, setPaperYear] = useState(
     String(config?.previewSettings?.year ?? config?.year ?? new Date().getFullYear())
   );
@@ -516,7 +520,7 @@ export function PaperPreview({
       fontSize: Number.isFinite(Number(fontSize)) ? Math.max(0, Number(fontSize)) : 14,
       orientation: orientation === "landscape" ? "landscape" : "portrait",
       columnCount: Math.min(2, Math.max(1, Number(columnCount) || 1)),
-      month: String(paperMonth || "OCTOBER").toUpperCase(),
+      month: String(paperMonth || getCurrentPaperMonth()).toUpperCase(),
       year: String(paperYear || new Date().getFullYear()),
       code: String(paperCode || ""),
       answerLinesEnabled,

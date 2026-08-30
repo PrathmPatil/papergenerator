@@ -43,7 +43,10 @@ const PreviewSettingsSchema = new mongoose.Schema({
   fontSize: { type: Number, default: 14 },
   orientation: { type: String, enum: ["portrait", "landscape"], default: "portrait" },
   columnCount: { type: Number, min: 1, max: 2, default: 1 },
-  month: { type: String, default: "OCTOBER" },
+  month: {
+    type: String,
+    default: () => new Date().toLocaleString("en-US", { month: "long" }).toUpperCase(),
+  },
   year: { type: String, default: () => String(new Date().getFullYear()) },
   code: { type: String, default: "" },
   answerLinesEnabled: { type: Boolean, default: true },

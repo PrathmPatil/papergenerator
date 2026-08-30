@@ -748,7 +748,9 @@ router.put("/:id", requireStaff, async (req, res) => {
         fontSize: Number.isFinite(fontSize) && fontSize >= 0 ? fontSize : 14,
         orientation: previewSettings.orientation === "landscape" ? "landscape" : "portrait",
         columnCount: Number.isFinite(columnCount) ? Math.min(2, Math.max(1, columnCount)) : 1,
-        month: String(previewSettings.month || "OCTOBER").toUpperCase(),
+        month: String(
+          previewSettings.month || new Date().toLocaleString("en-US", { month: "long" })
+        ).toUpperCase(),
         year: String(previewSettings.year || new Date().getFullYear()),
         code: String(previewSettings.code || ""),
         answerLinesEnabled: previewSettings.answerLinesEnabled !== false,
