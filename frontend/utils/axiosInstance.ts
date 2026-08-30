@@ -15,10 +15,14 @@ const axiosInstance: AxiosInstance = axios.create({
 // Request interceptor – attach token
 axiosInstance.interceptors.request.use(
   (config) => {
-    const key = getRequestKey(config.method, config.url);
+    const urlPath = String(config.url || "").split("?")[0];
+    // Title availability checks are user-driven and must always reach the server.
+    // A prior 429 on the same URL was blocking "Unit Test 5" with no network call.
+    const skipCooldown = urlPath.includes("/api/papers/check");
+    const key = getRequestKey(config.method, urlPath);
     const cooldownUntil = endpointCooldowns.get(key) || 0;
 
-    if (Date.now() < cooldownUntil) {
+    if (!skipCooldown && Date.now() < cooldownUntil) {
       const secondsLeft = Math.max(1, Math.ceil((cooldownUntil - Date.now()) / 1000));
       return Promise.reject(new Error(`Rate limit active. Please retry in ${secondsLeft}s.`));
     }
@@ -40,9 +44,10 @@ axiosInstance.interceptors.response.use(
   (error) => {
     const status = error.response?.status;
     const requestConfig = error.config || {};
-    const key = getRequestKey(requestConfig.method, requestConfig.url);
+    const urlPath = String(requestConfig.url || "").split("?")[0];
+    const key = getRequestKey(requestConfig.method, urlPath);
 
-    if (status === 429) {
+    if (status === 429 && !urlPath.includes("/api/papers/check")) {
       const retryAfterHeader = Number(error.response?.headers?.["retry-after"] || 0);
       const retryAfterBody = Number(error.response?.data?.retryAfter || 0);
       const retryAfterSeconds = retryAfterHeader || retryAfterBody || 30;

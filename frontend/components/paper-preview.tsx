@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown } from "lucide-react";
+import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown, Loader2 } from "lucide-react";
 import { formatClassLabel } from "@/lib/utils";
 import {
   buildAnswerKeyExcelHtml,
@@ -200,7 +200,7 @@ const buildStandalonePaperStyles = (
     .options > * {
       box-sizing: border-box;
       margin-bottom: 4px;
-      font-size: 13px;
+      font-size: inherit;
     }
 
     .paper-section-divider {
@@ -514,6 +514,21 @@ export function PaperPreview({
   const [dynamicStudentInstructions, setDynamicStudentInstructions] = useState<string[]>(() =>
     normalizeInstructionLines(config?.previewSettings?.studentInstructions ?? config?.instructions)
   );
+  const [exportBusy, setExportBusy] = useState<string | null>(null);
+
+  const runExport = async (key: string, action: () => void | Promise<void>) => {
+    if (exportBusy) return;
+    setExportBusy(key);
+    try {
+      await action();
+    } catch (error) {
+      console.error(`Export failed (${key}):`, error);
+    } finally {
+      setExportBusy(null);
+    }
+  };
+
+  const isExporting = Boolean(exportBusy);
 
   useEffect(() => {
     previewSettingsChangeRef.current?.({
@@ -595,7 +610,7 @@ export function PaperPreview({
           alignItems: "flex-start",
           justifyContent: "space-between",
           gap: "10px",
-          fontSize: `${previewStyles.fontSize}px`,
+          fontSize: `${previewStyles.fontSize}pt`,
         }}
       >
         <p className="question-heading-text" style={{ margin: 0, flex: "1 1 auto", minWidth: 0 }}>
@@ -631,7 +646,7 @@ export function PaperPreview({
         marginTop: "10px",
       }}
     >
-      <span style={{ fontSize: `${previewStyles.fontSize}px`, fontWeight: 600, whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: `${previewStyles.fontSize}pt`, fontWeight: 600, whiteSpace: "nowrap" }}>
         {label} :
       </span>
       <span
@@ -659,7 +674,11 @@ export function PaperPreview({
     const subQuestionType = String(subQuestion?.type || "").toLowerCase();
 
     return (
-      <div key={subQuestion?.id || `sub-question-${index}`} style={{ marginTop: "10px" }}>
+      <div
+        key={subQuestion?.id || `sub-question-${index}`}
+        className="paper-keep-unit paper-sub-question"
+        style={{ marginTop: "10px" }}
+      >
         {renderQuestionHeading(index, subQuestion?.text || "", subQuestion?.marks)}
 
         {media.length > 0 && (
@@ -704,7 +723,7 @@ export function PaperPreview({
                 key={opt.id}
                 style={{
                   boxSizing: "border-box",
-                  fontSize: `${previewStyles.fontSize}px`,
+                  fontSize: `${previewStyles.fontSize}pt`,
                   minWidth: 0,
                 }}
               >
@@ -740,10 +759,10 @@ export function PaperPreview({
               marginTop: "4px",
             }}
           >
-            <div style={{ boxSizing: "border-box", fontSize: `${previewStyles.fontSize}px`, minWidth: 0 }}>
+            <div style={{ boxSizing: "border-box", fontSize: `${previewStyles.fontSize}pt`, minWidth: 0 }}>
               <div>A) True</div>
             </div>
-            <div style={{ boxSizing: "border-box", fontSize: `${previewStyles.fontSize}px`, minWidth: 0 }}>
+            <div style={{ boxSizing: "border-box", fontSize: `${previewStyles.fontSize}pt`, minWidth: 0 }}>
               <div>B) False</div>
             </div>
           </div>
@@ -774,7 +793,7 @@ export function PaperPreview({
               )}
 
               {hasParagraphText && (
-                <div style={{ fontSize: `${previewStyles.fontSize}px`, marginTop: "4px", marginBottom: "8px" }}>
+                <div style={{ fontSize: `${previewStyles.fontSize}pt`, marginTop: "4px", marginBottom: "8px" }}>
                   <strong>Paragraph:</strong>
                   <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}>{q.paragraph}</div>
                 </div>
@@ -819,7 +838,11 @@ export function PaperPreview({
     }
 
     return (
-      <div className="paper-question-item" key={q.questionId || `${sectionId}-${qIndex}`} style={{ marginTop: "6px" }}>
+      <div
+        className={`paper-question-item${options.length > 0 ? " paper-keep-unit" : ""}`}
+        key={q.questionId || `${sectionId}-${qIndex}`}
+        style={{ marginTop: "6px" }}
+      >
         {renderQuestionHeading(qIndex, q.text || "", q.marks)}
 
         {media.length > 0 && (
@@ -864,7 +887,7 @@ export function PaperPreview({
                 key={opt.id}
                 style={{
                   boxSizing: "border-box",
-                  fontSize: `${previewStyles.fontSize}px`,
+                  fontSize: `${previewStyles.fontSize}pt`,
                   minWidth: 0,
                 }}
               >
@@ -901,7 +924,7 @@ export function PaperPreview({
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
           <div className="space-y-2">
-            <Label htmlFor="preview-font-size">Question Text Size</Label>
+            <Label htmlFor="preview-font-size">Question Font Size (pt)</Label>
             <Input
               id="preview-font-size"
               type="number"
@@ -1029,6 +1052,7 @@ export function PaperPreview({
         id="paper-preview"
         data-orientation={previewStyles.orientation}
         data-paper-code={paperCode}
+        data-font-size={previewStyles.fontSize}
         className="bg-white text-black font-serif"
         style={{
           width: "100%",
@@ -1039,7 +1063,7 @@ export function PaperPreview({
           padding: `${PAGE_MARGIN_MM}mm`,
           fontFamily: "'Times New Roman', Times, serif",
           lineHeight: "1.45",
-          fontSize: `${previewStyles.fontSize}px`,
+          fontSize: `${previewStyles.fontSize}pt`,
           boxSizing: "border-box",
           background: "#ffffff",
           overflow: "visible",
@@ -1219,7 +1243,7 @@ export function PaperPreview({
             style={{
               textAlign: "center",
               fontStyle: "italic",
-              fontSize: `${Math.max(previewStyles.fontSize + 1, 14)}px`,
+              fontSize: `${Math.max(previewStyles.fontSize + 1, 14)}pt`,
               lineHeight: "1.3",
               padding: "6px 6px 4px",
             }}
@@ -1244,7 +1268,7 @@ export function PaperPreview({
                   margin: "0",
                   padding: "2px 0 5px",
                   fontStyle: "italic",
-                  fontSize: `${Math.max(previewStyles.fontSize, 12)}px`,
+                  fontSize: `${Math.max(previewStyles.fontSize, 12)}pt`,
                   lineHeight: "1.5",
                   whiteSpace: "normal",
                   overflowWrap: "anywhere",
@@ -1320,53 +1344,103 @@ export function PaperPreview({
         </CardHeader>
 
         <CardContent className="flex gap-2 flex-wrap">
-          <Button onClick={() => exportAsPDF(config)}>
-            <FileText className="mr-2 h-4 w-4" />
-            Export PDF
+          <Button
+            disabled={isExporting}
+            onClick={() => void runExport("pdf", () => exportAsPDF(config))}
+          >
+            {exportBusy === "pdf" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="mr-2 h-4 w-4" />
+            )}
+            {exportBusy === "pdf" ? "Preparing PDF..." : "Export PDF"}
           </Button>
 
-          <Button onClick={() => void exportAsWord(config)}>
-            <FileText className="mr-2 h-4 w-4" />
-            Export Word
+          <Button
+            disabled={isExporting}
+            onClick={() => void runExport("word", () => exportAsWord(config))}
+          >
+            {exportBusy === "word" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="mr-2 h-4 w-4" />
+            )}
+            {exportBusy === "word" ? "Preparing Word..." : "Export Word"}
           </Button>
 
-          <Button onClick={() => exportAsExcel(config)}>
-            <FileText className="mr-2 h-4 w-4" />
-            Export Excel
+          <Button
+            disabled={isExporting}
+            onClick={() => void runExport("excel", () => exportAsExcel(config))}
+          >
+            {exportBusy === "excel" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileText className="mr-2 h-4 w-4" />
+            )}
+            {exportBusy === "excel" ? "Preparing Excel..." : "Export Excel"}
           </Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary">
-                <KeyRound className="mr-2 h-4 w-4" />
-                Download Answer Key
+              <Button variant="secondary" disabled={isExporting}>
+                {exportBusy?.startsWith("answer-") ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <KeyRound className="mr-2 h-4 w-4" />
+                )}
+                {exportBusy?.startsWith("answer-")
+                  ? "Preparing Answer Key..."
+                  : "Download Answer Key"}
                 <ChevronDown className="ml-2 h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
-              <DropdownMenuItem onClick={() => void exportAnswerKeyAsPDF(config)}>
+              <DropdownMenuItem
+                disabled={isExporting}
+                onClick={() => void runExport("answer-pdf", () => exportAnswerKeyAsPDF(config))}
+              >
                 <FileText className="mr-2 h-4 w-4" />
                 PDF
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void exportAnswerKeyAsWord(config)}>
+              <DropdownMenuItem
+                disabled={isExporting}
+                onClick={() => void runExport("answer-word", () => exportAnswerKeyAsWord(config))}
+              >
                 <FileText className="mr-2 h-4 w-4" />
                 Word
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => exportAnswerKeyAsExcel(config)}>
+              <DropdownMenuItem
+                disabled={isExporting}
+                onClick={() => void runExport("answer-excel", () => exportAnswerKeyAsExcel(config))}
+              >
                 <FileText className="mr-2 h-4 w-4" />
                 Excel
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button onClick={() => printPaper(config)}>
-            <Printer className="mr-2 h-4 w-4" />
-            Print
+          <Button
+            disabled={isExporting}
+            onClick={() => void runExport("print", () => printPaper(config))}
+          >
+            {exportBusy === "print" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="mr-2 h-4 w-4" />
+            )}
+            {exportBusy === "print" ? "Opening..." : "Print"}
           </Button>
 
-          <Button onClick={() => handleFullPreview(config)}>
-            <Eye className="mr-2 h-4 w-4" />
-            Preview
+          <Button
+            disabled={isExporting}
+            onClick={() => void runExport("preview", () => handleFullPreview(config))}
+          >
+            {exportBusy === "preview" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Eye className="mr-2 h-4 w-4" />
+            )}
+            {exportBusy === "preview" ? "Opening..." : "Preview"}
           </Button>
         </CardContent>
       </Card>
@@ -1374,44 +1448,575 @@ export function PaperPreview({
   );
 }
 
-export const handleFullPreview = (config: any) => {
+
+const mmToPx = (mm: number) => {
+  const probe = document.createElement("div");
+  probe.style.cssText = `position:absolute;visibility:hidden;height:${mm}mm;`;
+  document.body.appendChild(probe);
+  const px = probe.getBoundingClientRect().height;
+  probe.remove();
+  return Math.max(1, px);
+};
+
+/** Split paper DOM into atomic print blocks (header chunks + section chrome + questions). */
+const collectPaperPrintBlocks = (paper: HTMLElement): HTMLElement[] => {
+  const blocks: HTMLElement[] = [];
+
+  Array.from(paper.children).forEach((child) => {
+    const el = child as HTMLElement;
+    const grid = el.querySelector(".paper-question-grid") as HTMLElement | null;
+
+    if (grid && el.contains(grid)) {
+      const shell = el.cloneNode(false) as HTMLElement;
+      Array.from(el.children).forEach((c) => {
+        const node = c as HTMLElement;
+        if (!node.classList?.contains("paper-question-grid")) {
+          shell.appendChild(node.cloneNode(true));
+        }
+      });
+      if (shell.childNodes.length > 0) {
+        blocks.push(shell);
+      }
+
+      const columnCount = Math.min(
+        2,
+        Math.max(1, Number(grid.getAttribute("data-column-count") || 1) || 1)
+      );
+      Array.from(grid.querySelectorAll(":scope > .paper-question-item")).forEach((q) => {
+        const wrap = document.createElement("div");
+        wrap.className = "paper-print-question";
+        wrap.dataset.columnCount = String(columnCount);
+        wrap.appendChild(q.cloneNode(true));
+        blocks.push(wrap);
+      });
+      return;
+    }
+
+    blocks.push(el.cloneNode(true) as HTMLElement);
+  });
+
+  return blocks;
+};
+
+const createPdfPageShell = (contentWidthMm: number, fontSizePt: number) => {
+  const page = document.createElement("div");
+  page.className = "pdf-page-shell";
+  page.style.cssText = [
+    `width:${contentWidthMm}mm`,
+    "box-sizing:border-box",
+    "background:#ffffff",
+    "color:#000000",
+    "font-family:'Times New Roman', Times, serif",
+    `font-size:${fontSizePt}pt`,
+    "line-height:1.4",
+  ].join(";");
+  return page;
+};
+
+/** html2canvas cannot parse modern CSS color functions (oklch/oklab/lab/…). */
+const UNSAFE_CSS_COLOR_FN = /\b(?:oklch|oklab|lab|lch|color-mix|color)\(/i;
+
+const replaceCssColorFunctions = (cssText: string, replacement = "#000000") => {
+  // Longer names first so "oklab(" is not partially matched as "lab(".
+  const names = ["oklch", "oklab", "color-mix", "color", "lab", "lch"];
+  let out = cssText;
+  for (const name of names) {
+    const needle = `${name}(`;
+    let result = "";
+    let i = 0;
+    while (i < out.length) {
+      const lower = out.toLowerCase();
+      const idx = lower.indexOf(needle, i);
+      if (idx === -1) {
+        result += out.slice(i);
+        break;
+      }
+      if (idx > 0 && /[a-z0-9-_]/i.test(out[idx - 1] || "")) {
+        result += out.slice(i, idx + 1);
+        i = idx + 1;
+        continue;
+      }
+      result += out.slice(i, idx) + replacement;
+      let depth = 0;
+      let j = idx + needle.length - 1;
+      for (; j < out.length; j++) {
+        const ch = out[j];
+        if (ch === "(") depth++;
+        else if (ch === ")") {
+          depth--;
+          if (depth === 0) {
+            j++;
+            break;
+          }
+        }
+      }
+      i = j;
+    }
+    out = result;
+  }
+  return out;
+};
+
+/**
+ * Layout + color-safe CSS used for both PDF measurement and html2canvas capture
+ * so page cuts match the rendered canvas (no oklch / Tailwind dependency).
+ */
+const getPdfSafePaperCss = () => `
+  :root {
+    --background: #ffffff;
+    --foreground: #000000;
+    --card: #ffffff;
+    --card-foreground: #000000;
+    --popover: #ffffff;
+    --popover-foreground: #000000;
+    --primary: #000000;
+    --primary-foreground: #ffffff;
+    --secondary: #f5f5f5;
+    --secondary-foreground: #000000;
+    --muted: #f5f5f5;
+    --muted-foreground: #444444;
+    --accent: #f5f5f5;
+    --accent-foreground: #000000;
+    --destructive: #dc2626;
+    --destructive-foreground: #ffffff;
+    --border: #000000;
+    --input: #e5e5e5;
+    --ring: #000000;
+  }
+  *, *::before, *::after {
+    color: #000000 !important;
+    border-top-color: #000000 !important;
+    border-right-color: #000000 !important;
+    border-bottom-color: #000000 !important;
+    border-left-color: #000000 !important;
+    outline-color: #000000 !important;
+    text-decoration-color: #000000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  html, body, #paper-preview, .pdf-mode {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-family: "Times New Roman", Times, serif !important;
+  }
+  #paper-preview, #paper-preview * {
+    word-break: normal !important;
+    overflow-wrap: break-word !important;
+    hyphens: none !important;
+  }
+  .options {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+    margin-left: 15px !important;
+    margin-top: 4px !important;
+  }
+  .options.options-image {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+  .paper-question-grid {
+    position: relative !important;
+  }
+  .paper-section-divider {
+    border-top: 1px solid #000 !important;
+    margin: 16px 0 12px !important;
+    width: 100% !important;
+  }
+  .answer-row {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    margin-top: 10px !important;
+  }
+  .answer-row span.line {
+    flex: 1 !important;
+    display: block !important;
+    min-height: 18px !important;
+    border-bottom: 1.2px solid #000 !important;
+  }
+`;
+
+/**
+ * Make a cloned document safe for html2canvas by removing/rewriting oklch styles
+ * (Tailwind v4) and forcing printable black-on-white colors.
+ */
+const prepareHtml2CanvasClone = (clonedDoc: Document, root: HTMLElement) => {
+  clonedDoc.querySelectorAll('link[rel="stylesheet"]').forEach((node) => node.remove());
+  clonedDoc.querySelectorAll("style").forEach((node) => {
+    const el = node as HTMLStyleElement;
+    if (el.getAttribute("data-html2canvas-safe") === "true") return;
+    const text = el.textContent || "";
+    if (UNSAFE_CSS_COLOR_FN.test(text)) {
+      el.textContent = replaceCssColorFunctions(text);
+    }
+  });
+
+  const safety = clonedDoc.createElement("style");
+  safety.setAttribute("data-html2canvas-safe", "true");
+  safety.textContent = getPdfSafePaperCss();
+  (clonedDoc.head || clonedDoc.documentElement).appendChild(safety);
+
+  root.classList.add("pdf-mode", "print-safe");
+  root.style.setProperty("background", "#ffffff", "important");
+  root.style.setProperty("background-color", "#ffffff", "important");
+  root.style.setProperty("color", "#000000", "important");
+};
+
+
+/** True when a question/sub-question block has options that must stay with its stem. */
+const questionHasOptionsBlock = (questionEl: HTMLElement) =>
+  Boolean(
+    questionEl.querySelector(
+      ".options, .options-table, .options-image, .options-image-table, .answer-row, .answer-table"
+    )
+  );
+
+const measureStemHeight = (questionEl: HTMLElement) => {
+  const options = questionEl.querySelector(
+    ".options, .options-table, .options-image, .options-image-table, .answer-row, .answer-table"
+  ) as HTMLElement | null;
+  if (!options) return questionEl.scrollHeight;
+  const qTop = questionEl.getBoundingClientRect().top;
+  return Math.max(0, Math.round(options.getBoundingClientRect().top - qTop));
+};
+
+/**
+ * Pack blocks into pages.
+ * Keep questions continuous — only jump to the next page early when the remaining
+ * space can fit the question/subquestion text but NOT its options (avoids
+ * stem-on-one-page / options-on-next-page). Otherwise fill the page.
+ */
+const paginatePaperBlocks = async (
+  blocks: HTMLElement[],
+  options: {
+    contentWidthMm: number;
+    maxContentHeightPx: number;
+    fontSizePt: number;
+    columnCount: number;
+  }
+) => {
+  const { contentWidthMm, maxContentHeightPx, fontSizePt, columnCount } = options;
+  const tinyRemainingPx = Math.max(36, Math.round(maxContentHeightPx * 0.06));
+
+  const host = document.createElement("div");
+  host.style.cssText =
+    "position:fixed;left:-14000px;top:0;pointer-events:none;background:#fff;";
+  document.body.appendChild(host);
+
+  const pages: HTMLElement[] = [];
+  let page = createPdfPageShell(contentWidthMm, fontSizePt);
+  let questionGrid: HTMLElement | null = null;
+  host.appendChild(page);
+
+  const pageHeight = () => page.scrollHeight;
+  const pageFits = () => pageHeight() <= maxContentHeightPx + 1;
+
+  const ensureQuestionGrid = () => {
+    if (questionGrid && page.contains(questionGrid)) return questionGrid;
+    questionGrid = document.createElement("div");
+    questionGrid.className = "paper-question-grid";
+    questionGrid.setAttribute("data-column-count", String(columnCount));
+    questionGrid.style.cssText = [
+      "display:grid",
+      `grid-template-columns:repeat(${columnCount}, minmax(0, 1fr))`,
+      "gap:10px",
+      "align-items:start",
+      "position:relative",
+      "width:100%",
+    ].join(";");
+    page.appendChild(questionGrid);
+    return questionGrid;
+  };
+
+  const startNewPage = () => {
+    pages.push(page);
+    page = createPdfPageShell(contentWidthMm, fontSizePt);
+    questionGrid = null;
+    host.appendChild(page);
+  };
+
+  const measureAlone = (node: HTMLElement) => {
+    const probePage = createPdfPageShell(contentWidthMm, fontSizePt);
+    const probeGrid = document.createElement("div");
+    probeGrid.style.cssText = `display:grid;grid-template-columns:repeat(${columnCount}, minmax(0, 1fr));gap:10px;width:100%;`;
+    const clone = node.cloneNode(true) as HTMLElement;
+    probeGrid.appendChild(clone);
+    probePage.appendChild(probeGrid);
+    host.appendChild(probePage);
+    const full = probePage.scrollHeight;
+    const stem = measureStemHeight(clone);
+    const hasOptions = questionHasOptionsBlock(clone);
+    probePage.remove();
+    return { full, stem, hasOptions };
+  };
+
+  try {
+    let i = 0;
+    while (i < blocks.length) {
+      const block = blocks[i];
+      const isQuestion = block.classList.contains("paper-print-question");
+
+      if (isQuestion) {
+        const heightBefore = pageHeight();
+        const remaining = maxContentHeightPx - heightBefore;
+        const questionSource = (block.firstElementChild || block) as HTMLElement;
+        const { full, stem, hasOptions } = measureAlone(questionSource);
+
+        // Only forced early page-break: stem would fit here but options would wrap alone.
+        const wouldSplitStemAndOptions =
+          hasOptions && stem <= remaining + 1 && full > remaining + 1 && remaining > tinyRemainingPx;
+
+        if (wouldSplitStemAndOptions && page.childNodes.length > 0) {
+          startNewPage();
+          continue;
+        }
+
+        // Negligible space left — start a fresh page instead of a tiny orphan strip.
+        if (remaining < tinyRemainingPx && full > remaining + 1 && page.childNodes.length > 0) {
+          startNewPage();
+          continue;
+        }
+
+        const grid = ensureQuestionGrid();
+        const questionNode = questionSource.cloneNode(true) as HTMLElement;
+        grid.appendChild(questionNode);
+
+        // Continuity: keep the question on this page even if it runs a bit long.
+        // PDF/preview capture uses smart clipping only for stem/options safety.
+        i += 1;
+        continue;
+      }
+
+      questionGrid = null;
+      const heightBefore = pageHeight();
+      const remaining = maxContentHeightPx - heightBefore;
+      const node = block.cloneNode(true) as HTMLElement;
+      page.appendChild(node);
+
+      if (pageFits()) {
+        i += 1;
+        continue;
+      }
+
+      page.removeChild(node);
+      if (page.childNodes.length > 0 && remaining < Math.max(80, maxContentHeightPx * 0.15)) {
+        startNewPage();
+        continue;
+      }
+      if (page.childNodes.length > 0) {
+        // Keep continuity for large header/instruction blocks when lots of space remains:
+        // place and allow overflow rather than leaving a big empty region.
+        page.appendChild(node);
+        i += 1;
+        continue;
+      }
+
+      page.appendChild(node);
+      i += 1;
+    }
+
+    if (page.childNodes.length > 0) {
+      pages.push(page);
+    } else if (pages.length === 0) {
+      pages.push(page);
+    } else if (page.parentElement === host) {
+      host.removeChild(page);
+    }
+  } finally {
+    host.remove();
+  }
+
+  return pages;
+};
+
+/** Build Y cut ranges so pages fill like the sample paper.
+ * - Fill each page continuously (paragraphs may continue across pages)
+ * - Only avoid cutting inside a `.paper-keep-unit` (question/subquestion + options)
+ * - Never leave a nearly-empty page just to start the next keep-unit early
+ */
+const buildContinuousPageRanges = (paper: HTMLElement, pageHeightPx: number) => {
+  const rootRect = paper.getBoundingClientRect();
+  const totalHeight = Math.max(
+    Math.round(paper.scrollHeight),
+    Math.round(paper.offsetHeight),
+    Math.round(rootRect.height),
+    1
+  );
+
+  const relTop = (el: Element) =>
+    Math.round((el as HTMLElement).getBoundingClientRect().top - rootRect.top);
+  const relBottom = (el: Element) =>
+    Math.round((el as HTMLElement).getBoundingClientRect().bottom - rootRect.top);
+
+  const keepUnits = Array.from(
+    paper.querySelectorAll(".paper-keep-unit")
+  ) as HTMLElement[];
+
+  const softBreaks = new Set<number>([totalHeight]);
+  paper
+    .querySelectorAll(
+      ".paper-keep-unit, .paper-instructions-box, .paper-header, .paper-header-table, .paper-section-divider, h2"
+    )
+    .forEach((el) => softBreaks.add(relBottom(el)));
+
+  const sortedBreaks = [...softBreaks]
+    .filter((y) => y > 0 && y <= totalHeight + 1)
+    .sort((a, b) => a - b);
+
+  const findKeepUnitContaining = (y: number) => {
+    for (const unit of keepUnits) {
+      const top = relTop(unit);
+      const bottom = relBottom(unit);
+      if (y > top + 1 && y < bottom - 1) {
+        return { top, bottom, height: bottom - top };
+      }
+    }
+    return null;
+  };
+
+  const minUsefulPx = Math.max(56, Math.round(pageHeightPx * 0.2));
+
+  const pickEnd = (fromY: number) => {
+    const target = Math.min(fromY + pageHeightPx, totalHeight);
+    if (target >= totalHeight - 1) return totalHeight;
+
+    // Prefer the last natural break at or before the page end.
+    let end = target;
+    let soft = fromY;
+    for (const y of sortedBreaks) {
+      if (y <= fromY + 8) continue;
+      if (y > target + 1) break;
+      soft = y;
+    }
+    if (soft > fromY + 8) end = soft;
+
+    // If the cut would split a keep-unit (stem vs options), move that unit
+    // to the next page — unless that would leave this page almost empty, or
+    // the unit itself is taller than one page (must hard-split).
+    const hit = findKeepUnitContaining(end);
+    if (hit && hit.height <= pageHeightPx - 4 && hit.top > fromY + 8) {
+      if (hit.top - fromY >= minUsefulPx) {
+        end = hit.top;
+      }
+      // else: keep filling (hard cut) rather than a blank-looking page
+    }
+
+    // Collapse tiny slices (e.g. only a section title remnant).
+    if (end - fromY < minUsefulPx && target - fromY >= minUsefulPx) {
+      end = target;
+      const hit2 = findKeepUnitContaining(end);
+      if (
+        hit2 &&
+        hit2.height <= pageHeightPx - 4 &&
+        hit2.top > fromY + 8 &&
+        hit2.top - fromY >= minUsefulPx
+      ) {
+        end = hit2.top;
+      }
+    }
+
+    if (end <= fromY) end = Math.min(fromY + pageHeightPx, totalHeight);
+    return Math.min(end, totalHeight);
+  };
+
+  const ranges: { start: number; end: number }[] = [];
+  let y = 0;
+  let guard = 0;
+  while (y < totalHeight - 1 && guard++ < 500) {
+    const end = pickEnd(y);
+    ranges.push({ start: y, end });
+    y = end;
+  }
+  return ranges.length ? ranges : [{ start: 0, end: totalHeight }];
+};
+
+
+export const handleFullPreview = async (config: any) => {
   const el = document.getElementById("paper-preview");
   if (!el) return;
+
   const orientation = el.dataset.orientation === "landscape" ? "landscape" : "portrait";
   const page = getPageSize(orientation);
   const exportPaperCode = String(el.dataset.paperCode || config?.code || "").replace(/[<>&"'`]/g, "");
   const footerBandHeightMm = 14;
+  const fontSizePt = Math.max(
+    0,
+    Number(el.dataset.fontSize || config?.previewSettings?.fontSize || 14) || 14
+  );
+
+  const contentWidthMm = page.widthMm;
+  const clipHeightMm = page.heightMm - footerBandHeightMm;
+  const clipHeightPx = mmToPx(clipHeightMm);
+
+  const host = document.createElement("div");
+  host.style.cssText =
+    "position:fixed;left:-14000px;top:0;background:#ffffff;pointer-events:none;";
+  document.body.appendChild(host);
+
+  const paper = el.cloneNode(true) as HTMLElement;
+  paper.style.width = `${contentWidthMm}mm`;
+  paper.style.maxWidth = `${contentWidthMm}mm`;
+  paper.style.minHeight = "0";
+  paper.style.height = "auto";
+  paper.style.margin = "0";
+  paper.style.padding = `${PAGE_MARGIN_MM}mm`;
+  paper.style.boxSizing = "border-box";
+  paper.style.fontSize = `${fontSizePt}pt`;
+  host.appendChild(paper);
+
+  const measureStyle = document.createElement("style");
+  measureStyle.setAttribute("data-html2canvas-safe", "true");
+  measureStyle.textContent = getPdfSafePaperCss();
+  host.appendChild(measureStyle);
+
+  await waitForImagesInDocument(document);
+  await new Promise((r) => setTimeout(r, 40));
+
+  // Page clip includes padding; ranges are within the padded paper box.
+  const ranges = buildContinuousPageRanges(paper, clipHeightPx);
+  host.remove();
 
   const win = window.open("", "_blank");
   if (!win) return;
+
+  const pagesHtml = ranges
+    .map((range, index) => {
+      return `
+        <div class="paper-page">
+          <div class="paper-page-clip">
+            <div class="paper-page-inner" style="transform:translateY(-${range.start}px);">
+              ${paper.outerHTML}
+            </div>
+          </div>
+          <div class="paper-page-footer">Page ${index + 1} / INNOSAT / CODE ${exportPaperCode}</div>
+        </div>
+      `;
+    })
+    .join("");
 
   win.document.write(`
     <html>
       <head>
         <title>${config?.title || "Paper"} - Preview</title>
         <style>
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: #e8eaed;
-          }
-
+          html, body { margin: 0; padding: 0; background: #e8eaed; }
           body {
             box-sizing: border-box;
             min-height: 100vh;
             font-family: 'Times New Roman', Times, serif;
+            font-size: ${fontSizePt}pt;
           }
-
           #preview-root {
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 28px;
-            /* Vertical padding around the page stack (scrolls with content) */
             padding: 48px 24px 64px;
             box-sizing: border-box;
           }
-
           .paper-page {
             width: ${page.width};
             height: ${page.height};
@@ -1421,110 +2026,36 @@ export const handleFullPreview = (config: any) => {
             position: relative;
             overflow: hidden;
             box-sizing: border-box;
-            margin: 0;
           }
-
           .paper-page-clip {
             height: calc(${page.height} - ${footerBandHeightMm}mm);
             overflow: hidden;
             position: relative;
             background: #ffffff;
           }
-
-          .paper-page-clip #paper-preview,
-          .paper-page-clip [id^="paper-preview-page-"] {
-            display: block !important;
-            width: 100% !important;
-            max-width: none !important;
-            height: auto !important;
+          .paper-page-inner,
+          .paper-page-inner #paper-preview {
+            width: ${page.width} !important;
+            max-width: ${page.width} !important;
             min-height: 0 !important;
             margin: 0 !important;
-            padding: ${PAGE_MARGIN_MM}mm !important;
             box-sizing: border-box !important;
             background: #ffffff !important;
-            color: #000 !important;
-            overflow: visible !important;
             font-family: 'Times New Roman', Times, serif !important;
+            font-size: ${fontSizePt}pt !important;
           }
-
           .paper-page-footer {
             position: absolute;
-            left: 0;
-            right: 0;
-            bottom: 0;
+            left: 0; right: 0; bottom: 0;
             height: ${footerBandHeightMm}mm;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 10px;
-            letter-spacing: 0.02em;
             background: #ffffff;
             border-top: 1px solid #ddd;
             color: #222;
           }
-
-          #measure-source {
-            position: absolute;
-            left: -10000px;
-            top: 0;
-            width: ${page.width};
-            visibility: hidden;
-            pointer-events: none;
-          }
-
-          #measure-source #paper-preview {
-            display: block !important;
-            width: ${page.width} !important;
-            max-width: ${page.width} !important;
-            height: auto !important;
-            min-height: 0 !important;
-            margin: 0 !important;
-            padding: ${PAGE_MARGIN_MM}mm !important;
-            box-sizing: border-box !important;
-            background: #ffffff !important;
-            font-family: 'Times New Roman', Times, serif !important;
-          }
-
-          .paper-header {
-            display: flex !important;
-            align-items: flex-start !important;
-            gap: clamp(8px, 2vw, 16px) !important;
-          }
-
-          .paper-header-title {
-            flex: 1 1 0 !important;
-            min-width: 0 !important;
-            text-align: center !important;
-          }
-
-          .paper-header-title h1 {
-            white-space: normal !important;
-            overflow-wrap: anywhere !important;
-            word-break: break-word !important;
-            font-size: 18px !important;
-            line-height: 1.2 !important;
-            margin: 0 !important;
-          }
-
-          img.school-logo {
-            width: clamp(52px, 12vw, 88px) !important;
-            height: clamp(52px, 12vw, 88px) !important;
-            max-width: 88px !important;
-            max-height: 88px !important;
-            object-fit: contain !important;
-            border: none !important;
-            padding: 0 !important;
-            flex-shrink: 0 !important;
-          }
-
-          img:not(.school-logo) {
-            max-width: 160px;
-            max-height: 100px;
-            object-fit: contain;
-            border: 1px solid #000;
-            padding: 2px;
-          }
-
           .options {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1532,370 +2063,142 @@ export const handleFullPreview = (config: any) => {
             margin-left: 15px;
             margin-top: 4px;
           }
-
-          .options.options-image {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-          }
-
-          .paper-section-divider {
-            border-top: 1px solid #000;
-            margin: 16px 0 12px;
-            width: 100%;
-          }
-
-          .paper-question-grid {
-            position: relative;
-          }
-
-          .paper-question-grid[data-column-count="2"] .paper-column-divider {
-            display: block;
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            left: 50%;
-            width: 0;
-            border-left: 1px solid #000;
-            transform: translateX(-50%);
-            pointer-events: none;
-          }
-
+          .options.options-image { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+          .options > * { font-size: inherit; box-sizing: border-box; }
+          .paper-section-divider { border-top: 1px solid #000; margin: 16px 0 12px; width: 100%; }
           table { width: 100%; border-collapse: collapse; }
           th, td { border: 1px solid #000; padding: 5px; }
-
-          .answer-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-top: 10px;
-          }
-
-          .answer-row span.line {
-            flex: 1;
-            display: block;
-            min-height: 18px;
-            border-bottom: 1.2px solid #000;
-          }
-
-          .option-media {
-            max-width: 85px;
-            max-height: 60px;
-          }
+          img.school-logo { width: 72px !important; height: 72px !important; object-fit: contain !important; border: none !important; }
+          img:not(.school-logo) { max-width: 160px; max-height: 100px; object-fit: contain; border: 1px solid #000; padding: 2px; }
         </style>
       </head>
       <body>
-        <div id="measure-source">${el.outerHTML}</div>
-        <div id="preview-root"></div>
-        <script>
-          (function () {
-            var PAGE_CODE = ${JSON.stringify(exportPaperCode)};
-            var FOOTER_MM = ${footerBandHeightMm};
-            var PAGE_HEIGHT_MM = ${page.heightMm};
-
-            function mmToPx(mm) {
-              var probe = document.createElement("div");
-              probe.style.cssText = "position:absolute;visibility:hidden;height:" + mm + "mm;";
-              document.body.appendChild(probe);
-              var px = probe.getBoundingClientRect().height;
-              probe.remove();
-              return Math.max(1, px);
-            }
-
-            function buildPages() {
-              var sourcePaper = document.querySelector("#measure-source #paper-preview");
-              var root = document.getElementById("preview-root");
-              var measure = document.getElementById("measure-source");
-              if (!sourcePaper || !root) return;
-
-              root.innerHTML = "";
-
-              var pageHeightPx = mmToPx(PAGE_HEIGHT_MM);
-              var footerPx = mmToPx(FOOTER_MM);
-              var clipHeightPx = Math.max(1, Math.round(pageHeightPx - footerPx));
-              var contentHeight = Math.max(sourcePaper.scrollHeight, sourcePaper.offsetHeight);
-              var totalPages = Math.max(1, Math.ceil(contentHeight / clipHeightPx));
-
-              for (var i = 0; i < totalPages; i++) {
-                var pageEl = document.createElement("div");
-                pageEl.className = "paper-page";
-
-                var clip = document.createElement("div");
-                clip.className = "paper-page-clip";
-
-                var inner = sourcePaper.cloneNode(true);
-                inner.id = "paper-preview-page-" + (i + 1);
-                inner.style.transform = "translateY(" + (-i * clipHeightPx) + "px)";
-                clip.appendChild(inner);
-                pageEl.appendChild(clip);
-
-                var footer = document.createElement("div");
-                footer.className = "paper-page-footer";
-                footer.textContent = "Page " + (i + 1) + " / INNOSAT / CODE " + PAGE_CODE;
-                pageEl.appendChild(footer);
-
-                root.appendChild(pageEl);
-              }
-
-              if (measure) measure.remove();
-            }
-
-            function runWhenReady() {
-              var images = Array.prototype.slice.call(document.images || []);
-              var pending = images.filter(function (img) { return !img.complete; }).length;
-              if (pending === 0) {
-                buildPages();
-                return;
-              }
-              var done = 0;
-              var finished = false;
-              var finishAll = function () {
-                if (finished) return;
-                finished = true;
-                buildPages();
-              };
-              images.forEach(function (img) {
-                if (img.complete) return;
-                var finish = function () {
-                  done += 1;
-                  if (done >= pending) finishAll();
-                };
-                img.addEventListener("load", finish);
-                img.addEventListener("error", finish);
-              });
-              setTimeout(finishAll, 1500);
-            }
-
-            if (document.readyState === "complete") runWhenReady();
-            else window.addEventListener("load", runWhenReady);
-          })();
-        </script>
+        <div id="preview-root">${pagesHtml}</div>
       </body>
     </html>
   `);
-
   win.document.close();
 };
+
 
 export const exportAsPDF = async (config: any) => {
   try {
     const preview = document.getElementById("paper-preview");
     if (!preview) return;
+
     const orientation = preview.dataset.orientation === "landscape" ? "landscape" : "portrait";
     const page = getPageSize(orientation);
     const pageWidthMm = page.widthMm;
     const pageHeightMm = page.heightMm;
     const exportPaperCode = preview.dataset.paperCode || config?.code || "";
+    const fontSizePt = Math.max(
+      0,
+      Number(preview.dataset.fontSize || config?.previewSettings?.fontSize || 14) || 14
+    );
 
     const html2canvas = (await import("html2canvas")).default;
     const { jsPDF } = await import("jspdf");
 
-    const contentWidthMm = pageWidthMm - PAGE_MARGIN_MM * 2;
-
-    const cleanHTML = `
-      <div style="
-        box-sizing: border-box;
-        width: ${contentWidthMm}mm;
-        min-height: ${pageHeightMm - PAGE_MARGIN_MM * 2}mm;
-        font-family: 'Times New Roman', serif;
-        background: #ffffff;
-        color: #000000;
-        line-height: 1.4;
-      ">
-        ${preview.outerHTML}
-      </div>
-    `;
-
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.left = "-99999px";
-    iframe.style.top = "0";
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentDocument!;
-    doc.open();
-
-    doc.write(`
-      <html>
-        <body style="margin:0; width:${contentWidthMm}mm; background:#ffffff;">
-          ${cleanHTML}
-
-          <style>
-            * {
-              background: #ffffff !important;
-              color: #000000 !important;
-              box-shadow: none !important;
-              text-shadow: none !important;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-
-            th, td {
-              border: 1px solid #000;
-              padding: 5px;
-            }
-
-            .flex {
-              display: flex;
-              justify-content: space-between;
-            }
-
-            #paper-preview {
-              width: ${contentWidthMm}mm !important;
-              max-width: ${contentWidthMm}mm !important;
-              min-height: auto !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              box-sizing: border-box !important;
-            }
-
-            .options {
-              display: grid;
-              grid-template-columns: repeat(2, minmax(0, 1fr));
-              gap: 4px;
-              margin-left: 15px;
-              margin-top: 4px;
-            }
-
-            .options.options-image {
-              grid-template-columns: repeat(4, minmax(0, 1fr));
-            }
-
-            .options > * {
-              box-sizing: border-box;
-              margin-bottom: 4px;
-              font-size: 13px;
-            }
-
-            .paper-section-divider {
-              border-top: 1px solid #000;
-              margin: 16px 0 12px;
-              width: 100%;
-            }
-
-            .paper-question-grid {
-              position: relative;
-            }
-
-            .paper-question-grid[data-column-count="2"] .paper-column-divider {
-              display: block;
-              position: absolute;
-              top: 0;
-              bottom: 0;
-              left: 50%;
-              width: 0;
-              border-left: 1px solid #000;
-              transform: translateX(-50%);
-              pointer-events: none;
-            }
-
-            h1 { text-align: center; }
-
-            p {
-              line-height: 1.4;
-            }
-
-            .answer-row {
-              display: flex;
-              align-items: center;
-              gap: 10px;
-              margin-top: 10px;
-            }
-
-            .answer-row span.line {
-              flex: 1;
-              display: block;
-              min-height: 18px;
-              border-bottom: 1.2px solid #000;
-              line-height: 18px;
-            }
-
-            .option-media {
-              max-width: 85px;
-              max-height: 60px;
-            }
-          </style>
-        </body>
-      </html>
-    `);
-
-    doc.close();
-
-    await waitForImagesInDocument(doc);
-    await new Promise((r) => setTimeout(r, 300));
-
-    const canvas = await html2canvas(doc.body, {
-      scale: 3,
-      backgroundColor: "#ffffff",
-      useCORS: true,
-    });
-
-    iframe.remove();
-
-    const pdf = new jsPDF(orientation === "landscape" ? "l" : "p", "mm", "a4");
-
-    const marginX = PAGE_MARGIN_MM;
-    const marginTop = PAGE_MARGIN_MM;
     const footerBandHeight = 14;
-    const printableHeight = pageHeightMm - marginTop - PAGE_MARGIN_MM - footerBandHeight;
-    const imgWidth = contentWidthMm;
-    const pxPerMm = canvas.width / imgWidth;
-    const sliceHeightPx = Math.max(1, Math.round(printableHeight * pxPerMm));
+    const contentWidthMm = pageWidthMm - PAGE_MARGIN_MM * 2;
+    const contentHeightMm = pageHeightMm - PAGE_MARGIN_MM * 2 - footerBandHeight;
+    const pageHeightPx = mmToPx(contentHeightMm);
 
-    let sourceY = 0;
-    let pageNumber = 1;
+    const host = document.createElement("div");
+    host.style.cssText =
+      "position:fixed;left:-14000px;top:0;background:#ffffff;pointer-events:none;";
+    document.body.appendChild(host);
 
-    while (sourceY < canvas.height - 1) {
-      const currentSliceHeightPx = Math.min(sliceHeightPx, canvas.height - sourceY);
-      const pageCanvas = document.createElement("canvas");
-      pageCanvas.width = canvas.width;
-      pageCanvas.height = currentSliceHeightPx;
+    const paper = preview.cloneNode(true) as HTMLElement;
+    paper.style.width = `${contentWidthMm}mm`;
+    paper.style.maxWidth = `${contentWidthMm}mm`;
+    paper.style.minHeight = "0";
+    paper.style.height = "auto";
+    paper.style.margin = "0";
+    paper.style.padding = "0";
+    paper.style.boxSizing = "border-box";
+    paper.style.fontSize = `${fontSizePt}pt`;
+    paper.style.background = "#ffffff";
+    paper.style.color = "#000000";
+    host.appendChild(paper);
 
-      const pageContext = pageCanvas.getContext("2d");
-      if (!pageContext) {
-        throw new Error("Could not prepare PDF page canvas");
-      }
+    // Match capture CSS during measurement so page cuts align with the canvas.
+    const measureStyle = document.createElement("style");
+    measureStyle.setAttribute("data-html2canvas-safe", "true");
+    measureStyle.textContent = getPdfSafePaperCss();
+    host.appendChild(measureStyle);
 
-      pageContext.fillStyle = "#ffffff";
-      pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-      pageContext.drawImage(
-        canvas,
-        0,
-        sourceY,
-        canvas.width,
-        currentSliceHeightPx,
-        0,
-        0,
-        canvas.width,
-        currentSliceHeightPx
-      );
+    try {
+      await waitForImagesInDocument(document);
+      await new Promise((r) => setTimeout(r, 60));
 
-      const pageImgData = pageCanvas.toDataURL("image/png");
-      const pageImgHeight = currentSliceHeightPx / pxPerMm;
-      pdf.addImage(pageImgData, "PNG", marginX, marginTop, imgWidth, pageImgHeight);
-
-      pdf.setFillColor(255, 255, 255);
-      pdf.rect(0, pageHeightMm - footerBandHeight, pageWidthMm, footerBandHeight, "F");
-
-      pdf.setFontSize(10);
-      pdf.text(`Page ${pageNumber} / INNOSAT / CODE ${exportPaperCode}`, pageWidthMm / 2, pageHeightMm - 6, {
-        align: "center",
+      paper.classList.add("pdf-mode", "print-safe");
+      const ranges = buildContinuousPageRanges(paper, pageHeightPx);
+      const fullCanvas = await html2canvas(paper, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        logging: false,
+        onclone: (clonedDoc, clonedEl) => {
+          prepareHtml2CanvasClone(clonedDoc, clonedEl as HTMLElement);
+        },
       });
 
-      sourceY += currentSliceHeightPx;
+      const pdf = new jsPDF(orientation === "landscape" ? "l" : "p", "mm", "a4");
+      const pxPerMm = fullCanvas.width / contentWidthMm;
 
-      if (sourceY < canvas.height - 1) {
-        pdf.addPage();
-        pageNumber++;
+      for (let pageIndex = 0; pageIndex < ranges.length; pageIndex++) {
+        const { start, end } = ranges[pageIndex];
+        const sourceY = Math.max(0, Math.round(start * 2)); // html2canvas scale: 2
+        const sourceH = Math.max(1, Math.round((end - start) * 2));
+        const sliceH = Math.min(sourceH, fullCanvas.height - sourceY);
+        if (sliceH <= 0) continue;
+
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = fullCanvas.width;
+        pageCanvas.height = sliceH;
+        const ctx = pageCanvas.getContext("2d");
+        if (!ctx) throw new Error("Could not prepare PDF page canvas");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+        ctx.drawImage(
+          fullCanvas,
+          0,
+          sourceY,
+          fullCanvas.width,
+          sliceH,
+          0,
+          0,
+          fullCanvas.width,
+          sliceH
+        );
+
+        const imgHeight = sliceH / pxPerMm;
+        const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
+        if (pageIndex > 0) pdf.addPage();
+        pdf.addImage(imgData, "JPEG", PAGE_MARGIN_MM, PAGE_MARGIN_MM, contentWidthMm, imgHeight);
+
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, pageHeightMm - footerBandHeight, pageWidthMm, footerBandHeight, "F");
+        pdf.setFontSize(10);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(
+          `Page ${pageIndex + 1} / INNOSAT / CODE ${exportPaperCode}`,
+          pageWidthMm / 2,
+          pageHeightMm - 6,
+          { align: "center" }
+        );
       }
-    }
 
-    pdf.save(`${config.title}.pdf`);
+      pdf.save(`${config.title}.pdf`);
+    } finally {
+      host.remove();
+    }
   } catch (err) {
     console.error("FINAL PDF ERROR:", err);
   }
 };
+
 
 export const exportAsExcel = (config: any) => {
   const preview = document.getElementById("paper-preview");
@@ -1967,9 +2270,23 @@ export const exportAsWord = async (config: any) => {
   if (!preview) return;
   const orientation = preview.dataset.orientation === "landscape" ? "landscape" : "portrait";
   const exportPaperCode = preview.dataset.paperCode || config?.code || "";
+  const fontSizePt = Math.max(
+    0,
+    Number(preview.dataset.fontSize || config?.previewSettings?.fontSize || 14) || 14
+  );
   const page = getPageSize(orientation);
 
   const clone = preview.cloneNode(true) as HTMLElement;
+  clone.style.fontSize = `${fontSizePt}pt`;
+  // Preview uses full-page min-height for on-screen A4 framing — strip it for Word
+  // or the document gets a huge empty region under the content.
+  clone.style.minHeight = "0";
+  clone.style.height = "auto";
+  clone.style.maxWidth = "100%";
+  clone.style.width = "100%";
+  clone.style.margin = "0";
+  clone.style.padding = "0";
+  clone.style.boxSizing = "border-box";
 
   clone.querySelectorAll(".options").forEach((optionsNode) => {
     const children = Array.from(optionsNode.children) as HTMLElement[];
@@ -2287,24 +2604,113 @@ export const exportAsWord = async (config: any) => {
   // Embed images so Word does not depend on localhost / relative URLs
   await inlineImagesForWordExport(clone, preview);
 
+  // Do NOT pre-paginate Word with browser measurements — that leaves large empty
+  // regions because Word's layout differs. Keep questions together and let Word
+  // fill pages naturally.
+  const wrapWordKeepTogether = (node: Element) => {
+    const el = node as HTMLElement;
+    if (el.closest("table.word-keep-together")) return;
+
+    const table = document.createElement("table");
+    table.className = "word-keep-together";
+    table.setAttribute("width", "100%");
+    table.setAttribute("border", "0");
+    table.setAttribute("cellpadding", "0");
+    table.setAttribute("cellspacing", "0");
+    table.style.cssText =
+      "width:100%;border-collapse:collapse;page-break-inside:avoid;mso-page-break-inside:avoid;";
+
+    const tbody = document.createElement("tbody");
+    const tr = document.createElement("tr");
+    tr.setAttribute("style", "page-break-inside:avoid;mso-page-break-inside:avoid;");
+
+    const td = document.createElement("td");
+    td.setAttribute(
+      "style",
+      "border:none;padding:0;margin:0;vertical-align:top;page-break-inside:avoid;mso-page-break-inside:avoid;"
+    );
+
+    el.replaceWith(table);
+    td.appendChild(el);
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    table.appendChild(tbody);
+  };
+
+  clone
+    .querySelectorAll(".paper-keep-unit, .paper-instructions-box")
+    .forEach((node) => {
+      wrapWordKeepTogether(node);
+    });
+
+  // Tighten spacing that often looks like "empty space" in Word
+  clone.querySelectorAll(".paper-question-item").forEach((node) => {
+    const el = node as HTMLElement;
+    el.style.marginTop = "4px";
+    el.style.marginBottom = "2px";
+  });
+  clone.querySelectorAll(".paper-question-grid").forEach((node) => {
+    const el = node as HTMLElement;
+    el.style.gap = "10px";
+  });
+
+  const bodyHtml = clone.outerHTML;
+
   const styles = `
     <style>
-      body {
-        font-family: 'Times New Roman', serif;
-        margin: 0;
-        padding: 0;
-      }
       @page {
         size: A4 ${orientation};
         margin: ${PAGE_MARGIN_MM}mm;
       }
+      body {
+        font-family: 'Times New Roman', serif;
+        font-size: ${fontSizePt}pt;
+        margin: 0;
+        padding: 0;
+      }
       #paper-preview {
         width: 100% !important;
-        max-width: ${page.width} !important;
-        min-height: ${page.height} !important;
-        margin: 0 auto !important;
-        padding: ${PAGE_MARGIN_MM}mm !important;
+        max-width: 100% !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
         box-sizing: border-box !important;
+        font-size: ${fontSizePt}pt !important;
+      }
+      .word-keep-together,
+      .word-keep-together tr,
+      .word-keep-together td,
+      .paper-keep-unit {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        mso-page-break-inside: avoid;
+      }
+      .paper-question-item {
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+      }
+      .paper-instructions-box,
+      .question-heading,
+      .question-heading-table {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        mso-page-break-inside: avoid;
+      }
+      .paper-question-grid {
+        gap: 10px !important;
+      }
+      .question-heading,
+      .question-heading-text,
+      .question-heading-text-cell,
+      .option-cell,
+      .options-table td {
+        font-size: ${fontSizePt}pt !important;
+      }
+      .paper-export-footer {
+        margin-top: 16px;
+        text-align: center;
+        font-size: 10pt;
+        font-family: 'Times New Roman', serif;
       }
       table {
         width: 100%;
@@ -2374,7 +2780,7 @@ export const exportAsWord = async (config: any) => {
       }
       .answer-label-cell {
         width: 70px !important;
-        font-size: 13px;
+        font-size: ${fontSizePt}pt;
         font-weight: 700;
         white-space: nowrap;
         padding-right: 6px !important;
@@ -2478,16 +2884,6 @@ export const exportAsWord = async (config: any) => {
         border-collapse: collapse;
         margin: 2px 0;
       }
-      .paper-export-footer {
-        position: fixed;
-        bottom: 4mm;
-        left: 0;
-        right: 0;
-        width: 100%;
-        text-align: center;
-        font-size: 10px;
-        font-family: 'Times New Roman', serif;
-      }
     </style>
   `;
 
@@ -2503,13 +2899,15 @@ export const exportAsWord = async (config: any) => {
         <xml>
           <w:WordDocument>
             <w:View>Print</w:View>
+            <w:Zoom>100</w:Zoom>
+            <w:DoNotOptimizeForBrowser/>
           </w:WordDocument>
         </xml>
         <![endif]-->
         ${styles}
       </head>
       <body>
-        ${clone.outerHTML}
+        ${bodyHtml}
         <div class="paper-export-footer">INNOSAT / CODE ${exportPaperCode}</div>
       </body>
     </html>

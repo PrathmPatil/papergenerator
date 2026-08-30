@@ -60,6 +60,23 @@ interface AvailableTopic {
   subjectId: string;
 }
 
+function stableStringify(value: unknown) {
+  return JSON.stringify(value, (_, v) => {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      return Object.keys(v)
+        .sort()
+        .reduce((acc: Record<string, unknown>, key) => {
+          acc[key] = (v as Record<string, unknown>)[key];
+          return acc;
+        }, {});
+    }
+    return v;
+  });
+}
+
+/** Cache selection-stats responses so Back after save does not refetch. */
+const selectionStatsCache = new Map<string, SelectionMarksStats>();
+
 function getSectionId(sec: any) {
   return String(sec?.id ?? sec?._id ?? "");
 }
@@ -145,28 +162,38 @@ export function PaperGenerationTemplate({
     if (!data?.subjectId) return;
 
     setSubjects((prev) => {
-      const initial: Record<string, SubjectState> = {};
-      String(data.subjectId)
+      const ids = String(data.subjectId)
         .split(",")
         .map((x: string) => x.trim())
-        .filter(Boolean)
-        .forEach((id: string) => {
-          const existing = prev[id];
-          initial[id] = {
-            open: existing?.open ?? false,
-            loading: false,
-            questions: existing?.questions ?? [],
-            activeTopicId: existing?.activeTopicId ?? "",
-            topicPages: existing?.topicPages ?? {},
-            topicTotalPages: existing?.topicTotalPages ?? {},
-            // Keep previously fetched header stats across template refreshes
-            selectionStats: existing?.selectionStats ?? null,
-            statsLoading: existing?.statsLoading ?? false,
-          };
-        });
+        .filter(Boolean);
+      const prevKey = Object.keys(prev).sort().join(",");
+      const nextKey = [...ids].sort().join(",");
+      if (prevKey === nextKey && ids.every((id) => !!prev[id])) {
+        return prev;
+      }
+
+      const initial: Record<string, SubjectState> = {};
+      ids.forEach((id: string) => {
+        const existing = prev[id];
+        initial[id] = {
+          open: existing?.open ?? false,
+          loading: false,
+          questions: existing?.questions ?? [],
+          activeTopicId: existing?.activeTopicId ?? "",
+          topicPages: existing?.topicPages ?? {},
+          topicTotalPages: existing?.topicTotalPages ?? {},
+          // Keep previously fetched header stats across template refreshes
+          selectionStats: existing?.selectionStats ?? null,
+          statsLoading: existing?.statsLoading ?? false,
+        };
+      });
       return initial;
     });
   }, [data?.subjectId]);
+
+  // Prevent parent→child→parent ping-pong: only hydrate when edit payload content changes.
+  const selectedQuestionsEditSnapRef = useRef("");
+  const selectedSubQuestionsEditSnapRef = useRef("");
 
   useEffect(() => {
     if (!data?.sections?.length) return;
@@ -180,38 +207,48 @@ export function PaperGenerationTemplate({
 
     const fromEdit = normalizeSelectedQuestionsEdit(selectedQuestionsEdit);
     const merged: SelectedMap = { ...base, ...fromEdit };
+    const editSnap = stableStringify(merged);
+    if (editSnap === selectedQuestionsEditSnapRef.current) return;
+    selectedQuestionsEditSnapRef.current = editSnap;
 
-    if (JSON.stringify(selectedQuestions) === JSON.stringify(merged)) return;
-    setSelectedQuestions(merged);
+    setSelectedQuestions((prev) =>
+      stableStringify(prev) === editSnap ? prev : merged
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.sections, selectedQuestionsEdit]);
 
   useEffect(() => {
-    const next = selectedSubQuestionsEdit && typeof selectedSubQuestionsEdit === "object"
-      ? selectedSubQuestionsEdit as SelectedSubQuestionMap
-      : {};
-    if (JSON.stringify(selectedSubQuestions) !== JSON.stringify(next)) {
-      setSelectedSubQuestions(next);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const next =
+      selectedSubQuestionsEdit && typeof selectedSubQuestionsEdit === "object"
+        ? (selectedSubQuestionsEdit as SelectedSubQuestionMap)
+        : {};
+    const editSnap = stableStringify(next);
+    if (editSnap === selectedSubQuestionsEditSnapRef.current) return;
+    selectedSubQuestionsEditSnapRef.current = editSnap;
+
+    setSelectedSubQuestions((prev) =>
+      stableStringify(prev) === editSnap ? prev : next
+    );
   }, [selectedSubQuestionsEdit]);
 
   const lastSentSnapRef = useRef<string>("");
   useEffect(() => {
     if (!selectedQuestions || Object.keys(selectedQuestions).length === 0) return;
 
-    const snap = JSON.stringify(selectedQuestions);
+    const snap = stableStringify(selectedQuestions);
     if (snap === lastSentSnapRef.current) return;
 
     lastSentSnapRef.current = snap;
+    selectedQuestionsEditSnapRef.current = snap;
     parentSyncRef.current?.(selectedQuestions);
   }, [selectedQuestions]);
 
   const lastSentSubQuestionSnapRef = useRef<string>("");
   useEffect(() => {
-    const snap = JSON.stringify(selectedSubQuestions);
+    const snap = stableStringify(selectedSubQuestions);
     if (snap === lastSentSubQuestionSnapRef.current) return;
     lastSentSubQuestionSnapRef.current = snap;
+    selectedSubQuestionsEditSnapRef.current = snap;
     subQuestionSelectionChange?.(selectedSubQuestions);
   }, [selectedSubQuestions, subQuestionSelectionChange]);
 
@@ -302,13 +339,72 @@ export function PaperGenerationTemplate({
     return { ...emptyStats(section), hasRules: true };
   };
 
+  const statsFetchGenRef = useRef<Record<string, number>>({});
+  const statsAppliedKeyRef = useRef<Record<string, string>>({});
+
+  const buildStatsCacheKey = (
+    subjectId: string,
+    selectedIds: string[],
+    sectionId: string,
+    rules: SectionRules | null
+  ) =>
+    stableStringify({
+      subjectId,
+      selectedIds: [...selectedIds].sort(),
+      subQuestionSelections: selectedSubQuestions[sectionId] || {},
+      topicDistributions: rules?.topicDistributions || [],
+    });
+
+  const applyStatsToSubject = (
+    subjectId: string,
+    stats: SelectionMarksStats | null,
+    cacheKey: string,
+    loading: boolean
+  ) => {
+    statsAppliedKeyRef.current[subjectId] = cacheKey;
+    setSubjects((p) => {
+      if (!p[subjectId]) return p;
+      const current = p[subjectId];
+      if (
+        current.statsLoading === loading &&
+        stableStringify(current.selectionStats) === stableStringify(stats)
+      ) {
+        return p;
+      }
+      return {
+        ...p,
+        [subjectId]: {
+          ...current,
+          selectionStats: stats,
+          statsLoading: loading,
+        },
+      };
+    });
+  };
+
   const refreshSelectionStats = async (subjectId: string, selectedIds: string[]) => {
     const sec = data?.sections?.find((s: any) => String(s.subjectId) === String(subjectId));
     const rules = sec ? getSectionRules(sec) : null;
     const sectionId = sec ? getSectionId(sec) : "";
+    const cacheKey = buildStatsCacheKey(subjectId, selectedIds, sectionId, rules);
+
+    const cached = selectionStatsCache.get(cacheKey);
+    if (cached) {
+      applyStatsToSubject(subjectId, cached, cacheKey, false);
+      return;
+    }
+
+    // Already applied / in-flight for this exact selection payload
+    if (statsAppliedKeyRef.current[subjectId] === cacheKey) {
+      return;
+    }
+
+    const fetchGen = (statsFetchGenRef.current[subjectId] || 0) + 1;
+    statsFetchGenRef.current[subjectId] = fetchGen;
+    statsAppliedKeyRef.current[subjectId] = cacheKey;
 
     setSubjects((p) => {
-      if (!p[subjectId]) return p;
+      if (!p[subjectId] || p[subjectId].statsLoading) return p;
       return {
         ...p,
         [subjectId]: { ...p[subjectId], statsLoading: true },
@@ -324,21 +420,18 @@ export function PaperGenerationTemplate({
         topicDistributions: rules?.topicDistributions || [],
       });
 
+      if (fetchGen !== statsFetchGenRef.current[subjectId]) return;
+
       if (res?.success && res.selectionStats) {
-        setSubjects((p) => {
-          if (!p[subjectId]) return p;
-          return {
-            ...p,
-            [subjectId]: {
-              ...p[subjectId],
-              selectionStats: res.selectionStats,
-              statsLoading: false,
-            },
-          };
-        });
+        selectionStatsCache.set(cacheKey, res.selectionStats);
+        applyStatsToSubject(subjectId, res.selectionStats, cacheKey, false);
       } else {
+        // Allow retry on failure
+        if (statsAppliedKeyRef.current[subjectId] === cacheKey) {
+          delete statsAppliedKeyRef.current[subjectId];
+        }
         setSubjects((p) => {
-          if (!p[subjectId]) return p;
+          if (!p[subjectId] || !p[subjectId].statsLoading) return p;
           return {
             ...p,
             [subjectId]: { ...p[subjectId], statsLoading: false },
@@ -347,8 +440,12 @@ export function PaperGenerationTemplate({
       }
     } catch (error) {
       console.error("Failed to refresh selection stats", error);
+      if (fetchGen !== statsFetchGenRef.current[subjectId]) return;
+      if (statsAppliedKeyRef.current[subjectId] === cacheKey) {
+        delete statsAppliedKeyRef.current[subjectId];
+      }
       setSubjects((p) => {
-        if (!p[subjectId]) return p;
+        if (!p[subjectId] || !p[subjectId].statsLoading) return p;
         return {
           ...p,
           [subjectId]: { ...p[subjectId], statsLoading: false },
@@ -357,23 +454,28 @@ export function PaperGenerationTemplate({
     }
   };
 
-  // Load selected/target marks for collapsed headers (do not wait for accordion open)
+  // One-shot header stats load when subjects + selection payload are ready.
+  // Cache prevents refetch when returning from preview after save.
   const subjectsReadyKey = Object.keys(subjects).sort().join(",");
   const selectionStatsKey = useMemo(() => {
     if (!data?.sections?.length) return "";
-    return JSON.stringify(
+    return stableStringify(
       (data.sections as any[]).map((sec) => ({
         subjectId: String(sec?.subjectId || ""),
         sectionId: getSectionId(sec),
-        selected: selectedQuestions[getSectionId(sec)] || [],
+        selected: [...(selectedQuestions[getSectionId(sec)] || [])].sort(),
         subQuestionSelections: selectedSubQuestions[getSectionId(sec)] || {},
         rules: getSectionRules(sec)?.topicDistributions || [],
       }))
     );
   }, [data?.sections, selectedQuestions, selectedSubQuestions]);
 
+  const lastStatsKeyRef = useRef("");
   useEffect(() => {
     if (!selectionStatsKey || !subjectsReadyKey) return;
+    const combinedKey = `${subjectsReadyKey}::${selectionStatsKey}`;
+    if (lastStatsKeyRef.current === combinedKey) return;
+    lastStatsKeyRef.current = combinedKey;
 
     const subjectIds = String(data?.subjectId || "")
       .split(",")
@@ -392,7 +494,6 @@ export function PaperGenerationTemplate({
       const selectedIds = sectionId ? selectedQuestions[sectionId] || [] : [];
       void refreshSelectionStats(subjectId, selectedIds);
     });
-    // refreshSelectionStats closes over latest data/selectedQuestions; key deps gate re-runs
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionStatsKey, subjectsReadyKey]);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/user-context";
 import { ChevronRight, Wand2, Save, RefreshCw, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -44,7 +44,6 @@ import dynamic from "next/dynamic";
 import { mapPaperToPreviewConfig } from "@/lib/utils";
 import { showInfo } from "@/components/app-dialog-provider";
 
-
 const PaperPreview = dynamic(
   () => import("@/components/paper-preview").then((m) => m.PaperPreview),
   { ssr: false }
@@ -86,7 +85,7 @@ export default function GeneratePaperPage() {
 
   const [previewConfig, setPreviewConfig] = useState<any>(null);
   const [isSavingPreview, setIsSavingPreview] = useState(false);
-  
+
   // Form State
   const [paperTitle, setPaperTitle] = useState("Unit Test 1");
   const [selectedClass, setSelectedClass] = useState<ClassLevel | "">("");
@@ -126,6 +125,14 @@ export default function GeneratePaperPage() {
   const [isNameExist, setIsTitleExist] = useState(false);
 
   const toSafeInt = (value: unknown, fallback = 0) => {
+    if (typeof value === "string") {
+      // Strip leading zeros so controlled inputs never stick on values like "050"
+      const cleaned = value.trim().replace(/[^\d-]/g, "").replace(/^0+(?=\d)/, "");
+      if (cleaned === "" || cleaned === "-") return fallback;
+      const num = Number(cleaned);
+      if (!Number.isFinite(num)) return fallback;
+      return Math.floor(Math.abs(num));
+    }
     const num = Number(value);
     if (!Number.isFinite(num)) return fallback;
     return Math.floor(num);
@@ -356,7 +363,6 @@ const totalAllocated = selectedSubjects.reduce(
   };
 
   const handleNext = async () => {
-    console.log(currentStep);
     if (currentStep === 3) {
       const validationError = validateDistributionBeforeNext();
       if (validationError) {
@@ -396,9 +402,9 @@ const totalAllocated = selectedSubjects.reduce(
      const {success, template} = res;
      if(success){
       setTemplate({...payload, ...template});
-      setCurrentStep(4);       
+      setCurrentStep(4);
      }
-    } else if(currentStep === 1){ 
+    } else if(currentStep === 1){
       if(isNameExist) return;
       else setCurrentStep((prev) => Math.min(prev + 1, 5));
     } else{
@@ -752,7 +758,7 @@ const handleSave = async () => {
 
       setPreviewConfig(preview);
       setCurrentStep(5);
-      
+
       return;
     }
 
@@ -788,6 +794,38 @@ const handleSave = async () => {
     }
   };
 
+  const handleSelectedQuestionsChange = useCallback((next: Record<string, string[]>) => {
+    setSelectedQuestions((prev) => {
+      const prevKeys = Object.keys(prev).sort();
+      const nextKeys = Object.keys(next).sort();
+      if (
+        prevKeys.length === nextKeys.length &&
+        prevKeys.every((k, i) => k === nextKeys[i]) &&
+        prevKeys.every((k) => {
+          const a = prev[k] || [];
+          const b = next[k] || [];
+          return a.length === b.length && a.every((id, idx) => id === b[idx]);
+        })
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectedSubQuestionsChange = useCallback(
+    (next: Record<string, Record<string, string[]>>) => {
+      setSelectedSubQuestions((prev) => {
+        try {
+          if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+    },
+    []
+  );
 
   const selectedSubjectNames = useMemo(() => {
     const result = filteredSubjects
@@ -796,25 +834,31 @@ const handleSave = async () => {
     return result.join(", ") || "-";
   }, [selectedSubjects, filteredSubjects]);
 
-  // isTitleExist
-  const isPaperNameExist = async (name: string) => {
-    try {
-      const res = await isTitleExist(name);
-      console.log(res)
-      return res.isExist;
-    } catch (error) {
-      console.log(error);
-    }
-  }
-
+  // Debounced title check so rapid typing (…4 → 5 → 6) still validates the final name
   useEffect(() => {
-    if (paperTitle) {
-      isPaperNameExist(paperTitle).then((res) => {
-        setIsTitleExist(res);
-      })
+    const title = paperTitle.trim();
+    if (!title) {
+      setIsTitleExist(false);
+      return;
     }
-  },[paperTitle]);
-  console.log(isNameExist);
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      isTitleExist(title)
+        .then((res) => {
+          if (!cancelled) setIsTitleExist(Boolean(res?.isExist));
+        })
+        .catch((error) => {
+          console.error(error);
+          if (!cancelled) setIsTitleExist(false);
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [paperTitle]);
 
   return (
     <div className="max-w-8xl mx-auto space-y-8 h-[calc(100vh-8rem)] flex flex-col">
@@ -915,11 +959,12 @@ const handleSave = async () => {
                   <div className="space-y-2">
                     <Label>Total Marks</Label>
                     <Input
-                      type="number"
-                      value={totalMarks}
-                      min={0}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={String(totalMarks)}
                       onWheel={(e) => e.currentTarget.blur()}
-                      onChange={(e) => setTotalMarks(Number(e.target.value))}
+                      onChange={(e) => setTotalMarks(toSafeInt(e.target.value, 0))}
                     />
                   </div>
                   <div className="space-y-2">
@@ -1197,9 +1242,9 @@ const handleSave = async () => {
                     />
                   </div>
                 </div>
-                 
+
              {/* ===== Remaining Marks Display ===== */}
-             
+
                 <div
                   className={`mb-4 p-3 border rounded-md flex justify-between items-center ${
                     remainingMarks < 0
@@ -1263,11 +1308,10 @@ const handleSave = async () => {
                             <div className="space-y-2">
                               <Label className="text-xs">Subject Marks</Label>
                               <Input
-                                type="number"
-                                min={0}
-                                max={maxAllowed}
-                                step={1}
-                                value={safeCurrent}
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={String(safeCurrent)}
                                 onWheel={(e) => e.currentTarget.blur()}
                                 onChange={(e) => {
                                   const val = toSafeInt(e.target.value, 0);
@@ -1321,11 +1365,10 @@ const handleSave = async () => {
                                       </span>
                                       <div className="flex items-center gap-2">
                                         <Input
-                                          type="number"
-                                          min={0}
-                                          max={maxTopicAllowed}
-                                          step={1}
-                                          value={currentTopicMarks}
+                                          type="text"
+                                          inputMode="numeric"
+                                          pattern="[0-9]*"
+                                          value={String(currentTopicMarks)}
                                           onWheel={(e) => e.currentTarget.blur()}
                                           onChange={(e) => {
                                             const val = toSafeInt(e.target.value, 0);
@@ -1369,17 +1412,19 @@ const handleSave = async () => {
                 </div>
             )}
 
-            {currentStep === 4 && template?.sections?.length && (
-              <PaperGenerationTemplate
-                data={template}
-                paperGenerateFunction={setSelectedQuestions}
-                selectedQuestionsEdit={selectedQuestions}
-                selectedSubQuestionsEdit={selectedSubQuestions}
-                subQuestionSelectionChange={setSelectedSubQuestions}
-                selectedTopics={selectedTopics}
-                availableTopics={availableTopics}
-              />
-            ) }
+            {template?.sections?.length && currentStep >= 4 ? (
+              <div className={currentStep === 4 ? "block" : "hidden"} aria-hidden={currentStep !== 4}>
+                <PaperGenerationTemplate
+                  data={template}
+                  paperGenerateFunction={handleSelectedQuestionsChange}
+                  selectedQuestionsEdit={selectedQuestions}
+                  selectedSubQuestionsEdit={selectedSubQuestions}
+                  subQuestionSelectionChange={handleSelectedSubQuestionsChange}
+                  selectedTopics={selectedTopics}
+                  availableTopics={availableTopics}
+                />
+              </div>
+            ) : null}
 
             {currentStep === 5 && previewConfig && (
               <PaperPreview

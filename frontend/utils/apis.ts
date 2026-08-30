@@ -460,13 +460,16 @@ export const getEditPaperApi = async (id: string) => {
   return response;
 }
 
-// /check/:title
-export const isTitleExist = async (name:string)=>{
+// GET /api/papers/check?title=
+export const isTitleExist = async (name: string) => {
+  const title = String(name || "").trim();
   const response = await apiClient({
-    url: `/api/papers/check/${name}`
+    url: "/api/papers/check",
+    method: "GET",
+    params: { title },
   });
   return response;
-}
+};
 
 // update the paper :id
 export const updatePaperName = async (id: string, payload: any) => {

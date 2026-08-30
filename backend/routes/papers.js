@@ -1005,26 +1005,26 @@ router.post("/", async (req, res) => {
   }
 });
 
-// check paper name is exist
-router.get("/check/:title", async (req, res) => {
+// check paper name is exist — prefer ?title= (path param kept for compatibility)
+router.get(["/check", "/check/:title"], async (req, res) => {
   try {
-    const { title } = req.params;
-    const paper = await Paper.findOne({ title, isDeleted: false });
-    if (paper)
-      return res.json({
-        success: false,
-        message: "Paper name already exist",
-        isExist: true,
-      });
-    res
-      .status(200)
-      .json({
+    const title = String(req.query.title ?? req.params.title ?? "").trim();
+    if (!title) {
+      return res.status(200).json({
         success: true,
-        message: "Paper name is available",
+        message: "Paper name is required",
         isExist: false,
       });
+    }
+
+    const paper = await Paper.findOne({ title, isDeleted: false });
+    return res.status(200).json({
+      success: true,
+      message: paper ? "Paper name already exist" : "Paper name is available",
+      isExist: Boolean(paper),
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, isExist: false, error: err.message });
   }
 });
 

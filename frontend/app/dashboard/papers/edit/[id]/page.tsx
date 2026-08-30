@@ -1012,17 +1012,19 @@ export default function EditPaperPage() {
               </div>
             )}
 
-            {currentStep === 4 && template?.sections?.length && (
-              <PaperGenerationTemplate
-                data={template}
-                paperGenerateFunction={setSelectedQuestions}
-                selectedQuestionsEdit={selectedQuestions}
-                selectedSubQuestionsEdit={selectedSubQuestions}
-                subQuestionSelectionChange={setSelectedSubQuestions}
-                selectedTopics={selectedTopics}
-                availableTopics={availableTopics}
-              />
-            )}
+            {template?.sections?.length && currentStep >= 4 ? (
+              <div className={currentStep === 4 ? "block" : "hidden"} aria-hidden={currentStep !== 4}>
+                <PaperGenerationTemplate
+                  data={template}
+                  paperGenerateFunction={setSelectedQuestions}
+                  selectedQuestionsEdit={selectedQuestions}
+                  selectedSubQuestionsEdit={selectedSubQuestions}
+                  subQuestionSelectionChange={setSelectedSubQuestions}
+                  selectedTopics={selectedTopics}
+                  availableTopics={availableTopics}
+                />
+              </div>
+            ) : null}
 
             {currentStep === 5 && previewConfig && (
               <PaperPreview
