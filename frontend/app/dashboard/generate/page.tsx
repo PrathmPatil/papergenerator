@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/user-context";
-import { ChevronRight, Wand2, Save, RefreshCw, Printer } from "lucide-react";
+import { ChevronRight, Wand2, Save, RefreshCw, Printer, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -422,6 +422,60 @@ const totalAllocated = selectedSubjects.reduce(
         ? prev.filter((id) => id !== topicId)
         : [...prev, topicId]
     );
+  };
+
+  /** Remove a topic and free its allocated marks back to total remaining. */
+  const removeTopicFromSubject = (subjectId: string, topicId: string) => {
+    setSelectedTopics((prev) => prev.filter((id) => String(id) !== String(topicId)));
+    setSections((prev) =>
+      prev.map((section) => {
+        if (String(section.subjectId) !== String(subjectId)) return section;
+
+        const distributions = Array.isArray(section.rules?.topicDistributions)
+          ? section.rules!.topicDistributions
+          : [];
+        const removedMarks = Math.max(
+          0,
+          toSafeInt(
+            distributions.find((rule) => String(rule.topicId) === String(topicId))?.marks,
+            0
+          )
+        );
+
+        return {
+          ...section,
+          marks: Math.max(0, toSafeInt(section.marks, 0) - removedMarks),
+          rules: {
+            marksPerQuestion: Math.max(1, toSafeInt(section.rules?.marksPerQuestion, 1)),
+            topicDistributions: distributions.filter(
+              (rule) => String(rule.topicId) !== String(topicId)
+            ),
+          },
+        };
+      })
+    );
+  };
+
+  /** Remove a subject and free all of its subject marks back to total remaining. */
+  const removeSubjectFromPaper = (subjectId: string) => {
+    const section = sections.find((s) => String(s.subjectId) === String(subjectId));
+    const distributionTopicIds = new Set(
+      (Array.isArray(section?.rules?.topicDistributions)
+        ? section!.rules!.topicDistributions
+        : []
+      ).map((rule) => String(rule.topicId || ""))
+    );
+
+    setSelectedSubjects((prev) => prev.filter((id) => id !== subjectId));
+    setSelectedTopics((prev) =>
+      prev.filter((topicId) => {
+        if (distributionTopicIds.has(String(topicId))) return false;
+        const topic = availableTopics.find((t) => String(t.id) === String(topicId));
+        if (topic && getTopicSubjectId(topic) === subjectId) return false;
+        return true;
+      })
+    );
+    setSections((prev) => prev.filter((s) => String(s.subjectId) !== String(subjectId)));
   };
 
   const toggleSubject = (id: string) => {
@@ -1297,11 +1351,24 @@ const handleSave = async () => {
                                 Subject marks {">"} topic marks {">"} question marks
                               </p>
                             </div>
-                            <Badge
-                              variant={topicMarksRemaining === 0 ? "default" : "secondary"}
-                            >
-                              {safeCurrent} / {totalMarks} marks
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge
+                                variant={topicMarksRemaining === 0 ? "default" : "secondary"}
+                              >
+                                {safeCurrent} / {totalMarks} marks
+                              </Badge>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => removeSubjectFromPaper(subject.id)}
+                                title={`Remove ${subject.name}`}
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Remove
+                              </Button>
+                            </div>
                           </div>
 
                           <div className="grid gap-4 md:grid-cols-2">
@@ -1360,9 +1427,24 @@ const handleSave = async () => {
                                       key={topic.id}
                                       className="rounded-md border bg-background p-3 space-y-2"
                                     >
-                                      <span className="text-sm font-medium leading-tight">
-                                        {formatTopicTitle(topic.name)}
-                                      </span>
+                                      <div className="flex items-start justify-between gap-2">
+                                        <span className="text-sm font-medium leading-tight">
+                                          {formatTopicTitle(topic.name)}
+                                        </span>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 shrink-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                          onClick={() =>
+                                            removeTopicFromSubject(subject.id, topic.id)
+                                          }
+                                          title={`Remove ${formatTopicTitle(topic.name)}`}
+                                          aria-label={`Remove ${formatTopicTitle(topic.name)}`}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </div>
                                       <div className="flex items-center gap-2">
                                         <Input
                                           type="text"
