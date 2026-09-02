@@ -421,7 +421,9 @@ export default function EditPaperPage() {
             new Set(
               hydratedSections.flatMap((section: any) =>
                 Array.isArray(section?.rules?.topicDistributions)
-                  ? section.rules.topicDistributions.map((rule: any) => String(rule.topicId))
+                  ? section.rules.topicDistributions
+                      .map((rule: any) => String(rule.topicId || "").trim())
+                      .filter(Boolean)
                   : []
               )
             )
@@ -550,24 +552,15 @@ export default function EditPaperPage() {
           }
 
           const subjectTopicIds = getSelectedTopicsForSubject(section.subjectId).map((topic) => topic.id);
+          // Only keep distributions for topics that are both selected and loaded.
+          // Orphan/zero-mark entries from old saves caused false
+          // "Please assign marks for topic in …" errors while Remaining stayed 0.
           const distributions = subjectTopicIds.map((topicId) => {
             const existing = existingRules.find(
               (item: any) => String(item.topicId) === String(topicId)
             );
-            return { topicId, marks: Number(existing?.marks || 0) };
+            return { topicId, marks: Math.max(0, toSafeInt(existing?.marks, 0)) };
           });
-
-          // Preserve selected-topic marks while topic metadata is still catching up
-          for (const rule of existingRules) {
-            const ruleTopicId = String(rule.topicId || "");
-            if (!ruleTopicId) continue;
-            if (distributions.some((d) => String(d.topicId) === ruleTopicId)) continue;
-            if (!selectedTopics.includes(ruleTopicId)) continue;
-            distributions.push({
-              topicId: ruleTopicId,
-              marks: Math.max(0, Number(rule.marks || 0)),
-            });
-          }
 
           let allocated = distributions.reduce((sum, item) => sum + Number(item.marks || 0), 0);
           if (allocated > section.marks) {
@@ -955,7 +948,13 @@ export default function EditPaperPage() {
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                               <Label className="text-xs">Subject Marks</Label>
-                              <Input type="number" min={0} max={maxAllowed} step={1} value={currentMarks} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => {
+                              <Input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={String(currentMarks)}
+                                onWheel={(e) => e.currentTarget.blur()}
+                                onChange={(e) => {
                                 const val = toSafeInt(e.target.value, 0);
                                 updateSubjectMarks(subject, Math.max(0, Math.min(val, maxAllowed)));
                               }} />
@@ -979,14 +978,23 @@ export default function EditPaperPage() {
                             ) : (
                               <div className="grid gap-3 md:grid-cols-2">
                                 {topicChoices.map((topic) => {
-                                  const currentTopicMarks = rules.topicDistributions.find((item: any) => item.topicId === topic.id)?.marks || 0;
+                                  const currentTopicMarks =
+                                    rules.topicDistributions.find(
+                                      (item: any) => String(item.topicId) === String(topic.id)
+                                    )?.marks || 0;
                                   const maxTopicAllowed = Math.max(0, currentMarks - (allocatedTopicMarks - currentTopicMarks));
 
                                   return (
                                     <div key={topic.id} className="rounded-md border bg-background p-3 space-y-2">
                                       <span className="text-sm font-medium leading-tight">{formatTopicTitle(topic.name)}</span>
                                       <div className="flex items-center gap-2">
-                                        <Input type="number" min={0} max={maxTopicAllowed} step={1} value={currentTopicMarks} onWheel={(e) => e.currentTarget.blur()} onChange={(e) => {
+                                        <Input
+                                          type="text"
+                                          inputMode="numeric"
+                                          pattern="[0-9]*"
+                                          value={String(currentTopicMarks)}
+                                          onWheel={(e) => e.currentTarget.blur()}
+                                          onChange={(e) => {
                                           const val = toSafeInt(e.target.value, 0);
                                           updateTopicMarks(subject.id, topic.id, Math.max(0, Math.min(val, maxTopicAllowed)));
                                         }} />

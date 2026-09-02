@@ -39,10 +39,9 @@ const toSafeInt = (value: unknown, fallback = 0) => {
 };
 
 export const getTopicMarksSum = (section?: MarksSection | null) =>
-  (section?.rules?.topicDistributions || []).reduce(
-    (sum, item) => sum + Math.max(0, toSafeInt(item.marks, 0)),
-    0
-  );
+  (section?.rules?.topicDistributions || [])
+    .filter((item) => String(item.topicId || "").trim() !== "")
+    .reduce((sum, item) => sum + Math.max(0, toSafeInt(item.marks, 0)), 0);
 
 export const summarizeMarksBalance = (
   totalMarks: number,
@@ -112,19 +111,24 @@ export const validateMarksDistribution = (input: MarksValidationInput): string =
       return `Please set marks for ${subjectName}.`;
     }
 
-    const distributions = section.rules?.topicDistributions || [];
+    const distributions = (section.rules?.topicDistributions || []).filter(
+      (rule) => String(rule.topicId || "").trim() !== ""
+    );
     if (distributions.length === 0) {
       return `Please select at least one topic for ${subjectName}.`;
     }
 
     for (const rule of distributions) {
       if (toSafeInt(rule.marks, 0) <= 0) {
-        const topicName = topicNames[rule.topicId] || "topic";
+        const topicName = topicNames[rule.topicId] || topicNames[String(rule.topicId)] || "topic";
         return `Please assign marks for ${topicName} in ${subjectName}.`;
       }
     }
 
-    const topicMarksSum = getTopicMarksSum(section);
+    const topicMarksSum = distributions.reduce(
+      (sum, item) => sum + Math.max(0, toSafeInt(item.marks, 0)),
+      0
+    );
 
     if (topicMarksSum > subjectMarks) {
       return `Topic marks for ${subjectName} (${topicMarksSum}) exceed subject marks (${subjectMarks}). Reduce topic marks or increase subject/total marks.`;
@@ -188,10 +192,12 @@ export const hydrateEditSections = (params: {
       rules: {
         marksPerQuestion: Math.max(1, toSafeInt(rulesSource?.marksPerQuestion, 1)),
         topicDistributions: Array.isArray(rulesSource?.topicDistributions)
-          ? rulesSource.topicDistributions.map((rule: any) => ({
-              topicId: String(rule.topicId || ""),
-              marks: Math.max(0, toSafeInt(rule.marks, 0)),
-            }))
+          ? rulesSource.topicDistributions
+              .map((rule: any) => ({
+                topicId: String(rule.topicId || "").trim(),
+                marks: Math.max(0, toSafeInt(rule.marks, 0)),
+              }))
+              .filter((rule: TopicDistributionRule) => rule.topicId)
           : [],
       },
     };
