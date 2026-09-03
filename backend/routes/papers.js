@@ -632,8 +632,13 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
           .filter(([questionId]) => Boolean(questionId))
       );
       const qs = await Question.find({ _id: { $in: selectedQuestionIds } });
+      const questionById = new Map(qs.map((q) => [q._id.toString(), q]));
+      // Preserve the client/topic order from selectedQuestionIds ($in does not).
+      const orderedQuestions = selectedQuestionIds
+        .map((id) => questionById.get(String(id)))
+        .filter(Boolean);
 
-      const questionSnapshots = qs.map((q) => {
+      const questionSnapshots = orderedQuestions.map((q) => {
         const questionId = q._id.toString();
         const selectedSubQuestionIds = requestedSubQuestions.get(questionId);
         const allSubQuestions = Array.isArray(q.subQuestions) ? q.subQuestions : [];

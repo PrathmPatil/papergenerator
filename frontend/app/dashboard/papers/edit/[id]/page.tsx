@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Save, Printer, RefreshCw, Wand2, Trash2, FileText, Tags } from "lucide-react";
+import { ChevronRight, Save, Printer, RefreshCw, Wand2, Trash2, FileText, Tags, Search } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { cn, formatTopicTitle, mapPaperToPreviewConfig } from "@/lib/utils";
+import {
+  buildQuestionTopicMap,
+  pruneSelectedQuestionsByTopics,
+  pruneSelectedSubQuestions,
+} from "@/lib/question-selection";
 import { CLASSES, SUBJECTS, normalizeSubjectId } from "@/lib/data";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { PaperPreview, printPaper } from "@/components/paper-preview";
@@ -123,6 +128,7 @@ export default function EditPaperPage() {
   const [topicInputs, setTopicInputs] = useState<Record<string, string>>({});
   const [topicLoading, setTopicLoading] = useState(false);
   const [activeTopicSubject, setActiveTopicSubject] = useState<string>("");
+  const [topicSearch, setTopicSearch] = useState("");
 
   const [totalMarks, setTotalMarks] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -143,6 +149,7 @@ export default function EditPaperPage() {
   const [sections, setSections] = useState<Sections[]>([]);
   const [selectedQuestions, setSelectedQuestions] = useState<Record<string, string[]>>({});
   const [selectedSubQuestions, setSelectedSubQuestions] = useState<Record<string, Record<string, string[]>>>({});
+  const [questionTopicMap, setQuestionTopicMap] = useState<Record<string, string>>({});
   const [isGenerating, setIsGenerating] = useState(false);
 
   const toSafeInt = (value: unknown, fallback = 0) => {
@@ -169,6 +176,15 @@ export default function EditPaperPage() {
     normalizeSubjectId(topic.subjectId);
 
   const topicsForActiveSubject = availableTopics.filter((t) => getTopicSubjectId(t) === activeSubject);
+
+  const filteredTopicsForActiveSubject = useMemo(() => {
+    const q = topicSearch.trim().toLowerCase();
+    if (!q) return topicsForActiveSubject;
+    return topicsForActiveSubject.filter((topic) =>
+      formatTopicTitle(topic.name).toLowerCase().includes(q)
+    );
+  }, [topicsForActiveSubject, topicSearch]);
+
   const activeSubjectName = SUBJECTS.find((s) => s.id === activeSubject)?.name || "subject";
 
   const getSectionRules = (subjectId: string) => {
@@ -376,6 +392,56 @@ export default function EditPaperPage() {
 
   const handleBack = () => setCurrentStep((prev) => Math.max(prev - 1, 1));
 
+  const handleTopicOrderChange = (subjectId: string, topicIds: string[]) => {
+    const reorderDistributions = (distributions: any[] = []) => {
+      const byId = new Map(
+        distributions.map((rule: any) => [String(rule.topicId), rule])
+      );
+      const ordered = topicIds.map((topicId) => {
+        const existing = byId.get(String(topicId));
+        return existing
+          ? { ...existing, topicId: String(topicId) }
+          : { topicId: String(topicId), marks: 0 };
+      });
+      distributions.forEach((rule: any) => {
+        const id = String(rule?.topicId || "");
+        if (id && !topicIds.includes(id)) ordered.push(rule);
+      });
+      return ordered;
+    };
+
+    setSections((prev) =>
+      prev.map((section: any) => {
+        if (String(section.subjectId) !== String(subjectId)) return section;
+        return {
+          ...section,
+          rules: {
+            marksPerQuestion: Math.max(1, Number(section.rules?.marksPerQuestion || 1)),
+            topicDistributions: reorderDistributions(section.rules?.topicDistributions || []),
+          },
+        };
+      })
+    );
+
+    setTemplate((prev: any) => {
+      if (!prev?.sections) return prev;
+      return {
+        ...prev,
+        sections: prev.sections.map((section: any) => {
+          if (String(section.subjectId) !== String(subjectId)) return section;
+          return {
+            ...section,
+            rules: {
+              ...(section.rules || {}),
+              marksPerQuestion: Math.max(1, Number(section.rules?.marksPerQuestion || 1)),
+              topicDistributions: reorderDistributions(section.rules?.topicDistributions || []),
+            },
+          };
+        }),
+      };
+    });
+  };
+
   const toggleTopic = (topicId: string) => {
     setSelectedTopics((prev) => (prev.includes(topicId) ? prev.filter((id) => id !== topicId) : [...prev, topicId]));
   };
@@ -485,13 +551,29 @@ export default function EditPaperPage() {
           )
         );
         setTemplate(currentTemplate);
+        const snapshotTopicMap = buildQuestionTopicMap(currentPaper.questionsSnapshot || []);
+        setQuestionTopicMap(snapshotTopicMap);
         setSelectedQuestions(
-          currentSections.reduce((acc: Record<string, string[]>, section: any) => {
-            acc[String(section.id)] = Array.isArray(section.questions)
-              ? section.questions.map((q: any) => String(q))
-              : [];
-            return acc;
-          }, {})
+          pruneSelectedQuestionsByTopics(
+            currentSections.reduce((acc: Record<string, string[]>, section: any) => {
+              acc[String(section.id)] = Array.isArray(section.questions)
+                ? section.questions.map((q: any) => String(q))
+                : [];
+              return acc;
+            }, {}),
+            Array.from(
+              new Set(
+                hydratedSections.flatMap((section: any) =>
+                  Array.isArray(section?.rules?.topicDistributions)
+                    ? section.rules.topicDistributions
+                        .map((rule: any) => String(rule.topicId || "").trim())
+                        .filter(Boolean)
+                    : []
+                )
+              )
+            ),
+            snapshotTopicMap
+          )
         );
 
         if (currentTemplate?.difficulty) {
@@ -639,6 +721,16 @@ export default function EditPaperPage() {
       return JSON.stringify(nextSections) === JSON.stringify(prevSections) ? prevSections : nextSections;
     });
   }, [selectedSubjects, availableTopics, selectedTopics]);
+
+  // When topics change in edit, drop selected questions that belong to removed topics.
+  useEffect(() => {
+    setSelectedQuestions((prev) => {
+      const pruned = pruneSelectedQuestionsByTopics(prev, selectedTopics, questionTopicMap);
+      if (pruned === prev) return prev;
+      setSelectedSubQuestions((prevSubs) => pruneSelectedSubQuestions(prevSubs, pruned));
+      return pruned;
+    });
+  }, [selectedTopics, questionTopicMap]);
 
   const handleAddTopic = async () => {
     if (!activeSubject || !selectedClass) return;
@@ -861,7 +953,10 @@ export default function EditPaperPage() {
                           <button
                             key={subject.id}
                             type="button"
-                            onClick={() => setActiveTopicSubject(subject.id)}
+                            onClick={() => {
+                              setActiveTopicSubject(subject.id);
+                              setTopicSearch("");
+                            }}
                             className={cn(
                               "rounded-full border px-4 py-2 text-sm transition",
                               activeSubject === subject.id ? "border-primary bg-primary text-primary-foreground" : "border-muted bg-muted/70 text-muted-foreground"
@@ -877,14 +972,28 @@ export default function EditPaperPage() {
                     </div>
 
                     <div className="grid gap-4 lg:grid-cols-[1.5fr,0.9fr]">
-                      <div className="space-y-4">
-                        <div className="rounded-lg border bg-slate-50 p-4">
-                          <p className="text-sm font-semibold">Topics for {activeSubjectName}</p>
-                          <p className="text-xs text-muted-foreground">{topicsForActiveSubject.length} available</p>
+                      <div className="space-y-3">
+                        <div className="rounded-lg border bg-slate-50 p-3 space-y-3">
+                          <div>
+                            <p className="text-sm font-semibold">Topics for {activeSubjectName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {filteredTopicsForActiveSubject.length}
+                              {topicSearch.trim() ? ` of ${topicsForActiveSubject.length}` : ""} available
+                            </p>
+                          </div>
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              value={topicSearch}
+                              onChange={(e) => setTopicSearch(e.target.value)}
+                              placeholder="Search topics..."
+                              className="h-9 pl-8"
+                            />
+                          </div>
                         </div>
 
-                        <ScrollArea className="h-[300px] border rounded-md p-4">
-                          <div className="space-y-3">
+                        <ScrollArea className="h-[300px] rounded-md border">
+                          <div className="divide-y">
                             {topicLoading ? (
                               <LoadingPanel
                                 label="Loading topics..."
@@ -892,18 +1001,30 @@ export default function EditPaperPage() {
                                 size="md"
                                 className="min-h-[120px] py-6"
                               />
-                            ) : topicsForActiveSubject.length > 0 ? (
-                              topicsForActiveSubject.map((topic) => (
-                                <div key={topic.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                                  <div className="flex items-center gap-2">
-                                    <Checkbox id={topic.id} checked={selectedTopics.includes(topic.id)} onCheckedChange={() => toggleTopic(topic.id)} />
-                                    <label htmlFor={topic.id} className="text-sm font-medium">{formatTopicTitle(topic.name)}</label>
-                                  </div>
-                                  <span className="text-xs text-muted-foreground">{activeSubjectName}</span>
-                                </div>
+                            ) : filteredTopicsForActiveSubject.length > 0 ? (
+                              filteredTopicsForActiveSubject.map((topic) => (
+                                <label
+                                  key={topic.id}
+                                  htmlFor={`edit-topic-${topic.id}`}
+                                  className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/40"
+                                >
+                                  <Checkbox
+                                    id={`edit-topic-${topic.id}`}
+                                    checked={selectedTopics.includes(topic.id)}
+                                    onCheckedChange={() => toggleTopic(topic.id)}
+                                  />
+                                  <span className="min-w-0 flex-1 text-sm font-medium leading-snug">
+                                    {formatTopicTitle(topic.name)}
+                                  </span>
+                                  <span className="shrink-0 text-xs text-muted-foreground">{activeSubjectName}</span>
+                                </label>
                               ))
                             ) : (
-                              <div className="text-center text-muted-foreground py-10">No topics available for this subject yet. Add a new topic below.</div>
+                              <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+                                {topicSearch.trim()
+                                  ? "No topics match your search."
+                                  : "No topics available for this subject yet. Add a new topic below."}
+                              </div>
                             )}
                           </div>
                         </ScrollArea>
@@ -1116,6 +1237,11 @@ export default function EditPaperPage() {
                   subQuestionSelectionChange={setSelectedSubQuestions}
                   selectedTopics={selectedTopics}
                   availableTopics={availableTopics}
+                  questionTopicHints={questionTopicMap}
+                  onQuestionTopicsLearned={(learned: Record<string, string>) =>
+                    setQuestionTopicMap((prev) => ({ ...prev, ...learned }))
+                  }
+                  onTopicOrderChange={handleTopicOrderChange}
                 />
               </div>
             ) : null}

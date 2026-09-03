@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Card } from "./ui/card";
 import { Checkbox } from "./ui/checkbox";
@@ -12,6 +12,10 @@ import Pagination from "./pagination";
 
 import { fetchAllQuestionsApi, fetchSelectionStatsApi, type SelectionMarksStats } from "@/utils/apis";
 import { getClassNameById, getSubjectNameById } from "@/lib/data";
+import {
+  pruneSelectedQuestionsByTopics,
+  pruneSelectedSubQuestions,
+} from "@/lib/question-selection";
 import { formatTopicTitle } from "@/lib/utils";
 
 interface IQuestion {
@@ -142,11 +146,20 @@ export function PaperGenerationTemplate({
   subQuestionSelectionChange,
   selectedTopics = [],
   availableTopics = [],
+  questionTopicHints = null,
+  onQuestionTopicsLearned,
+  onTopicOrderChange,
 }: any) {
   const PAGE_SIZE = 10;
   const [subjects, setSubjects] = useState<Record<string, SubjectState>>({});
   const [selectedQuestions, setSelectedQuestions] = useState<SelectedMap>({});
   const [selectedSubQuestions, setSelectedSubQuestions] = useState<SelectedSubQuestionMap>({});
+  const [topicOrderBySubject, setTopicOrderBySubject] = useState<Record<string, string[]>>({});
+  const questionTopicByIdRef = useRef<Record<string, string>>({});
+  const onQuestionTopicsLearnedRef = useRef(onQuestionTopicsLearned);
+  useEffect(() => {
+    onQuestionTopicsLearnedRef.current = onQuestionTopicsLearned;
+  }, [onQuestionTopicsLearned]);
 
   const [selectedQuestion, setSelectedQuestion] = useState<IQuestion | null>(null);
   const [selectedQuestionContext, setSelectedQuestionContext] = useState({ sectionId: "", subjectId: "" });
@@ -206,7 +219,17 @@ export function PaperGenerationTemplate({
     });
 
     const fromEdit = normalizeSelectedQuestionsEdit(selectedQuestionsEdit);
-    const merged: SelectedMap = { ...base, ...fromEdit };
+    const mergedRaw: SelectedMap = { ...base, ...fromEdit };
+    const merged = pruneSelectedQuestionsByTopics(
+      mergedRaw,
+      (selectedTopics || []).map((id: string) => String(id)),
+      {
+        ...questionTopicByIdRef.current,
+        ...((questionTopicHints && typeof questionTopicHints === "object"
+          ? questionTopicHints
+          : {}) as Record<string, string>),
+      }
+    );
     const editSnap = stableStringify(merged);
     if (editSnap === selectedQuestionsEditSnapRef.current) return;
     selectedQuestionsEditSnapRef.current = editSnap;
@@ -215,7 +238,7 @@ export function PaperGenerationTemplate({
       stableStringify(prev) === editSnap ? prev : merged
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.sections, selectedQuestionsEdit]);
+  }, [data?.sections, selectedQuestionsEdit, selectedTopics, questionTopicHints]);
 
   useEffect(() => {
     const next =
@@ -565,6 +588,8 @@ export function PaperGenerationTemplate({
     };
 
     const res: any = await fetchAllQuestionsApi(payload);
+    const nextQuestions = Array.isArray(res?.questions) ? res.questions : [];
+    rememberQuestionTopics(nextQuestions);
 
     setSubjects((p: Record<string, SubjectState>) => {
       const nextTotalPages = Math.max(Number(res?.totalPages || 0), 1);
@@ -575,7 +600,7 @@ export function PaperGenerationTemplate({
         [subjectId]: {
           ...p[subjectId],
           loading: false,
-          questions: Array.isArray(res?.questions) ? res.questions : [],
+          questions: nextQuestions,
           activeTopicId,
           topicPages: {
             ...p[subjectId].topicPages,
@@ -592,11 +617,137 @@ export function PaperGenerationTemplate({
     });
   };
 
-  const getSubjectTopics = (subjectId: string): AvailableTopic[] => {
+  const rememberQuestionTopics = (questions: IQuestion[] = []) => {
+    const learned: Record<string, string> = {};
+    questions.forEach((q) => {
+      const qid = String(q?._id || "");
+      const topicId = String(q?.topicId || "");
+      if (qid && topicId) {
+        questionTopicByIdRef.current[qid] = topicId;
+        learned[qid] = topicId;
+      }
+    });
+    if (Object.keys(learned).length > 0) {
+      onQuestionTopicsLearnedRef.current?.(learned);
+    }
+  };
+
+  // Seed topic map from parent (e.g. paper questionsSnapshot on edit).
+  useEffect(() => {
+    if (!questionTopicHints || typeof questionTopicHints !== "object") return;
+    Object.entries(questionTopicHints as Record<string, string>).forEach(([qid, topicId]) => {
+      const id = String(qid || "");
+      const tid = String(topicId || "");
+      if (id && tid) questionTopicByIdRef.current[id] = tid;
+    });
+  }, [questionTopicHints]);
+
+  // Drop selections that belong to topics no longer in the edit/generate flow.
+  useEffect(() => {
+    const allowed = (selectedTopics || []).map((id: string) => String(id));
+    const topicMap = questionTopicByIdRef.current;
+
+    setSelectedQuestions((prev) => {
+      const pruned = pruneSelectedQuestionsByTopics(prev, allowed, topicMap);
+      if (pruned === prev) return prev;
+
+      setSelectedSubQuestions((prevSubs) => pruneSelectedSubQuestions(prevSubs, pruned));
+
+      Object.entries(subjects).forEach(([subjectId, state]) => {
+        if (!state?.open) return;
+        const sec = data?.sections?.find((s: any) => String(s.subjectId) === String(subjectId));
+        const sectionId = getSectionId(sec);
+        if (!sectionId) return;
+        void refreshSelectionStats(subjectId, pruned[sectionId] || []);
+      });
+
+      return pruned;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTopics, questionTopicHints]);
+
+  const getDefaultTopicOrder = (subjectId: string) => {
     const selectedTopicSet = new Set((selectedTopics || []).map((id: string) => String(id)));
-    return (availableTopics as AvailableTopic[]).filter(
-      (topic) => String(topic.subjectId) === String(subjectId) && selectedTopicSet.has(String(topic.id))
+    const matched = (availableTopics as AvailableTopic[]).filter(
+      (topic) =>
+        String(topic.subjectId) === String(subjectId) && selectedTopicSet.has(String(topic.id))
     );
+    const matchedIds = new Set(matched.map((t) => String(t.id)));
+
+    const sec = data?.sections?.find((s: any) => String(s.subjectId) === String(subjectId));
+    const distributionIds = (getSectionRules(sec)?.topicDistributions || [])
+      .map((item) => String(item.topicId))
+      .filter((id) => matchedIds.has(id));
+
+    const rest = matched
+      .map((t) => String(t.id))
+      .filter((id) => !distributionIds.includes(id));
+
+    return [...distributionIds, ...rest];
+  };
+
+  const getSubjectTopics = (subjectId: string): AvailableTopic[] => {
+    const order =
+      topicOrderBySubject[subjectId]?.length > 0
+        ? topicOrderBySubject[subjectId]
+        : getDefaultTopicOrder(subjectId);
+
+    const byId = new Map(
+      (availableTopics as AvailableTopic[])
+        .filter((topic) => String(topic.subjectId) === String(subjectId))
+        .map((topic) => [String(topic.id), topic])
+    );
+
+    return order.map((id) => byId.get(String(id))).filter(Boolean) as AvailableTopic[];
+  };
+
+  const reorderSelectedQuestionsForSubject = (subjectId: string, topicOrder: string[]) => {
+    const sec = data?.sections?.find((s: any) => String(s.subjectId) === String(subjectId));
+    const sectionId = getSectionId(sec);
+    if (!sectionId) return;
+
+    setSelectedQuestions((prev) => {
+      const ids = prev[sectionId] || [];
+      if (ids.length === 0) return prev;
+
+      const next = orderQuestionIdsByTopic(ids, topicOrder);
+      if (next.length === ids.length && next.every((id, idx) => id === ids[idx])) return prev;
+      return { ...prev, [sectionId]: next };
+    });
+  };
+
+  const orderQuestionIdsByTopic = (ids: string[], topicOrder: string[]) => {
+    const buckets = new Map<string, string[]>(topicOrder.map((id) => [String(id), []]));
+    const unknown: string[] = [];
+
+    ids.forEach((qid) => {
+      const topicId = String(questionTopicByIdRef.current[qid] || "");
+      if (topicId && buckets.has(topicId)) {
+        buckets.get(topicId)!.push(qid);
+      } else if (!topicId) {
+        // No mapping yet — keep at end. Known topics outside order are dropped (removed topics).
+        unknown.push(qid);
+      }
+    });
+
+    return [...topicOrder.flatMap((id) => buckets.get(String(id)) || []), ...unknown];
+  };
+
+  const moveTopic = (subjectId: string, topicId: string, delta: -1 | 1) => {
+    const current =
+      topicOrderBySubject[subjectId]?.length > 0
+        ? [...topicOrderBySubject[subjectId]]
+        : getDefaultTopicOrder(subjectId);
+    const index = current.findIndex((id) => String(id) === String(topicId));
+    const nextIndex = index + delta;
+    if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return;
+
+    const swapped = [...current];
+    [swapped[index], swapped[nextIndex]] = [swapped[nextIndex], swapped[index]];
+
+    setTopicOrderBySubject((prev) => ({ ...prev, [subjectId]: swapped }));
+    reorderSelectedQuestionsForSubject(subjectId, swapped);
+    onTopicOrderChange?.(subjectId, swapped);
   };
 
   const setActiveTopic = (subjectId: string, topicId: string) => {
@@ -610,6 +761,62 @@ export function PaperGenerationTemplate({
 
     fetchQuestions(subjectId, 1, topicId);
   };
+
+  useEffect(() => {
+    const subjectIds = String(data?.subjectId || "")
+      .split(",")
+      .map((x: string) => x.trim())
+      .filter(Boolean);
+
+    setTopicOrderBySubject((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      subjectIds.forEach((subjectId: string) => {
+        const defaults = getDefaultTopicOrder(subjectId);
+        const current = prev[subjectId] || [];
+        const defaultSet = new Set(defaults);
+        const kept = current.filter((id) => defaultSet.has(String(id)));
+        const missing = defaults.filter((id) => !kept.includes(String(id)));
+        const merged = [...kept, ...missing];
+
+        if (
+          merged.length !== current.length ||
+          merged.some((id, idx) => String(id) !== String(current[idx]))
+        ) {
+          next[subjectId] = merged;
+          changed = true;
+        } else if (!prev[subjectId] && merged.length > 0) {
+          next[subjectId] = merged;
+          changed = true;
+        }
+      });
+
+      return changed ? next : prev;
+    });
+
+    // If the active topic was removed from the flow, switch to the first remaining topic.
+    setSubjects((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      subjectIds.forEach((subjectId: string) => {
+        const state = prev[subjectId];
+        if (!state) return;
+        const allowed = new Set(getDefaultTopicOrder(subjectId));
+        const active = String(state.activeTopicId || "");
+        if (active && allowed.has(active)) return;
+        const fallback = [...allowed][0] || "";
+        if (fallback === active) return;
+        next[subjectId] = { ...state, activeTopicId: fallback };
+        changed = true;
+        if (state.open && fallback) {
+          setTimeout(() => fetchQuestions(subjectId, 1, fallback), 0);
+        }
+      });
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.subjectId, data?.sections, selectedTopics, availableTopics]);
 
   const toggleSubject = (subjectId: string) => {
     setSubjects((p) => {
@@ -691,21 +898,51 @@ export function PaperGenerationTemplate({
             {state.open && (
               <div className="mt-4 space-y-3">
                 {subjectTopics.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {subjectTopics.map((topic) => (
-                      <button
-                        key={topic.id}
-                        type="button"
-                        onClick={() => setActiveTopic(subjectId, topic.id)}
-                        className={`rounded-full border px-3 py-1 text-xs transition ${
-                          String(activeTopicId) === String(topic.id)
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-muted bg-muted/70 text-muted-foreground"
-                        }`}
-                      >
-                        {formatTopicTitle(topic.name)}
-                      </button>
-                    ))}
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Use the arrows to set topic order. Questions are saved in this sequence.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {subjectTopics.map((topic, topicIndex) => {
+                        const isActive = String(activeTopicId) === String(topic.id);
+                        return (
+                          <div
+                            key={topic.id}
+                            className={`inline-flex items-center rounded-full border text-xs transition ${
+                              isActive
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-muted bg-muted/70 text-muted-foreground"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              className="rounded-l-full px-1.5 py-1 disabled:opacity-30"
+                              disabled={topicIndex === 0}
+                              title="Move topic earlier"
+                              onClick={() => moveTopic(subjectId, topic.id, -1)}
+                            >
+                              <ChevronLeft className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTopic(subjectId, topic.id)}
+                              className="px-2 py-1 font-medium"
+                            >
+                              {formatTopicTitle(topic.name)}
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-r-full px-1.5 py-1 disabled:opacity-30"
+                              disabled={topicIndex === subjectTopics.length - 1}
+                              title="Move topic later"
+                              onClick={() => moveTopic(subjectId, topic.id, 1)}
+                            >
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
@@ -720,7 +957,10 @@ export function PaperGenerationTemplate({
                       <Badge variant="outline">Mark-based selection</Badge>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {Object.entries(stats.requiredByTopicMarks).map(([topicId, required]) => {
+                      {subjectTopics.map((topic) => {
+                        const topicId = String(topic.id);
+                        const required = stats.requiredByTopicMarks[topicId] || 0;
+                        if (!required) return null;
                         const selected = stats.selectedByTopicMarks[topicId] || 0;
                         return (
                           <Badge
@@ -757,6 +997,7 @@ export function PaperGenerationTemplate({
                       if (allVisibleSelected) {
                         nextIds = current.filter((id) => !state.questions.some((qq) => qq._id === id));
                       } else {
+                        rememberQuestionTopics(state.questions);
                         const rules = getSectionRules(sec);
                         if (!rules) {
                           const set = new Set(current);
@@ -789,6 +1030,12 @@ export function PaperGenerationTemplate({
 
                           nextIds = snapshot;
                         }
+
+                        const topicOrder =
+                          topicOrderBySubject[subjectId]?.length > 0
+                            ? topicOrderBySubject[subjectId]
+                            : getDefaultTopicOrder(subjectId);
+                        nextIds = orderQuestionIdsByTopic(nextIds, topicOrder);
                       }
 
                           setSelectedQuestions((prev) => ({ ...prev, [sectionId]: nextIds }));
@@ -839,12 +1086,21 @@ export function PaperGenerationTemplate({
 
                           const current = selectedQuestions[sectionId] || [];
                           const exists = current.includes(q._id);
-                          const next =
+                          rememberQuestionTopics([q]);
+                          let next =
                             val === true
                               ? exists
                                 ? current
                                 : [...current, q._id]
                               : current.filter((id) => id !== q._id);
+
+                          if (val === true) {
+                            const topicOrder =
+                              topicOrderBySubject[subjectId]?.length > 0
+                                ? topicOrderBySubject[subjectId]
+                                : getDefaultTopicOrder(subjectId);
+                            next = orderQuestionIdsByTopic(next, topicOrder);
+                          }
 
                           setSelectedQuestions((prev) => ({ ...prev, [sectionId]: next }));
                           if (val === true && Array.isArray(q.subQuestions) && q.subQuestions.length > 0) {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/user-context";
-import { ChevronRight, Wand2, Save, RefreshCw, Printer, Trash2, Tags } from "lucide-react";
+import { ChevronRight, Wand2, Save, RefreshCw, Printer, Trash2, Tags, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -28,6 +28,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { ClassLevel, Section, Sections, Topic } from "@/lib/types";
 import { cn, formatTopicTitle } from "@/lib/utils";
+import {
+  pruneSelectedQuestionsByTopics,
+  pruneSelectedSubQuestions,
+} from "@/lib/question-selection";
 import { CLASSES, SUBJECTS, normalizeSubjectId } from "../../../lib/data";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -96,6 +100,7 @@ export default function GeneratePaperPage() {
   const [topicInputs, setTopicInputs] = useState<Record<string, string>>({});
   const [topicLoading, setTopicLoading] = useState(false);
   const [activeTopicSubject, setActiveTopicSubject] = useState<string>("");
+  const [topicSearch, setTopicSearch] = useState("");
 
   const [totalMarks, setTotalMarks] = useState(50);
   const [duration, setDuration] = useState(60);
@@ -122,6 +127,7 @@ export default function GeneratePaperPage() {
   const [fetchedQuestions, setFetchedQuestions] = useState<any[]>([]);
   const [selectedQuestions, setSelectedQuestions] = useState<Record<string, string[]>>({});
   const [selectedSubQuestions, setSelectedSubQuestions] = useState<Record<string, Record<string, string[]>>>({});
+  const [questionTopicMap, setQuestionTopicMap] = useState<Record<string, string>>({});
   const [sections, setSections] = useState<SectionConfig[]>([]);
   const [isNameExist, setIsTitleExist] = useState(false);
 
@@ -153,6 +159,14 @@ export default function GeneratePaperPage() {
   const topicsForActiveSubject = availableTopics.filter(
     (t) => normalizeSubjectId(t.subjectId) === activeSubject
   );
+
+  const filteredTopicsForActiveSubject = useMemo(() => {
+    const q = topicSearch.trim().toLowerCase();
+    if (!q) return topicsForActiveSubject;
+    return topicsForActiveSubject.filter((topic) =>
+      formatTopicTitle(topic.name).toLowerCase().includes(q)
+    );
+  }, [topicsForActiveSubject, topicSearch]);
 
   const activeSubjectName =
     SUBJECTS.find((s) => s.id === activeSubject)?.name || "subject";
@@ -583,6 +597,16 @@ const totalAllocated = selectedSubjects.reduce(
     });
   }, [selectedSubjects, availableTopics, selectedTopics]);
 
+  // Drop selected questions when their topic is removed from the flow.
+  useEffect(() => {
+    setSelectedQuestions((prev) => {
+      const pruned = pruneSelectedQuestionsByTopics(prev, selectedTopics, questionTopicMap);
+      if (pruned === prev) return prev;
+      setSelectedSubQuestions((prevSubs) => pruneSelectedSubQuestions(prevSubs, pruned));
+      return pruned;
+    });
+  }, [selectedTopics, questionTopicMap]);
+
   useEffect(() => {
     const loadTopics = async () => {
       if (currentStep < 2 || !selectedClass || selectedSubjects.length === 0) return;
@@ -849,6 +873,56 @@ const handleSave = async () => {
     }
   };
 
+  const handleTopicOrderChange = useCallback((subjectId: string, topicIds: string[]) => {
+    const reorderDistributions = (distributions: any[] = []) => {
+      const byId = new Map(
+        distributions.map((rule: any) => [String(rule.topicId), rule])
+      );
+      const ordered = topicIds.map((topicId) => {
+        const existing = byId.get(String(topicId));
+        return existing
+          ? { ...existing, topicId: String(topicId) }
+          : { topicId: String(topicId), marks: 0 };
+      });
+      distributions.forEach((rule: any) => {
+        const id = String(rule?.topicId || "");
+        if (id && !topicIds.includes(id)) ordered.push(rule);
+      });
+      return ordered;
+    };
+
+    setSections((prev) =>
+      prev.map((section) => {
+        if (String(section.subjectId) !== String(subjectId)) return section;
+        return {
+          ...section,
+          rules: {
+            marksPerQuestion: Math.max(1, Number(section.rules?.marksPerQuestion || 1)),
+            topicDistributions: reorderDistributions(section.rules?.topicDistributions || []),
+          },
+        };
+      })
+    );
+
+    setTemplate((prev: any) => {
+      if (!prev?.sections) return prev;
+      return {
+        ...prev,
+        sections: prev.sections.map((section: any) => {
+          if (String(section.subjectId) !== String(subjectId)) return section;
+          return {
+            ...section,
+            rules: {
+              ...(section.rules || {}),
+              marksPerQuestion: Math.max(1, Number(section.rules?.marksPerQuestion || 1)),
+              topicDistributions: reorderDistributions(section.rules?.topicDistributions || []),
+            },
+          };
+        }),
+      };
+    });
+  }, []);
+
   const handleSelectedQuestionsChange = useCallback((next: Record<string, string[]>) => {
     setSelectedQuestions((prev) => {
       const prevKeys = Object.keys(prev).sort();
@@ -1066,7 +1140,10 @@ const handleSave = async () => {
                           <button
                             key={subject.id}
                             type="button"
-                            onClick={() => setActiveTopicSubject(subject.id)}
+                            onClick={() => {
+                              setActiveTopicSubject(subject.id);
+                              setTopicSearch("");
+                            }}
                             className={cn(
                               "rounded-full border px-4 py-2 text-sm transition",
                               activeSubject === subject.id
@@ -1086,18 +1163,33 @@ const handleSave = async () => {
                     </div>
 
                     <div className="grid gap-4 lg:grid-cols-[1.5fr,0.9fr]">
-                      <div className="space-y-4">
-                        <div className="rounded-lg border bg-slate-50 p-4">
-                          <p className="text-sm font-semibold">
-                            Topics for {SUBJECTS.find((s) => s.id === activeSubject)?.name || "subject"}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {topicsForActiveSubject.length} available
-                          </p>
+                    <div className="space-y-3">
+                        <div className="rounded-lg border bg-slate-50 p-3 space-y-3">
+                          <div>
+                            <p className="text-sm font-semibold">
+                              Topics for {SUBJECTS.find((s) => s.id === activeSubject)?.name || "subject"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {filteredTopicsForActiveSubject.length}
+                              {topicSearch.trim()
+                                ? ` of ${topicsForActiveSubject.length}`
+                                : ""}{" "}
+                              available
+                            </p>
+                          </div>
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              value={topicSearch}
+                              onChange={(e) => setTopicSearch(e.target.value)}
+                              placeholder="Search topics..."
+                              className="h-9 pl-8"
+                            />
+                          </div>
                         </div>
 
-                        <ScrollArea className="h-[300px] border rounded-md p-4">
-                          <div className="space-y-3">
+                        <ScrollArea className="h-[300px] rounded-md border">
+                          <div className="divide-y">
                             {topicLoading ? (
                               <LoadingPanel
                                 label="Loading topics..."
@@ -1105,30 +1197,31 @@ const handleSave = async () => {
                                 size="md"
                                 className="min-h-[120px] py-6"
                               />
-                            ) : topicsForActiveSubject.length > 0 ? (
-                              topicsForActiveSubject.map((topic) => (
-                                <div
+                            ) : filteredTopicsForActiveSubject.length > 0 ? (
+                              filteredTopicsForActiveSubject.map((topic) => (
+                                <label
                                   key={topic.id}
-                                  className="flex items-center justify-between gap-3 rounded-md border p-3"
+                                  htmlFor={`topic-${topic.id}`}
+                                  className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-muted/40"
                                 >
-                                  <div className="flex items-center gap-2">
-                                    <Checkbox
-                                      id={topic.id}
-                                      checked={selectedTopics.includes(topic.id)}
-                                      onCheckedChange={() => toggleTopic(topic.id)}
-                                    />
-                                    <label htmlFor={topic.id} className="text-sm font-medium">
-                                      {formatTopicTitle(topic.name)}
-                                    </label>
-                                  </div>
-                                  <span className="text-xs text-muted-foreground">
+                                  <Checkbox
+                                    id={`topic-${topic.id}`}
+                                    checked={selectedTopics.includes(topic.id)}
+                                    onCheckedChange={() => toggleTopic(topic.id)}
+                                  />
+                                  <span className="min-w-0 flex-1 text-sm font-medium leading-snug">
+                                    {formatTopicTitle(topic.name)}
+                                  </span>
+                                  <span className="shrink-0 text-xs text-muted-foreground">
                                     {activeSubjectName}
                                   </span>
-                                </div>
+                                </label>
                               ))
                             ) : (
-                              <div className="text-center text-muted-foreground py-10">
-                                No topics available for this subject yet. Add a new topic below.
+                              <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+                                {topicSearch.trim()
+                                  ? "No topics match your search."
+                                  : "No topics available for this subject yet. Add a new topic below."}
                               </div>
                             )}
                           </div>
@@ -1508,6 +1601,11 @@ const handleSave = async () => {
                   subQuestionSelectionChange={handleSelectedSubQuestionsChange}
                   selectedTopics={selectedTopics}
                   availableTopics={availableTopics}
+                  questionTopicHints={questionTopicMap}
+                  onQuestionTopicsLearned={(learned: Record<string, string>) =>
+                    setQuestionTopicMap((prev) => ({ ...prev, ...learned }))
+                  }
+                  onTopicOrderChange={handleTopicOrderChange}
                 />
               </div>
             ) : null}
