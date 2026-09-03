@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Save, Printer, RefreshCw, Wand2, Trash2 } from "lucide-react";
+import { ChevronRight, Save, Printer, RefreshCw, Wand2, Trash2, FileText, Tags } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,7 @@ import {
 } from "@/utils/apis";
 import type { ClassLevel, Sections, Topic } from "@/lib/types";
 import { showInfo } from "@/components/app-dialog-provider";
+import { LoadingPanel } from "@/components/loading";
 import {
   hydrateEditSections,
   summarizeMarksBalance,
@@ -752,7 +753,7 @@ export default function EditPaperPage() {
   };
 
   if (loading) {
-    return <div className="p-6 text-center">Loading paper...</div>;
+    return <LoadingPanel label="Loading paper..." icon={FileText} />;
   }
 
   return (
@@ -885,7 +886,12 @@ export default function EditPaperPage() {
                         <ScrollArea className="h-[300px] border rounded-md p-4">
                           <div className="space-y-3">
                             {topicLoading ? (
-                              <div className="text-center text-muted-foreground py-10">Loading topics...</div>
+                              <LoadingPanel
+                                label="Loading topics..."
+                                icon={Tags}
+                                size="md"
+                                className="min-h-[120px] py-6"
+                              />
                             ) : topicsForActiveSubject.length > 0 ? (
                               topicsForActiveSubject.map((topic) => (
                                 <div key={topic.id} className="flex items-center justify-between gap-3 rounded-md border p-3">

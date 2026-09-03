@@ -1029,6 +1029,86 @@ router.get(["/check", "/check/:title"], async (req, res) => {
 });
 
 
+const buildUniqueCloneTitle = async (sourceTitle) => {
+  const baseTitle = String(sourceTitle || "Untitled Paper").trim() || "Untitled Paper";
+
+  for (let n = 1; n <= 1000; n += 1) {
+    const candidate = `${baseTitle} ${n}`;
+    const exists = await Paper.exists({ title: candidate, isDeleted: false });
+    if (!exists) return candidate;
+  }
+
+  return `${baseTitle} ${Date.now()}`;
+};
+
+// CLONE PAPER — copies paper (+ template) and appends 1, 2, 3… to the title
+router.post("/:id/clone", requireStaff, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const source = await Paper.findOne({ _id: id, isDeleted: false });
+
+    if (!source) {
+      return res.status(404).json({ success: false, message: "Paper not found" });
+    }
+
+    const title = await buildUniqueCloneTitle(source.title);
+
+    let templateId = source.templateId ? String(source.templateId) : "";
+    if (source.templateId) {
+      const oldTemplate = await PaperTemplate.findById(source.templateId);
+      if (oldTemplate) {
+        const newTemplate = new PaperTemplate({
+          title,
+          classId: oldTemplate.classId,
+          totalMarks: oldTemplate.totalMarks,
+          durationMinutes: oldTemplate.durationMinutes,
+          difficulty: oldTemplate.difficulty,
+          type: oldTemplate.type,
+          sections: oldTemplate.sections,
+          createdAt: new Date(),
+        });
+        await newTemplate.save();
+        templateId = String(newTemplate._id);
+      }
+    }
+
+    const previewSettingsRaw =
+      source.previewSettings && typeof source.previewSettings.toObject === "function"
+        ? source.previewSettings.toObject()
+        : source.previewSettings || {};
+
+    const cloned = new Paper({
+      title,
+      code: source.code || "",
+      classId: source.classId,
+      totalMarks: source.totalMarks,
+      durationMinutes: source.durationMinutes,
+      date: source.date || new Date(),
+      templateId,
+      sections: source.sections,
+      questionsSnapshot: source.questionsSnapshot,
+      previewSettings: {
+        ...previewSettingsRaw,
+        code: "",
+      },
+      generatedBy: req.user?.id || req.user?._id || source.generatedBy,
+      createdAt: new Date(),
+    });
+
+    await cloned.save();
+    await applyQuestionUsageChange([], getPaperQuestionIds(cloned));
+
+    return res.status(201).json({
+      success: true,
+      message: "Paper cloned successfully",
+      paper: cloned,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
 // SOFT DELETE PAPER
 router.delete("/:id", requireStaff, async (req, res) => {
   try {

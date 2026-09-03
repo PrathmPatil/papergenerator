@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
-import { ArrowLeft, Download, Edit, Printer, Share2 } from "lucide-react"
+import { ArrowLeft, Download, Edit, Printer, Share2, FileText } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -15,6 +15,7 @@ import { PaperPreview, exportAsPDF, printPaper } from "@/components/paper-previe
 import { exportPaperPdfApi } from "@/utils/apis"
 import { mapPaperToPreviewConfig } from "@/lib/utils"
 import { showInfo } from "@/components/app-dialog-provider"
+import { LoadingPanel } from "@/components/loading"
 
 /* ---------------- TYPES ---------------- */
 
@@ -152,7 +153,7 @@ export default function PaperDetailsPage() {
   /* ---------------- STATES ---------------- */
 
   if (loading) {
-    return <div className="p-6 text-center">Loading paper...</div>
+    return <LoadingPanel label="Loading paper..." icon={FileText} />
   }
 
   if (!paper) {

@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown, Loader2 } from "lucide-react";
+import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown } from "lucide-react";
+import { IconSpinner } from "@/components/loading";
 import { formatClassLabel } from "@/lib/utils";
 import {
   buildAnswerKeyExcelHtml,
@@ -1349,7 +1350,7 @@ export function PaperPreview({
             onClick={() => void runExport("pdf", () => exportAsPDF(config))}
           >
             {exportBusy === "pdf" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <IconSpinner icon={FileText} spinning className="mr-2" />
             ) : (
               <FileText className="mr-2 h-4 w-4" />
             )}
@@ -1361,7 +1362,7 @@ export function PaperPreview({
             onClick={() => void runExport("word", () => exportAsWord(config))}
           >
             {exportBusy === "word" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <IconSpinner icon={FileText} spinning className="mr-2" />
             ) : (
               <FileText className="mr-2 h-4 w-4" />
             )}
@@ -1373,7 +1374,7 @@ export function PaperPreview({
             onClick={() => void runExport("excel", () => exportAsExcel(config))}
           >
             {exportBusy === "excel" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <IconSpinner icon={FileText} spinning className="mr-2" />
             ) : (
               <FileText className="mr-2 h-4 w-4" />
             )}
@@ -1384,7 +1385,7 @@ export function PaperPreview({
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" disabled={isExporting}>
                 {exportBusy?.startsWith("answer-") ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <IconSpinner icon={KeyRound} spinning className="mr-2" />
                 ) : (
                   <KeyRound className="mr-2 h-4 w-4" />
                 )}
@@ -1424,7 +1425,7 @@ export function PaperPreview({
             onClick={() => void runExport("print", () => printPaper(config))}
           >
             {exportBusy === "print" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <IconSpinner icon={Printer} spinning className="mr-2" />
             ) : (
               <Printer className="mr-2 h-4 w-4" />
             )}
@@ -1436,7 +1437,7 @@ export function PaperPreview({
             onClick={() => void runExport("preview", () => handleFullPreview(config))}
           >
             {exportBusy === "preview" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <IconSpinner icon={Eye} spinning className="mr-2" />
             ) : (
               <Eye className="mr-2 h-4 w-4" />
             )}

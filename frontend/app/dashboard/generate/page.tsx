@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/user-context";
-import { ChevronRight, Wand2, Save, RefreshCw, Printer, Trash2 } from "lucide-react";
+import { ChevronRight, Wand2, Save, RefreshCw, Printer, Trash2, Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -43,6 +43,7 @@ import {
 import dynamic from "next/dynamic";
 import { mapPaperToPreviewConfig } from "@/lib/utils";
 import { showInfo } from "@/components/app-dialog-provider";
+import { LoadingPanel } from "@/components/loading";
 
 const PaperPreview = dynamic(
   () => import("@/components/paper-preview").then((m) => m.PaperPreview),
@@ -1098,9 +1099,12 @@ const handleSave = async () => {
                         <ScrollArea className="h-[300px] border rounded-md p-4">
                           <div className="space-y-3">
                             {topicLoading ? (
-                              <div className="text-center text-muted-foreground py-10">
-                                Loading topics...
-                              </div>
+                              <LoadingPanel
+                                label="Loading topics..."
+                                icon={Tags}
+                                size="md"
+                                className="min-h-[120px] py-6"
+                              />
                             ) : topicsForActiveSubject.length > 0 ? (
                               topicsForActiveSubject.map((topic) => (
                                 <div

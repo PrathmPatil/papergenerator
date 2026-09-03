@@ -14,7 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
-import { X } from "lucide-react";
+import { X, Tags } from "lucide-react";
+import { LoadingPanel } from "@/components/loading";
 
 interface Topic {
   id: string;
@@ -136,9 +137,12 @@ export function TopicSelector({
             <ScrollArea className="h-64 w-full p-4">
               <div className="space-y-2">
                 {isLoading ? (
-                  <div className="text-center text-sm text-muted-foreground py-4">
-                    Loading topics...
-                  </div>
+                  <LoadingPanel
+                    label="Loading topics..."
+                    icon={Tags}
+                    size="md"
+                    className="min-h-[100px] py-4"
+                  />
                 ) : filteredTopics.length > 0 ? (
                   <div className="space-y-2">
                     {filteredTopics.map((topic) => (

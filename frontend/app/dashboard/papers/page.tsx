@@ -9,6 +9,8 @@ import {
   MoreHorizontal,
   Filter,
   X,
+  Copy,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -46,7 +48,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-import { fetchAllPapersApi, deletePaperApi } from "@/utils/apis";
+import { fetchAllPapersApi, deletePaperApi, clonePaperApi } from "@/utils/apis";
+import { IconSpinner, LoadingPanel } from "@/components/loading";
 
 import { CLASSES, getClassNameById } from "@/lib/data";
 import { debounce } from "@/hooks/common";
@@ -83,6 +86,7 @@ export default function PaperBankPage() {
 
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [cloningId, setCloningId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   /* ================= FETCH ================= */
@@ -146,6 +150,32 @@ export default function PaperBankPage() {
   }
 };
 
+  const handleClone = async (paper: IPaper) => {
+    if (cloningId) return;
+
+    setCloningId(paper._id);
+    try {
+      const res: any = await clonePaperApi(paper._id);
+      if (!res?.success || !res?.paper) {
+        throw new Error(res?.message || res?.error || "Clone failed");
+      }
+
+      showInfo({
+        title: "Paper cloned",
+        description: `Created "${res.paper.title}"`,
+      });
+      await fetchPapers();
+    } catch (e) {
+      console.error(e);
+      showInfo({
+        title: "Clone failed",
+        description: "Failed to clone paper. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setCloningId(null);
+    }
+  };
 
   const clearFilters = () => {
     setSearchTerm("");
@@ -220,7 +250,7 @@ export default function PaperBankPage() {
       <Card>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-6 text-center">Loading...</div>
+            <LoadingPanel label="Loading papers..." icon={FileText} />
           ) : papers.length === 0 ? (
             <div className="p-6 text-center">No papers found</div>
           ) : (
@@ -249,8 +279,12 @@ export default function PaperBankPage() {
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button size="icon" variant="ghost">
-                            <MoreHorizontal />
+                          <Button size="icon" variant="ghost" disabled={cloningId === paper._id}>
+                            <IconSpinner
+                              icon={MoreHorizontal}
+                              spinning={cloningId === paper._id}
+                              className="mr-0"
+                            />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
@@ -263,6 +297,17 @@ export default function PaperBankPage() {
                             <Link href={`/dashboard/papers/edit/${paper._id}`}>
                               <Edit className="mr-2 h-4 w-4" /> Edit
                             </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={cloningId === paper._id}
+                            onClick={() => void handleClone(paper)}
+                          >
+                            <IconSpinner
+                              icon={Copy}
+                              spinning={cloningId === paper._id}
+                              className="mr-2"
+                            />
+                            {cloningId === paper._id ? "Cloning..." : "Clone"}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem

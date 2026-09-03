@@ -1,3 +1,6 @@
+import { LoadingPanel } from "@/components/loading";
+import { Users } from "lucide-react";
+
 export default function Loading() {
-  return null
+  return <LoadingPanel label="Loading users..." icon={Users} />;
 }

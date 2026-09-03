@@ -490,6 +490,15 @@ export const deletePaperApi = async (id: string) => {
   return response;
 };
 
+// POST /api/papers/:id/clone
+export const clonePaperApi = async (id: string) => {
+  const response = await apiClient({
+    url: `/api/papers/${id}/clone`,
+    method: "POST",
+  });
+  return response;
+};
+
 
 
 // POST /api/users/register

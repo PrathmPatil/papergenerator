@@ -14,6 +14,7 @@ import {
   Calendar,
   RotateCcw,
   ImageIcon,
+  HelpCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -73,6 +74,7 @@ import {
   rebuildQuestionUsageApi,
 } from "@/utils/apis";
 import { showConfirm, showInfo } from "@/components/app-dialog-provider";
+import { LoadingPanel } from "@/components/loading";
 /* ----------------------------------------
    TYPES
 ---------------------------------------- */
@@ -2566,31 +2568,7 @@ export default function QuestionBankPage() {
         </div>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-4 text-center">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {[...Array(9)].map((_, i) => (
-                      <TableHead key={i}>
-                        <div className="skeleton h-4 w-full" />
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-
-                <TableBody>
-                  {[...Array(10)].map((_, rowIndex) => (
-                    <TableRow key={rowIndex}>
-                      {[...Array(9)].map((_, colIndex) => (
-                        <TableCell key={colIndex}>
-                          <div className="skeleton h-4 w-full" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <LoadingPanel label="Loading questions..." icon={HelpCircle} />
           ) : questions.length === 0 ? (
             <div className="p-4 text-center">No questions found.</div>
           ) : (
@@ -3083,9 +3061,12 @@ export default function QuestionBankPage() {
 
           <div className="min-w-0 space-y-4">
             {isLoadingEditQuestion && (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                Loading question details...
-              </div>
+              <LoadingPanel
+                label="Loading question details..."
+                icon={HelpCircle}
+                size="md"
+                className="min-h-[100px] rounded-md border bg-muted/30 py-4"
+              />
             )}
 
             <div className="min-w-0">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Edit, FileSpreadsheet, Plus, Search, Trash, Upload } from "lucide-react";
+import { Download, Edit, FileSpreadsheet, Plus, Search, Trash, Upload, Tags } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,7 @@ import {
   updateTopicApi,
 } from "@/utils/apis";
 import { showConfirm, showInfo } from "@/components/app-dialog-provider";
+import { LoadingPanel } from "@/components/loading";
 
 type TopicRow = {
   _id?: string;
@@ -821,8 +822,8 @@ export default function TopicsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                  Loading topics...
+                <TableCell colSpan={5} className="p-0">
+                  <LoadingPanel label="Loading topics..." icon={Tags} size="md" />
                 </TableCell>
               </TableRow>
             ) : topics.length > 0 ? (
