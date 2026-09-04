@@ -1046,6 +1046,7 @@ export default function EditPaperPage() {
                     <Select
                       value={selectedClass || undefined}
                       onValueChange={(v) => handleClassChange(v as ClassLevel)}
+                      disabled
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select Class" />
