@@ -368,6 +368,8 @@ export default function EditPaperPage() {
         topicId: selectedTopics.join(","),
         difficulty: Object.keys(difficultyMix).filter((k) => difficultyMix[k as keyof typeof difficultyMix]).join(","),
         type: Object.keys(questionTypes).filter((k) => questionTypes[k as keyof typeof questionTypes]).join(","),
+        // Update the paper's template in place so revisit loads this config.
+        templateId: template?._id || paper?.templateId || undefined,
       };
 
       const res: any = await createPaperTemplateApi(payload);
@@ -777,7 +779,14 @@ export default function EditPaperPage() {
         return;
       }
 
-      const sectionPayload = template.sections.map((section: any) => ({
+      const sectionSource =
+        Array.isArray(sections) && sections.length > 0
+          ? sections
+          : Array.isArray(template?.sections)
+            ? template.sections
+            : [];
+
+      const sectionPayload = sectionSource.map((section: any) => ({
         sectionId: section.id,
         questions: selectedQuestions?.[section.id] || [],
         subQuestionSelections: Object.entries(selectedSubQuestions?.[section.id] || {}).map(
@@ -1124,7 +1133,7 @@ export default function EditPaperPage() {
                               <p className="text-xs text-muted-foreground">Subject marks {">"} topic marks {">"} question marks</p>
                             </div>
                             <div className="flex items-center gap-2">
-                              <Badge variant={topicMarksRemaining === 0 ? "default" : "secondary"}>{currentMarks} / {totalMarks} marks</Badge>
+                              <Badge variant={topicMarksRemaining === 0 ? "default" : "secondary"}>{currentMarks} / {maxAllowed} marks</Badge>
                               <Button
                                 type="button"
                                 variant="outline"

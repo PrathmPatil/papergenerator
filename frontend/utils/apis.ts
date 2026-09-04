@@ -161,6 +161,8 @@ export interface SelectionMarksStats {
   selectedCount?: number;
   remainingMarks?: number;
   isComplete?: boolean;
+  /** Selection order preserved; excess over topic targets dropped. */
+  trimmedSelectedQuestionIds?: string[];
 }
 
 interface FetchQuestionsResponse {

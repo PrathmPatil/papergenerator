@@ -405,6 +405,40 @@ export function PaperGenerationTemplate({
     });
   };
 
+  /** Drop excess checked questions so one over-filled topic cannot block others. */
+  const applyTrimmedSelectionIfNeeded = (
+    subjectId: string,
+    sectionId: string,
+    selectedIds: string[],
+    stats: SelectionMarksStats | null | undefined
+  ): string[] => {
+    if (!sectionId || !stats || !Array.isArray(stats.trimmedSelectedQuestionIds)) {
+      return selectedIds;
+    }
+
+    const trimmed = stats.trimmedSelectedQuestionIds.map(String);
+    const needsTrim =
+      trimmed.length !== selectedIds.length ||
+      selectedIds.some((id, index) => String(id) !== trimmed[index]);
+
+    if (!needsTrim) return selectedIds;
+
+    setSelectedQuestions((prev) => {
+      const current = prev[sectionId] || [];
+      if (
+        current.length === trimmed.length &&
+        current.every((id, index) => String(id) === trimmed[index])
+      ) {
+        return prev;
+      }
+      const next = { ...prev, [sectionId]: trimmed };
+      setSelectedSubQuestions((prevSubs) => pruneSelectedSubQuestions(prevSubs, next));
+      return next;
+    });
+
+    return trimmed;
+  };
+
   const refreshSelectionStats = async (subjectId: string, selectedIds: string[]) => {
     const sec = data?.sections?.find((s: any) => String(s.subjectId) === String(subjectId));
     const rules = sec ? getSectionRules(sec) : null;
@@ -413,6 +447,13 @@ export function PaperGenerationTemplate({
 
     const cached = selectionStatsCache.get(cacheKey);
     if (cached) {
+      const effectiveIds = applyTrimmedSelectionIfNeeded(subjectId, sectionId, selectedIds, cached);
+      const didTrim =
+        effectiveIds.length !== selectedIds.length ||
+        effectiveIds.some((id, index) => String(id) !== String(selectedIds[index]));
+      if (didTrim) {
+        return;
+      }
       applyStatsToSubject(subjectId, cached, cacheKey, false);
       return;
     }
@@ -447,6 +488,26 @@ export function PaperGenerationTemplate({
 
       if (res?.success && res.selectionStats) {
         selectionStatsCache.set(cacheKey, res.selectionStats);
+        const effectiveIds = applyTrimmedSelectionIfNeeded(
+          subjectId,
+          sectionId,
+          selectedIds,
+          res.selectionStats
+        );
+        if (
+          effectiveIds.length !== selectedIds.length ||
+          effectiveIds.some((id, index) => String(id) !== String(selectedIds[index]))
+        ) {
+          // Wait for selection state update to refetch accurate under-quota stats.
+          setSubjects((p) => {
+            if (!p[subjectId]) return p;
+            return {
+              ...p,
+              [subjectId]: { ...p[subjectId], statsLoading: false },
+            };
+          });
+          return;
+        }
         applyStatsToSubject(subjectId, res.selectionStats, cacheKey, false);
       } else {
         // Allow retry on failure
@@ -549,10 +610,8 @@ export function PaperGenerationTemplate({
       };
     }
 
-    if (stats.totalSelectedMarks + minimumSelectableMarks > stats.totalRequiredMarks) {
-      return { allowed: false, reason: "Section marks quota reached" };
-    }
-
+    // Topic targets already sum to the section total. Do not block an under-filled
+    // topic just because another topic is temporarily over-selected.
     return { allowed: true, reason: "" };
   };
 
@@ -591,6 +650,11 @@ export function PaperGenerationTemplate({
     const nextQuestions = Array.isArray(res?.questions) ? res.questions : [];
     rememberQuestionTopics(nextQuestions);
 
+    const statsFromList = res?.selectionStats as SelectionMarksStats | undefined;
+    if (statsFromList && sectionId) {
+      applyTrimmedSelectionIfNeeded(subjectId, sectionId, selectedForThisSection, statsFromList);
+    }
+
     setSubjects((p: Record<string, SubjectState>) => {
       const nextTotalPages = Math.max(Number(res?.totalPages || 0), 1);
       const nextPage = Math.max(Number(res?.currentPage || page), 1);
@@ -610,7 +674,7 @@ export function PaperGenerationTemplate({
             ...p[subjectId].topicTotalPages,
             [activeTopicId]: nextTotalPages,
           },
-          selectionStats: res?.selectionStats || p[subjectId].selectionStats,
+          selectionStats: statsFromList || p[subjectId].selectionStats,
           statsLoading: false,
         },
       };

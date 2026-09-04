@@ -368,8 +368,9 @@ const totalAllocated = selectedSubjects.reduce(
 
       for (const rule of rules.topicDistributions) {
         if (rule.marks <= 0) {
-          const topicName = availableTopics.find((t) => t.id === rule.topicId)?.name || "topic";
-          return `Please assign marks for ${topicName} in ${subject?.name || "subject"}.`;
+          const rawName =
+            availableTopics.find((t) => t.id === rule.topicId)?.name || rule.topicId || "topic";
+          return `Please assign marks for ${formatTopicTitle(rawName)} in ${subject?.name || "subject"}.`;
         }
       }
     }
@@ -1452,7 +1453,7 @@ const handleSave = async () => {
                               <Badge
                                 variant={topicMarksRemaining === 0 ? "default" : "secondary"}
                               >
-                                {safeCurrent} / {totalMarks} marks
+                                {safeCurrent} / {maxAllowed} marks
                               </Badge>
                               <Button
                                 type="button"

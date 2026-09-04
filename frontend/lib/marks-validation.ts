@@ -1,3 +1,5 @@
+import { formatTopicTitle } from "@/lib/utils";
+
 export type TopicDistributionRule = {
   topicId: string;
   marks: number;
@@ -120,7 +122,11 @@ export const validateMarksDistribution = (input: MarksValidationInput): string =
 
     for (const rule of distributions) {
       if (toSafeInt(rule.marks, 0) <= 0) {
-        const topicName = topicNames[rule.topicId] || topicNames[String(rule.topicId)] || "topic";
+        const rawName =
+          topicNames[rule.topicId] ||
+          topicNames[String(rule.topicId)] ||
+          String(rule.topicId || "topic");
+        const topicName = formatTopicTitle(rawName);
         return `Please assign marks for ${topicName} in ${subjectName}.`;
       }
     }

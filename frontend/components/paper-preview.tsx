@@ -24,8 +24,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-// Word's "Narrow" page margin is 0.5 in (12.7 mm).
-const PAGE_MARGIN_MM = 12.7;
+// Word/PDF "Narrow" page margins: 0.5 in = 12.7 mm = 36 pt = 720 twips.
+const PAGE_MARGIN_IN = 0.5;
+const PAGE_MARGIN_MM = PAGE_MARGIN_IN * 25.4;
+const PAGE_MARGIN_PT = PAGE_MARGIN_IN * 72;
 const SCHOOL_LOGO_SRC = "/school%20logo.png";
 const MONTH_OPTIONS = [
   "JANUARY",
@@ -82,6 +84,25 @@ const getPageSize = (orientation: "portrait" | "landscape") => {
   };
 };
 
+/** Word HTML (.doc) ignores plain @page margins — use an MSO named section. */
+const buildWordNarrowPageCss = (orientation: "portrait" | "landscape" = "portrait") => {
+  const page = getPageSize(orientation);
+  const widthPt = (page.widthMm / 25.4) * 72;
+  const heightPt = (page.heightMm / 25.4) * 72;
+  return `
+    @page WordSection1 {
+      size: ${widthPt.toFixed(2)}pt ${heightPt.toFixed(2)}pt;
+      margin: ${PAGE_MARGIN_PT}pt ${PAGE_MARGIN_PT}pt ${PAGE_MARGIN_PT}pt ${PAGE_MARGIN_PT}pt;
+      mso-header-margin: ${PAGE_MARGIN_PT}pt;
+      mso-footer-margin: ${PAGE_MARGIN_PT}pt;
+      mso-paper-source: 0;
+    }
+    div.WordSection1 {
+      page: WordSection1;
+    }
+  `;
+};
+
 /** Shared styles for Preview / Print windows opened in a new tab */
 const buildStandalonePaperStyles = (
   page: ReturnType<typeof getPageSize>,
@@ -98,7 +119,7 @@ const buildStandalonePaperStyles = (
     }
 
     body {
-      padding: ${forPrint ? "12mm" : "20px 16px"};
+      padding: ${forPrint ? "0" : "20px 16px"};
       box-sizing: border-box;
       min-height: 100vh;
     }
@@ -113,7 +134,7 @@ const buildStandalonePaperStyles = (
 
       @page {
         size: A4 ${orientation};
-        margin: ${PAGE_MARGIN_MM}mm;
+        margin: ${PAGE_MARGIN_IN}in;
       }
     ` : ""}
 
@@ -138,7 +159,7 @@ const buildStandalonePaperStyles = (
       height: auto !important;
       min-height: 0 !important;
       margin: 0 !important;
-      padding: ${PAGE_MARGIN_MM}mm !important;
+      padding: ${forPrint ? "0" : `${PAGE_MARGIN_MM}mm`} !important;
       box-sizing: border-box !important;
       background: #ffffff !important;
       color: #000 !important;
@@ -2659,9 +2680,10 @@ export const exportAsWord = async (config: any) => {
 
   const styles = `
     <style>
+      ${buildWordNarrowPageCss(orientation)}
       @page {
         size: A4 ${orientation};
-        margin: ${PAGE_MARGIN_MM}mm;
+        margin: ${PAGE_MARGIN_IN}in;
       }
       body {
         font-family: 'Times New Roman', serif;
@@ -2898,6 +2920,13 @@ export const exportAsWord = async (config: any) => {
         <title>${config.title}</title>
         <!--[if gte mso 9]>
         <xml>
+          <o:OfficeDocumentSettings>
+            <o:AllowPNG/>
+          </o:OfficeDocumentSettings>
+        </xml>
+        <![endif]-->
+        <!--[if gte mso 9]>
+        <xml>
           <w:WordDocument>
             <w:View>Print</w:View>
             <w:Zoom>100</w:Zoom>
@@ -2908,8 +2937,10 @@ export const exportAsWord = async (config: any) => {
         ${styles}
       </head>
       <body>
-        ${bodyHtml}
-        <div class="paper-export-footer">INNOSAT / CODE ${exportPaperCode}</div>
+        <div class="WordSection1">
+          ${bodyHtml}
+          <div class="paper-export-footer">INNOSAT / CODE ${exportPaperCode}</div>
+        </div>
       </body>
     </html>
   `;
@@ -2990,14 +3021,14 @@ export const exportAnswerKeyAsPDF = async (config: any) => {
 
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
-    const marginX = 14;
+    const marginX = PAGE_MARGIN_MM;
     const contentWidth = pageWidth - marginX * 2;
-    let y = 18;
+    let y = PAGE_MARGIN_MM;
 
     const ensureSpace = (height: number) => {
-      if (y + height <= pageHeight - 14) return;
+      if (y + height <= pageHeight - PAGE_MARGIN_MM) return;
       pdf.addPage();
-      y = 18;
+      y = PAGE_MARGIN_MM;
     };
 
     pdf.setFont("helvetica", "bold");
@@ -3110,10 +3141,25 @@ export const exportAnswerKeyAsWord = async (config: any) => {
       <head>
         <meta charset="UTF-8" />
         <title>${String(config?.title || "Answer Key")} - Answer Key</title>
-        <style>${buildAnswerKeyStyles()}</style>
+        <!--[if gte mso 9]>
+        <xml>
+          <w:WordDocument>
+            <w:View>Print</w:View>
+            <w:Zoom>100</w:Zoom>
+            <w:DoNotOptimizeForBrowser/>
+          </w:WordDocument>
+        </xml>
+        <![endif]-->
+        <style>
+          ${buildWordNarrowPageCss("portrait")}
+          @page { margin: ${PAGE_MARGIN_IN}in; }
+          ${buildAnswerKeyStyles()}
+        </style>
       </head>
       <body>
-        ${buildAnswerKeyHtml(config)}
+        <div class="WordSection1">
+          ${buildAnswerKeyHtml(config)}
+        </div>
       </body>
     </html>
   `;

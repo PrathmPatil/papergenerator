@@ -695,6 +695,8 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
       paper.sections = sections;
       paper.questionsSnapshot = snapshots;
       paper.totalMarks = totalMarks;
+      paper.templateId = String(template._id);
+      paper.durationMinutes = template.durationMinutes;
       paper.updatedAt = new Date();
 
       await paper.save();
@@ -792,6 +794,7 @@ router.post("/template/create", requireStaff, async (req, res) => {
       sections,
       type,
       difficulty,
+      templateId,
     } = req.body;
 
     if (
@@ -817,6 +820,24 @@ router.post("/template/create", requireStaff, async (req, res) => {
     if (Number(durationMinutes) <= 0) {
       return res.status(400).json({ error: "durationMinutes must be > 0" });
     }
+
+    // Edit flow: update the paper's existing template in place so revisit loads
+    // the latest marks/topics/subjects instead of a stale cloned template.
+    if (templateId) {
+      const existing = await PaperTemplate.findById(templateId);
+      if (existing) {
+        existing.title = title;
+        existing.classId = classId;
+        existing.totalMarks = totalMarks;
+        existing.durationMinutes = durationMinutes;
+        existing.sections = sections;
+        existing.type = type;
+        existing.difficulty = difficulty;
+        await existing.save();
+        return res.json({ success: true, template: existing });
+      }
+    }
+
     const template = new PaperTemplate({
       title,
       classId,
@@ -931,27 +952,104 @@ router.get("/edit/:id", async (req, res) => {
         .json({ success: false, message: "Template not found" });
     }
 
-    const sections = template.sections.map((sec) => ({
-      id: sec.id,
-      name: sec.name,
-      marks: sec.marks,
-      questions: paper.sections.find((s) => s.id === sec.id)?.questions || [],
-      subjectId: sec.subjectId,
-      // Preserve topic mark allocations so edit UI can hydrate them
-      rules: sec.rules
-        ? {
-            marksPerQuestion: Math.max(1, Number(sec.rules.marksPerQuestion || 1)),
-            topicDistributions: Array.isArray(sec.rules.topicDistributions)
-              ? sec.rules.topicDistributions.map((rule) => ({
-                  topicId: String(rule.topicId || ""),
-                  marks: Math.max(0, Number(rule.marks || 0)),
-                }))
-              : [],
-          }
-        : { marksPerQuestion: 1, topicDistributions: [] },
-    }));
-
     const paperData = await enrichPaperSnapshots(paper);
+
+    const templateBySectionId = new Map(
+      (template.sections || []).map((sec) => [String(sec.id), sec])
+    );
+    const templateBySubjectId = new Map(
+      (template.sections || []).map((sec) => [String(sec.subjectId || ""), sec])
+    );
+    const snapshotByQuestionId = new Map(
+      (Array.isArray(paperData?.questionsSnapshot) ? paperData.questionsSnapshot : []).map(
+        (snapshot) => [String(snapshot?.questionId || snapshot?._id || ""), snapshot]
+      )
+    );
+
+    const buildRulesFromTemplateOrSnapshot = (templateSec, questionIds = [], paperMarks = 0) => {
+      const fromSnapshot = () => {
+        const marksByTopic = new Map();
+        (Array.isArray(questionIds) ? questionIds : []).forEach((qid) => {
+          const snapshot = snapshotByQuestionId.get(String(qid));
+          if (!snapshot) return;
+          const topicId = String(snapshot.topicId || "");
+          if (!topicId) return;
+          const marks = Math.max(0, Number(snapshot.marks || 0));
+          marksByTopic.set(topicId, (marksByTopic.get(topicId) || 0) + marks);
+        });
+
+        return {
+          marksPerQuestion: 1,
+          topicDistributions: Array.from(marksByTopic.entries()).map(([topicId, marks]) => ({
+            topicId,
+            marks,
+          })),
+        };
+      };
+
+      if (templateSec?.rules) {
+        const topicDistributions = Array.isArray(templateSec.rules.topicDistributions)
+          ? templateSec.rules.topicDistributions.map((rule) => ({
+              topicId: String(rule.topicId || ""),
+              marks: Math.max(0, Number(rule.marks || 0)),
+            }))
+          : [];
+        const topicSum = topicDistributions.reduce((sum, rule) => sum + Number(rule.marks || 0), 0);
+        // If template topic totals still match the saved paper section, trust template.
+        // Otherwise recover from snapshot so revisit reflects the last saved paper.
+        if (topicDistributions.length > 0 && (!paperMarks || topicSum === Number(paperMarks))) {
+          return {
+            marksPerQuestion: Math.max(1, Number(templateSec.rules.marksPerQuestion || 1)),
+            topicDistributions,
+          };
+        }
+      }
+
+      return fromSnapshot();
+    };
+
+    // Paper sections are the source of truth on revisit (subjects/questions/marks).
+    // Template supplies subjectId + topic rules when available.
+    const paperSections = Array.isArray(paperData?.sections) ? paperData.sections : [];
+    const seenSectionIds = new Set();
+    const sections = paperSections.map((paperSec) => {
+      const sectionId = String(paperSec.id || "");
+      seenSectionIds.add(sectionId);
+      const inferredSubjectId = sectionId.startsWith("sec_")
+        ? sectionId.slice(4)
+        : "";
+      const templateSec =
+        templateBySectionId.get(sectionId) ||
+        templateBySubjectId.get(inferredSubjectId) ||
+        null;
+
+      return {
+        id: sectionId,
+        name: paperSec.name || templateSec?.name || sectionId,
+        marks: Math.max(0, Number(paperSec.marks || 0)),
+        questions: Array.isArray(paperSec.questions) ? paperSec.questions : [],
+        subjectId: String(templateSec?.subjectId || inferredSubjectId || ""),
+        rules: buildRulesFromTemplateOrSnapshot(
+          templateSec,
+          Array.isArray(paperSec.questions) ? paperSec.questions : [],
+          Math.max(0, Number(paperSec.marks || 0))
+        ),
+      };
+    });
+
+    // Keep template-only sections (configured but not yet saved into paper questions).
+    (template.sections || []).forEach((templateSec) => {
+      const sectionId = String(templateSec.id || "");
+      if (!sectionId || seenSectionIds.has(sectionId)) return;
+      sections.push({
+        id: sectionId,
+        name: templateSec.name,
+        marks: Math.max(0, Number(templateSec.marks || 0)),
+        questions: [],
+        subjectId: String(templateSec.subjectId || ""),
+        rules: buildRulesFromTemplateOrSnapshot(templateSec, []),
+      });
+    });
 
     res.json({ success: true, data: { paper: paperData, template, sections } });
   } catch (error) {
