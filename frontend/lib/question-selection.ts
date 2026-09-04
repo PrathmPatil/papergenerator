@@ -1,14 +1,13 @@
 /** Build questionId → topicId from paper snapshots or question payloads. */
 export function buildQuestionTopicMap(
-  questions: Array<Record<string, unknown> | null | undefined> | null | undefined
+  questions: Array<object | null | undefined> | null | undefined
 ): Record<string, string> {
   const map: Record<string, string> = {};
   for (const question of questions || []) {
     if (!question || typeof question !== "object") continue;
-    const id = String(
-      (question as any).questionId ?? (question as any)._id ?? (question as any).id ?? ""
-    );
-    const topicId = String((question as any).topicId ?? "");
+    const q = question as Record<string, unknown>;
+    const id = String(q.questionId ?? q._id ?? q.id ?? "");
+    const topicId = String(q.topicId ?? "");
     if (id && topicId) map[id] = topicId;
   }
   return map;
