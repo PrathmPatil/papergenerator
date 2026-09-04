@@ -376,6 +376,18 @@ export default function EditPaperPage() {
 
       if (res?.success) {
         setTemplate({ ...payload, ...res.template });
+        if (paper?._id && selectedClass) {
+          try {
+            const paperRes: any = await updatePaperName(paper._id, { classId: selectedClass });
+            if (paperRes?.success && paperRes?.paper) {
+              setPaper(paperRes.paper);
+            } else {
+              setPaper((prev) => (prev ? { ...prev, classId: selectedClass } : prev));
+            }
+          } catch {
+            setPaper((prev) => (prev ? { ...prev, classId: selectedClass } : prev));
+          }
+        }
         setCurrentStep(4);
         return;
       }
@@ -393,6 +405,20 @@ export default function EditPaperPage() {
   };
 
   const handleBack = () => setCurrentStep((prev) => Math.max(prev - 1, 1));
+
+  // Keep live preview class in sync when the user changes class on earlier steps.
+  useEffect(() => {
+    if (!selectedClass) return;
+    setPreviewConfig((current: any) => {
+      if (!current) return current;
+      if (String(current.classId || "") === String(selectedClass)) return current;
+      return {
+        ...current,
+        classId: selectedClass,
+        classLevel: selectedClass,
+      };
+    });
+  }, [selectedClass]);
 
   const handleTopicOrderChange = (subjectId: string, topicIds: string[]) => {
     const reorderDistributions = (distributions: any[] = []) => {
@@ -480,26 +506,116 @@ export default function EditPaperPage() {
     );
   };
 
-  /** Remove a subject and free all of its subject marks back to total remaining. */
-  const removeSubjectFromPaper = (subjectId: string) => {
-    const section = sections.find((s: any) => String(s.subjectId) === String(subjectId)) as any;
-    const distributionTopicIds = new Set(
-      (Array.isArray(section?.rules?.topicDistributions)
-        ? section.rules.topicDistributions
-        : []
-      ).map((rule: any) => String(rule.topicId || ""))
+  /** Class change invalidates class-specific topics/questions and refreshes subjects. */
+  const handleClassChange = (nextClass: ClassLevel) => {
+    const normalizedNext = String(nextClass || "").trim() as ClassLevel;
+    const normalizedCurrent = String(selectedClass || "").trim();
+    if (!normalizedNext || normalizedNext === normalizedCurrent) return;
+
+    const validSubjectIds = new Set(
+      SUBJECTS.filter((s) =>
+        s.classLevels.some((level) => level.trim() === normalizedNext)
+      ).map((s) => s.id)
+    );
+    const nextSubjects = selectedSubjects.filter((id) => validSubjectIds.has(String(id)));
+
+    setSelectedClass(normalizedNext);
+    setSelectedSubjects(nextSubjects);
+    setSelectedTopics([]);
+    setAvailableTopics([]);
+    setTopicInputs({});
+    setTopicSearch("");
+    setActiveTopicSubject(nextSubjects[0] || "");
+    setSections((prev) =>
+      prev
+        .filter((s: any) => validSubjectIds.has(String(s.subjectId || "")))
+        .map((s: any) => ({
+          ...s,
+          rules: {
+            marksPerQuestion: Math.max(1, Number(s.rules?.marksPerQuestion || 1)),
+            topicDistributions: [],
+          },
+        }))
+    );
+    setSelectedQuestions({});
+    setSelectedSubQuestions({});
+    setQuestionTopicMap({});
+    setPreviewConfig(null);
+    setTemplate((prev: any) =>
+      prev
+        ? {
+            ...prev,
+            classId: normalizedNext,
+            subjectId: nextSubjects.join(","),
+            topicId: "",
+            sections: (Array.isArray(prev.sections) ? prev.sections : [])
+              .filter((s: any) => validSubjectIds.has(String(s.subjectId || "")))
+              .map((s: any) => ({
+                ...s,
+                rules: {
+                  marksPerQuestion: Math.max(1, Number(s.rules?.marksPerQuestion || 1)),
+                  topicDistributions: [],
+                },
+              })),
+          }
+        : prev
+    );
+    setPaper((prev) => (prev ? { ...prev, classId: normalizedNext } : prev));
+
+    // Persist class immediately so preview/reopen don't keep the old value.
+    if (paper?._id) {
+      void updatePaperName(paper._id, { classId: normalizedNext }).catch(() => {
+        /* local state already updated; step-3/save will retry */
+      });
+    }
+
+    if (currentStep > 1) setCurrentStep(1);
+  };
+
+  /** Subject change drops that subject's topics, sections, and selected questions. */
+  const handleSubjectsChange = (nextSubjects: string[]) => {
+    const allowed = new Set(nextSubjects.map(String));
+    const removedSubjectIds = selectedSubjects.filter((id) => !allowed.has(String(id)));
+
+    setSelectedSubjects(nextSubjects);
+
+    if (removedSubjectIds.length === 0) {
+      if (!allowed.has(String(activeTopicSubject))) {
+        setActiveTopicSubject(nextSubjects[0] || "");
+      }
+      return;
+    }
+
+    const removedSet = new Set(removedSubjectIds.map(String));
+    const removedSectionIds = new Set(
+      sections
+        .filter((s: any) => removedSet.has(String(s.subjectId || "")))
+        .map((s: any) => String(s.id))
     );
 
-    setSelectedSubjects((prev) => prev.filter((id) => id !== subjectId));
     setSelectedTopics((prev) =>
       prev.filter((topicId) => {
-        if (distributionTopicIds.has(String(topicId))) return false;
         const topic = availableTopics.find((t) => String(t.id) === String(topicId));
-        if (topic && getTopicSubjectId(topic) === subjectId) return false;
-        return true;
+        return topic ? allowed.has(getTopicSubjectId(topic)) : false;
       })
     );
-    setSections((prev) => prev.filter((s: any) => String(s.subjectId) !== String(subjectId)));
+    setSections((prev) => prev.filter((s: any) => allowed.has(String(s.subjectId || ""))));
+    setSelectedQuestions((prev) => {
+      const pruned = Object.fromEntries(
+        Object.entries(prev).filter(([sectionId]) => !removedSectionIds.has(String(sectionId)))
+      ) as Record<string, string[]>;
+      setSelectedSubQuestions((prevSubs) => pruneSelectedSubQuestions(prevSubs, pruned));
+      return pruned;
+    });
+
+    if (!allowed.has(String(activeTopicSubject))) {
+      setActiveTopicSubject(nextSubjects[0] || "");
+    }
+  };
+
+  /** Remove a subject and free all of its subject marks back to total remaining. */
+  const removeSubjectFromPaper = (subjectId: string) => {
+    handleSubjectsChange(selectedSubjects.filter((id) => String(id) !== String(subjectId)));
   };
 
   useEffect(() => {
@@ -518,7 +634,12 @@ export default function EditPaperPage() {
 
         setPaper(currentPaper);
         setPaperTitle(currentPaper.title);
-        setSelectedClass(currentPaper.classId as ClassLevel);
+        const loadedClass = String(currentPaper.classId || "").trim();
+        const matchedClass =
+          CLASSES.find((c) => c.id === loadedClass)?.id ||
+          CLASSES.find((c) => c.name.toLowerCase() === loadedClass.toLowerCase())?.id ||
+          loadedClass;
+        setSelectedClass((matchedClass as ClassLevel) || "");
         setTotalMarks(currentPaper.totalMarks);
         setDuration(currentPaper.durationMinutes);
 
@@ -624,8 +745,14 @@ export default function EditPaperPage() {
   }, [activeTopicSubject, selectedSubjects]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadTopics = async () => {
-      if (!selectedClass || selectedSubjects.length === 0) return;
+      if (!selectedClass || selectedSubjects.length === 0) {
+        setAvailableTopics([]);
+        setTopicLoading(false);
+        return;
+      }
       setTopicLoading(true);
       try {
         const resultTopics: Topic[] = [];
@@ -644,6 +771,8 @@ export default function EditPaperPage() {
           })
         );
 
+        if (cancelled) return;
+
         setAvailableTopics((prev) => {
           const keep = prev.filter((topic) => selectedSubjects.includes(getTopicSubjectId(topic)));
           const merged = [...keep, ...resultTopics];
@@ -651,13 +780,16 @@ export default function EditPaperPage() {
           return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
         });
       } catch (error) {
-        console.error("Failed to load topics", error);
+        if (!cancelled) console.error("Failed to load topics", error);
       } finally {
-        setTopicLoading(false);
+        if (!cancelled) setTopicLoading(false);
       }
     };
 
     loadTopics();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedClass, selectedSubjects]);
 
   useEffect(() => {
@@ -665,7 +797,9 @@ export default function EditPaperPage() {
       const nextTopics = prevTopics.filter((topicId) => {
         const topic = availableTopics.find((t) => t.id === topicId);
         if (!topic) {
-          return true;
+          // Keep hydrated topic ids until the catalog for this class loads.
+          // Class change clears topics explicitly via handleClassChange.
+          return topicLoading || availableTopics.length === 0;
         }
 
         return selectedSubjects.includes(getTopicSubjectId(topic));
@@ -722,7 +856,7 @@ export default function EditPaperPage() {
 
       return JSON.stringify(nextSections) === JSON.stringify(prevSections) ? prevSections : nextSections;
     });
-  }, [selectedSubjects, availableTopics, selectedTopics]);
+  }, [selectedSubjects, availableTopics, selectedTopics, topicLoading]);
 
   // When topics change in edit, drop selected questions that belong to removed topics.
   useEffect(() => {
@@ -798,6 +932,7 @@ export default function EditPaperPage() {
         templateId: template._id,
         selectedQuestions: sectionPayload,
         paperId: paper._id,
+        classId: selectedClass || undefined,
       };
 
       setIsGenerating(true);
@@ -808,7 +943,11 @@ export default function EditPaperPage() {
       }
 
       setPaper(res.paper);
-      setPreviewConfig(mapPaperToPreviewConfig(res.paper));
+      setPreviewConfig({
+        ...mapPaperToPreviewConfig(res.paper),
+        classId: selectedClass || res.paper?.classId || "",
+        classLevel: selectedClass || res.paper?.classId || "",
+      });
       setCurrentStep(5);
       showInfo({ title: "Paper updated", description: "Paper updated successfully." });
     } catch (error) {
@@ -829,6 +968,7 @@ export default function EditPaperPage() {
       setIsSavingPreview(true);
       const res: any = await updatePaperName(paper._id, {
         previewSettings: previewConfig.previewSettings,
+        classId: selectedClass || undefined,
       });
       if (!res?.success) throw new Error(res?.error || "Failed to save preview settings");
 
@@ -903,7 +1043,10 @@ export default function EditPaperPage() {
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label>Class</Label>
-                    <Select value={selectedClass} onValueChange={(v) => setSelectedClass(v as ClassLevel)}>
+                    <Select
+                      value={selectedClass || undefined}
+                      onValueChange={(v) => handleClassChange(v as ClassLevel)}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select Class" />
                       </SelectTrigger>
@@ -921,7 +1064,7 @@ export default function EditPaperPage() {
                     <MultiSelect
                       options={filteredSubjects.map((s) => ({ value: s.id, label: s.name }))}
                       value={selectedSubjects}
-                      onChange={setSelectedSubjects}
+                      onChange={handleSubjectsChange}
                       placeholder="Select Subject"
                       disabled={!selectedClass}
                     />

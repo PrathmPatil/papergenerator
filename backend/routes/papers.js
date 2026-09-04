@@ -598,7 +598,7 @@ const renderPdfSubQuestion = (doc, subQuestion = {}, index = 0) => {
 
 router.post("/generate/manual", requireStaff, async (req, res) => {
   try {
-    const { templateId, selectedQuestions, paperId } = req.body;
+    const { templateId, selectedQuestions, paperId, classId: bodyClassId } = req.body;
 
     if (!templateId)
       return res.status(400).json({ error: "templateId is required" });
@@ -610,6 +610,16 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
 
     const template = await PaperTemplate.findById(templateId);
     if (!template) return res.status(404).json({ error: "Template not found" });
+
+    const resolvedClassId =
+      (typeof bodyClassId === "string" && bodyClassId.trim()) ||
+      template.classId ||
+      "";
+
+    if (resolvedClassId && String(template.classId || "") !== String(resolvedClassId)) {
+      template.classId = resolvedClassId;
+      await template.save();
+    }
 
     let sections = [];
     let snapshots = [];
@@ -696,6 +706,7 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
       paper.questionsSnapshot = snapshots;
       paper.totalMarks = totalMarks;
       paper.templateId = String(template._id);
+      paper.classId = resolvedClassId || template.classId || paper.classId;
       paper.durationMinutes = template.durationMinutes;
       paper.updatedAt = new Date();
 
@@ -713,7 +724,7 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
     else {
       paper = new Paper({
         title: template.title,
-        classId: template.classId,
+        classId: resolvedClassId || template.classId,
         totalMarks,
         durationMinutes: template.durationMinutes,
         templateId: template._id,
@@ -741,12 +752,15 @@ router.post("/generate/manual", requireStaff, async (req, res) => {
 router.put("/:id", requireStaff, async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, previewSettings } = req.body;
+    const { title, previewSettings, classId } = req.body;
 
     const paper = await Paper.findOne({ _id: id, isDeleted: false });
     if (!paper) return res.status(404).json({ error: "Paper not found" });
 
     if (typeof title === "string") paper.title = title;
+    if (typeof classId === "string" && classId.trim()) {
+      paper.classId = classId.trim();
+    }
     if (previewSettings && typeof previewSettings === "object") {
       const fontSize = Number(previewSettings.fontSize);
       const columnCount = Number(previewSettings.columnCount);

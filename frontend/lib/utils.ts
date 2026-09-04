@@ -41,8 +41,8 @@ export function mapPaperToPreviewConfig(paper: any) {
   return {
     id: paper._id,
     title: paper.title,
-    classLevel: formatClassLabel(paper.classId || paper.classLevel),
     classId: paper.classId || "",
+    classLevel: paper.classId || paper.classLevel || "",
     durationMinutes: paper.durationMinutes,
     totalMarks: paper.totalMarks,
     code: paper.code || (paper._id ? String(paper._id).slice(-6) : ""),

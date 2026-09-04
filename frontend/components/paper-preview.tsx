@@ -223,6 +223,14 @@ const buildStandalonePaperStyles = (
       box-sizing: border-box;
       margin-bottom: 4px;
       font-size: inherit;
+      overflow: visible;
+      line-height: 1.35;
+    }
+
+    .paper-keep-unit {
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+      overflow: visible;
     }
 
     .paper-section-divider {
@@ -746,10 +754,14 @@ export function PaperPreview({
                 style={{
                   boxSizing: "border-box",
                   fontSize: `${previewStyles.fontSize}pt`,
+                  lineHeight: 1.35,
                   minWidth: 0,
+                  overflow: "visible",
                 }}
               >
-                <div>{opt.id}) {opt.text || ""}</div>
+                <div style={{ overflow: "visible", lineHeight: 1.35 }}>
+                  {opt.id}) {opt.text || ""}
+                </div>
                 {opt.mediaUrl && (
                   <img
                     className="option-media"
@@ -910,10 +922,14 @@ export function PaperPreview({
                 style={{
                   boxSizing: "border-box",
                   fontSize: `${previewStyles.fontSize}pt`,
+                  lineHeight: 1.35,
                   minWidth: 0,
+                  overflow: "visible",
                 }}
               >
-                <div>{opt.id}) {opt.text || ""}</div>
+                <div style={{ overflow: "visible", lineHeight: 1.35 }}>
+                  {opt.id}) {opt.text || ""}
+                </div>
                 {opt.mediaUrl && (
                   <img
                     className="option-media"
@@ -1188,7 +1204,7 @@ export function PaperPreview({
               flexWrap: "wrap",
             }}
           >
-            <span className="paper-meta-class">Class : {formatClassLabel(config.classLevel || config.classId)}</span>
+            <span className="paper-meta-class">Class : {formatClassLabel(config.classId || config.classLevel)}</span>
             <span className="paper-meta-roll" style={{ display: "flex", alignItems: "baseline" }}>
               <span>Roll No.:</span>
               <span className="blank-line blank-line-sm" style={{ display: "inline-block", width: "70px", borderBottom: "1px solid #000", marginLeft: "5px", height: "0.9em" }} />
@@ -1635,6 +1651,16 @@ const getPdfSafePaperCss = () => `
     gap: 4px !important;
     margin-left: 15px !important;
     margin-top: 4px !important;
+    overflow: visible !important;
+  }
+  .options > * {
+    overflow: visible !important;
+    line-height: 1.35 !important;
+  }
+  .paper-keep-unit {
+    break-inside: avoid-page !important;
+    page-break-inside: avoid !important;
+    overflow: visible !important;
   }
   .options.options-image {
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
@@ -1854,10 +1880,11 @@ const paginatePaperBlocks = async (
   return pages;
 };
 
-/** Build Y cut ranges so pages fill like the sample paper.
- * - Fill each page continuously (paragraphs may continue across pages)
- * - Only avoid cutting inside a `.paper-keep-unit` (question/subquestion + options)
- * - Never leave a nearly-empty page just to start the next keep-unit early
+/** Build Y cut ranges so pages fill continuously without cropping MCQ blocks.
+ * - Prefer soft breaks (end of header / question / section)
+ * - Never hard-cut through a `.paper-keep-unit` that fits on one page
+ *   (move the whole question+options to the next page — white space is OK)
+ * - Only hard-split units that are taller than one page, at option/row boundaries
  */
 const buildContinuousPageRanges = (paper: HTMLElement, pageHeightPx: number) => {
   const rootRect = paper.getBoundingClientRect();
@@ -1873,16 +1900,22 @@ const buildContinuousPageRanges = (paper: HTMLElement, pageHeightPx: number) => 
   const relBottom = (el: Element) =>
     Math.round((el as HTMLElement).getBoundingClientRect().bottom - rootRect.top);
 
-  const keepUnits = Array.from(
-    paper.querySelectorAll(".paper-keep-unit")
-  ) as HTMLElement[];
+  const keepUnits = (
+    Array.from(paper.querySelectorAll(".paper-keep-unit")) as HTMLElement[]
+  ).sort(
+    (a, b) =>
+      a.getBoundingClientRect().top - b.getBoundingClientRect().top
+  );
 
   const softBreaks = new Set<number>([totalHeight]);
   paper
     .querySelectorAll(
       ".paper-keep-unit, .paper-instructions-box, .paper-header, .paper-header-table, .paper-section-divider, h2"
     )
-    .forEach((el) => softBreaks.add(relBottom(el)));
+    .forEach((el) => {
+      softBreaks.add(relTop(el));
+      softBreaks.add(relBottom(el));
+    });
 
   const sortedBreaks = [...softBreaks]
     .filter((y) => y > 0 && y <= totalHeight + 1)
@@ -1893,13 +1926,35 @@ const buildContinuousPageRanges = (paper: HTMLElement, pageHeightPx: number) => 
       const top = relTop(unit);
       const bottom = relBottom(unit);
       if (y > top + 1 && y < bottom - 1) {
-        return { top, bottom, height: bottom - top };
+        return { el: unit, top, bottom, height: bottom - top };
       }
     }
     return null;
   };
 
-  const minUsefulPx = Math.max(56, Math.round(pageHeightPx * 0.2));
+  /** For oversized questions, cut after a whole option/sub-question row — never mid-glyph. */
+  const findRowSplitInUnit = (
+    unit: HTMLElement,
+    fromY: number,
+    target: number
+  ) => {
+    const selectors = [
+      ".options > *",
+      ".paper-sub-question",
+      ".paper-question-stem",
+      "p",
+      "li",
+      "tr",
+    ];
+    let best: number | null = null;
+    unit.querySelectorAll(selectors.join(",")).forEach((node) => {
+      const bottom = relBottom(node);
+      if (bottom > fromY + 24 && bottom <= target + 1) {
+        best = bottom;
+      }
+    });
+    return best;
+  };
 
   const pickEnd = (fromY: number) => {
     const target = Math.min(fromY + pageHeightPx, totalHeight);
@@ -1915,33 +1970,50 @@ const buildContinuousPageRanges = (paper: HTMLElement, pageHeightPx: number) => 
     }
     if (soft > fromY + 8) end = soft;
 
-    // If the cut would split a keep-unit (stem vs options), move that unit
-    // to the next page — unless that would leave this page almost empty, or
-    // the unit itself is taller than one page (must hard-split).
+    // If the proposed cut splits a keep-unit, protect the unit.
     const hit = findKeepUnitContaining(end);
-    if (hit && hit.height <= pageHeightPx - 4 && hit.top > fromY + 8) {
-      if (hit.top - fromY >= minUsefulPx) {
-        end = hit.top;
-      }
-      // else: keep filling (hard cut) rather than a blank-looking page
-    }
-
-    // Collapse tiny slices (e.g. only a section title remnant).
-    if (end - fromY < minUsefulPx && target - fromY >= minUsefulPx) {
-      end = target;
-      const hit2 = findKeepUnitContaining(end);
-      if (
-        hit2 &&
-        hit2.height <= pageHeightPx - 4 &&
-        hit2.top > fromY + 8 &&
-        hit2.top - fromY >= minUsefulPx
-      ) {
-        end = hit2.top;
+    if (hit) {
+      if (hit.height <= pageHeightPx - 4) {
+        // Whole question+options fit on a page — never crop mid-options.
+        // End this page at the unit start (white space below is intentional).
+        if (hit.top > fromY + 4) {
+          end = hit.top;
+        } else {
+          // Unit begins at the top of this page and fits — keep it whole.
+          end = Math.min(hit.bottom, totalHeight);
+        }
+      } else {
+        // Taller than one page: split only at row/option boundaries.
+        const rowSplit = findRowSplitInUnit(hit.el, fromY, target);
+        end = rowSplit ?? target;
       }
     }
 
-    if (end <= fromY) end = Math.min(fromY + pageHeightPx, totalHeight);
-    return Math.min(end, totalHeight);
+    // Also: if a keep-unit starts before `target` but cannot fully fit in the
+    // remaining space, end before it (same "move to next page" rule).
+    for (const unit of keepUnits) {
+      const top = relTop(unit);
+      const bottom = relBottom(unit);
+      const height = bottom - top;
+      if (top <= fromY + 4) continue;
+      if (top >= end - 1) break;
+      if (height <= pageHeightPx - 4 && bottom > fromY + pageHeightPx + 1) {
+        end = top;
+        break;
+      }
+    }
+
+    if (end <= fromY + 4) {
+      const blocking = findKeepUnitContaining(fromY + 8) || findKeepUnitContaining(target);
+      if (blocking && blocking.height > pageHeightPx - 4) {
+        const rowSplit = findRowSplitInUnit(blocking.el, fromY, target);
+        end = rowSplit ?? target;
+      } else {
+        end = Math.min(fromY + pageHeightPx, totalHeight);
+      }
+    }
+
+    return Math.min(Math.max(end, fromY + 1), totalHeight);
   };
 
   const ranges: { start: number; end: number }[] = [];
@@ -2006,9 +2078,10 @@ export const handleFullPreview = async (config: any) => {
 
   const pagesHtml = ranges
     .map((range, index) => {
+      const slicePx = Math.max(1, Math.min(clipHeightPx, range.end - range.start));
       return `
         <div class="paper-page">
-          <div class="paper-page-clip">
+          <div class="paper-page-clip" style="height:${slicePx}px;">
             <div class="paper-page-inner" style="transform:translateY(-${range.start}px);">
               ${paper.outerHTML}
             </div>
@@ -2168,11 +2241,14 @@ export const exportAsPDF = async (config: any) => {
 
       const pdf = new jsPDF(orientation === "landscape" ? "l" : "p", "mm", "a4");
       const pxPerMm = fullCanvas.width / contentWidthMm;
+      // Prefer measured DOM→canvas scale over a hardcoded 2x (avoids mid-glyph crops).
+      const canvasScaleY =
+        fullCanvas.height / Math.max(1, Math.round(paper.scrollHeight) || 1);
 
       for (let pageIndex = 0; pageIndex < ranges.length; pageIndex++) {
         const { start, end } = ranges[pageIndex];
-        const sourceY = Math.max(0, Math.round(start * 2)); // html2canvas scale: 2
-        const sourceH = Math.max(1, Math.round((end - start) * 2));
+        const sourceY = Math.max(0, Math.round(start * canvasScaleY));
+        const sourceH = Math.max(1, Math.round((end - start) * canvasScaleY));
         const sliceH = Math.min(sourceH, fullCanvas.height - sourceY);
         if (sliceH <= 0) continue;
 
@@ -3042,7 +3118,7 @@ export const exportAnswerKeyAsPDF = async (config: any) => {
 
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(10);
-    const classLabel = formatClassLabel(config?.classLevel || config?.classId);
+    const classLabel = formatClassLabel(config?.classId || config?.classLevel);
     const metaParts = [
       classLabel && classLabel !== "-" ? `Class: ${classLabel}` : "",
       config?.totalMarks !== undefined && config?.totalMarks !== null

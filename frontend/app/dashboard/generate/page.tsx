@@ -432,6 +432,20 @@ const totalAllocated = selectedSubjects.reduce(
     setCurrentStep((prev) => Math.max(prev - 1, 1));
   };
 
+  // Keep live preview class in sync when the user changes class.
+  useEffect(() => {
+    if (!selectedClass) return;
+    setPreviewConfig((current: any) => {
+      if (!current) return current;
+      if (String(current.classId || "") === String(selectedClass)) return current;
+      return {
+        ...current,
+        classId: selectedClass,
+        classLevel: selectedClass,
+      };
+    });
+  }, [selectedClass]);
+
   const toggleTopic = (topicId: string) => {
     setSelectedTopics((prev) =>
       prev.includes(topicId)
@@ -472,50 +486,117 @@ const totalAllocated = selectedSubjects.reduce(
     );
   };
 
-  /** Remove a subject and free all of its subject marks back to total remaining. */
-  const removeSubjectFromPaper = (subjectId: string) => {
-    const section = sections.find((s) => String(s.subjectId) === String(subjectId));
-    const distributionTopicIds = new Set(
-      (Array.isArray(section?.rules?.topicDistributions)
-        ? section!.rules!.topicDistributions
-        : []
-      ).map((rule) => String(rule.topicId || ""))
+  /** Class change invalidates class-specific topics/questions and refreshes subjects. */
+  const handleClassChange = (nextClass: ClassLevel) => {
+    const normalizedNext = String(nextClass || "").trim() as ClassLevel;
+    const normalizedCurrent = String(selectedClass || "").trim();
+    if (!normalizedNext || normalizedNext === normalizedCurrent) return;
+
+    const validSubjectIds = new Set(
+      SUBJECTS.filter((s) =>
+        s.classLevels.some((level) => level.trim() === normalizedNext)
+      ).map((s) => s.id)
+    );
+    const nextSubjects = selectedSubjects.filter((id) => validSubjectIds.has(String(id)));
+
+    setSelectedClass(normalizedNext);
+    setSelectedSubjects(nextSubjects);
+    setSelectedTopics([]);
+    setAvailableTopics([]);
+    setTopicInputs({});
+    setTopicSearch("");
+    setActiveTopicSubject(nextSubjects[0] || "");
+    setSections((prev) =>
+      prev
+        .filter((s) => validSubjectIds.has(String(s.subjectId || "")))
+        .map((s) => ({
+          ...s,
+          rules: {
+            marksPerQuestion: Math.max(1, Number(s.rules?.marksPerQuestion || 1)),
+            topicDistributions: [],
+          },
+        }))
+    );
+    setSelectedQuestions({});
+    setSelectedSubQuestions({});
+    setQuestionTopicMap({});
+    setFetchedQuestions([]);
+    setGeneratedPaper(null);
+    setPreviewConfig(null);
+    setTemplate((prev: any) =>
+      prev
+        ? {
+            ...prev,
+            classId: normalizedNext,
+            subjectId: nextSubjects.join(","),
+            topicId: "",
+            sections: (Array.isArray(prev.sections) ? prev.sections : [])
+              .filter((s: any) => validSubjectIds.has(String(s.subjectId || "")))
+              .map((s: any) => ({
+                ...s,
+                rules: {
+                  marksPerQuestion: Math.max(1, Number(s.rules?.marksPerQuestion || 1)),
+                  topicDistributions: [],
+                },
+              })),
+          }
+        : prev
+    );
+    if (currentStep > 1) setCurrentStep(1);
+  };
+
+  /** Subject change drops that subject's topics, sections, and selected questions. */
+  const handleSubjectsChange = (nextSubjects: string[]) => {
+    const allowed = new Set(nextSubjects.map(String));
+    const removedSubjectIds = selectedSubjects.filter((id) => !allowed.has(String(id)));
+
+    setSelectedSubjects(nextSubjects);
+
+    if (removedSubjectIds.length === 0) {
+      if (!allowed.has(String(activeTopicSubject))) {
+        setActiveTopicSubject(nextSubjects[0] || "");
+      }
+      return;
+    }
+
+    const removedSet = new Set(removedSubjectIds.map(String));
+    const removedSectionIds = new Set(
+      sections
+        .filter((s) => removedSet.has(String(s.subjectId || "")))
+        .map((s) => String(s.id))
     );
 
-    setSelectedSubjects((prev) => prev.filter((id) => id !== subjectId));
     setSelectedTopics((prev) =>
       prev.filter((topicId) => {
-        if (distributionTopicIds.has(String(topicId))) return false;
         const topic = availableTopics.find((t) => String(t.id) === String(topicId));
-        if (topic && getTopicSubjectId(topic) === subjectId) return false;
-        return true;
+        return topic ? allowed.has(getTopicSubjectId(topic)) : false;
       })
     );
-    setSections((prev) => prev.filter((s) => String(s.subjectId) !== String(subjectId)));
+    setSections((prev) => prev.filter((s) => allowed.has(String(s.subjectId || ""))));
+    setSelectedQuestions((prev) => {
+      const pruned = Object.fromEntries(
+        Object.entries(prev).filter(([sectionId]) => !removedSectionIds.has(String(sectionId)))
+      ) as Record<string, string[]>;
+      setSelectedSubQuestions((prevSubs) => pruneSelectedSubQuestions(prevSubs, pruned));
+      return pruned;
+    });
+
+    if (!allowed.has(String(activeTopicSubject))) {
+      setActiveTopicSubject(nextSubjects[0] || "");
+    }
+  };
+
+  /** Remove a subject and free all of its subject marks back to total remaining. */
+  const removeSubjectFromPaper = (subjectId: string) => {
+    handleSubjectsChange(selectedSubjects.filter((id) => String(id) !== String(subjectId)));
   };
 
   const toggleSubject = (id: string) => {
-    setSelectedSubjects((prev) => {
-      const isSelected = prev.includes(id);
-      const nextSubjects = isSelected
-        ? prev.filter((s) => s !== id)
-        : [...prev, id];
-
-      if (isSelected) {
-        setSelectedTopics((prevTopics) =>
-          prevTopics.filter((topicId) => {
-            const topic = availableTopics.find((t) => t.id === topicId);
-            return topic ? getTopicSubjectId(topic) !== id : false;
-          })
-        );
-
-        setSections((prevSections) =>
-          prevSections.filter((section) => section.subjectId !== id)
-        );
-      }
-
-      return nextSubjects;
-    });
+    if (selectedSubjects.includes(id)) {
+      handleSubjectsChange(selectedSubjects.filter((s) => s !== id));
+    } else {
+      handleSubjectsChange([...selectedSubjects, id]);
+    }
   };
 
   useEffect(() => {
@@ -609,8 +690,13 @@ const totalAllocated = selectedSubjects.reduce(
   }, [selectedTopics, questionTopicMap]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadTopics = async () => {
-      if (currentStep < 2 || !selectedClass || selectedSubjects.length === 0) return;
+      if (currentStep < 2 || !selectedClass || selectedSubjects.length === 0) {
+        if (selectedSubjects.length === 0) setAvailableTopics([]);
+        return;
+      }
 
       setTopicLoading(true);
       try {
@@ -634,6 +720,8 @@ const totalAllocated = selectedSubjects.reduce(
           })
         );
 
+        if (cancelled) return;
+
         setAvailableTopics((prev) => {
           const keep = prev.filter((topic) =>
             selectedSubjects.includes(getTopicSubjectId(topic))
@@ -644,13 +732,16 @@ const totalAllocated = selectedSubjects.reduce(
           );
         });
       } catch (error) {
-        console.error("Failed to load topics", error);
+        if (!cancelled) console.error("Failed to load topics", error);
       } finally {
-        setTopicLoading(false);
+        if (!cancelled) setTopicLoading(false);
       }
     };
 
     loadTopics();
+    return () => {
+      cancelled = true;
+    };
   }, [currentStep, selectedClass, selectedSubjects]);
 
   const handleAddTopic = async () => {
@@ -820,6 +911,7 @@ const handleSave = async () => {
     const payload = {
       templateId: template._id,
       selectedQuestions: sectionPayload,
+      classId: selectedClass || undefined,
     };
 
     // ✅ API call
@@ -832,6 +924,8 @@ const handleSave = async () => {
 
       const preview = {
         ...mapPaperToPreviewConfig(fullPaper),
+        classId: selectedClass || fullPaper?.classId || "",
+        classLevel: selectedClass || fullPaper?.classId || "",
         code: fullPaper?.code || `CODE-${Date.now()}`,
         examDate: new Date(fullPaper?.createdAt || Date.now()).toLocaleDateString(),
       };
@@ -1051,13 +1145,8 @@ const handleSave = async () => {
                   <div className="space-y-2">
                     <Label>Class</Label>
                     <Select
-                      value={selectedClass}
-                      onValueChange={(v) => {
-                        setSelectedClass(v as ClassLevel);
-                        setSelectedSubjects([]);
-                        setSelectedTopics([]);
-                        setActiveTopicSubject("");
-                      }}
+                      value={selectedClass || undefined}
+                      onValueChange={(v) => handleClassChange(v as ClassLevel)}
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select Class" />
@@ -1079,7 +1168,7 @@ const handleSave = async () => {
                         label: s.name,
                       }))}
                       value={selectedSubjects}
-                      onChange={setSelectedSubjects}
+                      onChange={handleSubjectsChange}
                       placeholder="Select Subject"
                       disabled={!selectedClass}
                     />
