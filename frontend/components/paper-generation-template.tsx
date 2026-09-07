@@ -146,11 +146,17 @@ export function PaperGenerationTemplate({
   subQuestionSelectionChange,
   selectedTopics = [],
   availableTopics = [],
+  newlyAddedTopicIds = [],
   questionTopicHints = null,
   onQuestionTopicsLearned,
   onTopicOrderChange,
 }: any) {
   const PAGE_SIZE = 10;
+  const newlyAddedTopicSet = useMemo(
+    () => new Set((newlyAddedTopicIds || []).map((id: string) => String(id))),
+    [newlyAddedTopicIds]
+  );
+  const isNewlyAddedTopic = (topicId: string) => newlyAddedTopicSet.has(String(topicId));
   const [subjects, setSubjects] = useState<Record<string, SubjectState>>({});
   const [selectedQuestions, setSelectedQuestions] = useState<SelectedMap>({});
   const [selectedSubQuestions, setSelectedSubQuestions] = useState<SelectedSubQuestionMap>({});
@@ -969,13 +975,16 @@ export function PaperGenerationTemplate({
                     <div className="flex flex-wrap gap-2">
                       {subjectTopics.map((topic, topicIndex) => {
                         const isActive = String(activeTopicId) === String(topic.id);
+                        const isNew = isNewlyAddedTopic(topic.id);
                         return (
                           <div
                             key={topic.id}
                             className={`inline-flex items-center rounded-full border text-xs transition ${
                               isActive
                                 ? "border-primary bg-primary text-primary-foreground"
-                                : "border-muted bg-muted/70 text-muted-foreground"
+                                : isNew
+                                  ? "border-yellow-400 bg-yellow-100 text-yellow-950"
+                                  : "border-muted bg-muted/70 text-muted-foreground"
                             }`}
                           >
                             <button
@@ -990,9 +999,20 @@ export function PaperGenerationTemplate({
                             <button
                               type="button"
                               onClick={() => setActiveTopic(subjectId, topic.id)}
-                              className="px-2 py-1 font-medium"
+                              className="inline-flex items-center gap-1.5 px-2 py-1 font-medium"
                             >
                               {formatTopicTitle(topic.name)}
+                              {isNew && (
+                                <span
+                                  className={`rounded px-1 py-0.5 text-[10px] font-semibold leading-none ${
+                                    isActive
+                                      ? "bg-yellow-300 text-yellow-950"
+                                      : "bg-yellow-300 text-yellow-950"
+                                  }`}
+                                >
+                                  New
+                                </span>
+                              )}
                             </button>
                             <button
                               type="button"
@@ -1026,12 +1046,21 @@ export function PaperGenerationTemplate({
                         const required = stats.requiredByTopicMarks[topicId] || 0;
                         if (!required) return null;
                         const selected = stats.selectedByTopicMarks[topicId] || 0;
+                        const isNew = isNewlyAddedTopic(topicId);
                         return (
                           <Badge
                             key={topicId}
                             variant={selected >= required ? "default" : "secondary"}
+                            className={
+                              isNew
+                                ? selected >= required
+                                  ? "bg-yellow-400 text-yellow-950 hover:bg-yellow-400"
+                                  : "border-yellow-400 bg-yellow-100 text-yellow-950 hover:bg-yellow-100"
+                                : undefined
+                            }
                           >
                             {topicNameById.get(topicId) || "Topic"}: selected {selected} / target {required}
+                            {isNew ? " · New" : ""}
                           </Badge>
                         );
                       })}

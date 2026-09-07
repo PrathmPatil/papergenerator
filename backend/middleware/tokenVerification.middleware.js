@@ -72,11 +72,12 @@ export const requireStaff = requireRoles("master", "administrative", "teacher");
    Authorize Same User OR Admin
 ========================= */
 export const authorizeUser = (req, res, next) => {
-  const userId = req.params.userId || req.params.id;
+  const userId = String(req.params.userId || req.params.id || "");
+  const requesterId = String(req.user?.id || "");
   const role = String(req.user?.role || "").toLowerCase();
   const isAdminRole = role === "master" || role === "administrative";
 
-  if (req.user.id !== userId && !isAdminRole) {
+  if (requesterId !== userId && !isAdminRole) {
     return res.status(403).json({
       success: false,
       message: "You are not authorized to perform this action",

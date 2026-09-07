@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Save, Printer, RefreshCw, Wand2, Trash2, FileText, Tags, Search } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
@@ -82,8 +82,17 @@ interface QuestionSnapshot {
   questionId: string;
   type: string;
   text: string;
+  paragraph?: string;
   media?: { url: string }[];
   options?: Option[];
+  subQuestions?: Array<{
+    id?: string;
+    _id?: string;
+    type?: string;
+    text?: string;
+    marks?: number;
+    options?: Option[];
+  }>;
   marks: number;
   negativeMarks: number;
 }
@@ -151,6 +160,9 @@ export default function EditPaperPage() {
   const [selectedSubQuestions, setSelectedSubQuestions] = useState<Record<string, Record<string, string[]>>>({});
   const [questionTopicMap, setQuestionTopicMap] = useState<Record<string, string>>({});
   const [isGenerating, setIsGenerating] = useState(false);
+  /** Topic ids present when the paper was loaded — anything else is "newly added". */
+  const baselineTopicIdsRef = useRef<Set<string>>(new Set());
+  const [baselineTopicVersion, setBaselineTopicVersion] = useState(0);
 
   const toSafeInt = (value: unknown, fallback = 0) => {
     const num = Number(value);
@@ -214,6 +226,12 @@ export default function EditPaperPage() {
   });
   const canProceedFromConfiguration = !marksValidationError;
 
+  const isNewlyAddedTopic = (topicId: string) => {
+    // Force dependency on baselineTopicVersion so UI updates after load snapshot.
+    void baselineTopicVersion;
+    return !baselineTopicIdsRef.current.has(String(topicId));
+  };
+
   const updateSubjectMarks = (subject: { id: string; name: string }, value: number) => {
     setSections((prev) => {
       const usedMarks = prev.filter((s) => s.subjectId !== subject.id).reduce((sum, s) => sum + s.marks, 0);
@@ -226,6 +244,7 @@ export default function EditPaperPage() {
         topicDistributions: getSelectedTopicsForSubject(subject.id).map((topic) => ({ topicId: topic.id, marks: 0 })),
       };
 
+      // Keep topic marks as-is when subject marks change — over-allocation is shown as an error.
       const normalizedDistributions = (Array.isArray(currentRules.topicDistributions)
         ? currentRules.topicDistributions
         : getSelectedTopicsForSubject(subject.id).map((topic) => ({ topicId: topic.id, marks: 0 }))
@@ -233,17 +252,6 @@ export default function EditPaperPage() {
         topicId: rule.topicId,
         marks: Math.max(0, toSafeInt(rule.marks, 0)),
       }));
-
-      let allocated = normalizedDistributions.reduce((sum: number, item: any) => sum + Number(item.marks || 0), 0);
-      if (allocated > finalMarks) {
-        for (let i = normalizedDistributions.length - 1; i >= 0 && allocated > finalMarks; i -= 1) {
-          const overshoot = allocated - finalMarks;
-          const currentMarks = Number(normalizedDistributions[i].marks || 0);
-          const nextVal = Math.max(0, currentMarks - overshoot);
-          allocated -= currentMarks - nextVal;
-          normalizedDistributions[i] = { ...normalizedDistributions[i], marks: nextVal };
-        }
-      }
 
       const nextSection = {
         id: current?.id || `sec_${subject.id}`,
@@ -307,20 +315,14 @@ export default function EditPaperPage() {
           ? section.rules.topicDistributions
           : [];
 
-        const allocatedWithoutCurrent = distributions
-          .filter((rule: any) => String(rule.topicId) !== String(topicId))
-          .reduce((sum: number, rule: any) => sum + Math.max(0, toSafeInt(rule.marks, 0)), 0);
-
-        const maxAllowedForTopic = Math.max(0, toSafeInt(section.marks, 0) - allocatedWithoutCurrent);
-        const finalMarks = Math.min(safeRequestedMarks, maxAllowedForTopic);
-
+        // Do not auto-cap to remaining subject marks — over-quota is surfaced as validation/UI error.
         return {
           ...section,
           rules: {
             marksPerQuestion: Math.max(1, toSafeInt(section.rules?.marksPerQuestion, 1)),
             topicDistributions: distributions.map((rule: any) =>
               String(rule.topicId) === String(topicId)
-                ? { ...rule, marks: finalMarks }
+                ? { ...rule, marks: safeRequestedMarks }
                 : { ...rule, marks: Math.max(0, toSafeInt(rule.marks, 0)) }
             ),
           },
@@ -673,6 +675,16 @@ export default function EditPaperPage() {
             )
           )
         );
+        baselineTopicIdsRef.current = new Set(
+          hydratedSections.flatMap((section: any) =>
+            Array.isArray(section?.rules?.topicDistributions)
+              ? section.rules.topicDistributions
+                  .map((rule: any) => String(rule.topicId || "").trim())
+                  .filter(Boolean)
+              : []
+          )
+        );
+        setBaselineTopicVersion((v) => v + 1);
         setTemplate(currentTemplate);
         const snapshotTopicMap = buildQuestionTopicMap(currentPaper.questionsSnapshot || []);
         setQuestionTopicMap(snapshotTopicMap);
@@ -826,24 +838,13 @@ export default function EditPaperPage() {
 
           const subjectTopicIds = getSelectedTopicsForSubject(section.subjectId).map((topic) => topic.id);
           // Only keep distributions for topics that are both selected and loaded.
-          // Orphan/zero-mark entries from old saves caused false
-          // "Please assign marks for topic in …" errors while Remaining stayed 0.
+          // Preserve existing marks — never auto-zero or trim when subject marks change.
           const distributions = subjectTopicIds.map((topicId) => {
             const existing = existingRules.find(
               (item: any) => String(item.topicId) === String(topicId)
             );
             return { topicId, marks: Math.max(0, toSafeInt(existing?.marks, 0)) };
           });
-
-          let allocated = distributions.reduce((sum, item) => sum + Number(item.marks || 0), 0);
-          if (allocated > section.marks) {
-            for (let i = distributions.length - 1; i >= 0 && allocated > section.marks; i -= 1) {
-              const overshoot = allocated - section.marks;
-              const nextVal = Math.max(0, Number(distributions[i].marks || 0) - overshoot);
-              allocated -= Number(distributions[i].marks || 0) - nextVal;
-              distributions[i] = { ...distributions[i], marks: nextVal };
-            }
-          }
 
           return {
             ...section,
@@ -1268,9 +1269,16 @@ export default function EditPaperPage() {
                       const topicChoices = getSelectedTopicsForSubject(subject.id);
                       const allocatedTopicMarks = (rules.topicDistributions || []).reduce((sum: number, item: any) => sum + Number(item.marks || 0), 0);
                       const topicMarksRemaining = currentMarks - allocatedTopicMarks;
+                      const subjectOverAllocated = allocatedTopicMarks > currentMarks;
 
                       return (
-                        <div key={subject.id} className="rounded-lg border p-4 space-y-4">
+                        <div
+                          key={subject.id}
+                          className={cn(
+                            "rounded-lg border p-4 space-y-4",
+                            subjectOverAllocated && "border-red-500 bg-red-50/40 ring-1 ring-red-300"
+                          )}
+                        >
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
                               <p className="text-base font-semibold">{subject.name}</p>
@@ -1300,24 +1308,21 @@ export default function EditPaperPage() {
                                 inputMode="numeric"
                                 pattern="[0-9]*"
                                 value={String(currentMarks)}
+                                className={cn(subjectOverAllocated && "border-red-500 focus-visible:ring-red-500")}
                                 onWheel={(e) => e.currentTarget.blur()}
                                 onChange={(e) => {
                                 const val = toSafeInt(e.target.value, 0);
                                 updateSubjectMarks(subject, Math.max(0, Math.min(val, maxAllowed)));
                               }} />
                             </div>
-                            {/* <div className="space-y-2">
-                              <Label className="text-xs">Selection Rule</Label>
-                              <div className="h-10 rounded-md border px-3 flex items-center text-sm">
-                                Use question's own marks during selection
-                              </div>
-                            </div> */}
                           </div>
 
                           <div className="rounded-md border p-3 bg-muted/20">
                             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                               <Label className="text-sm">Topic-wise Marks Distribution</Label>
-                              <Badge variant={topicMarksRemaining === 0 ? "default" : "secondary"}>Remaining: {topicMarksRemaining}</Badge>
+                              <Badge variant={topicMarksRemaining === 0 ? "default" : subjectOverAllocated ? "destructive" : "secondary"}>
+                                Remaining: {topicMarksRemaining}
+                              </Badge>
                             </div>
 
                             {topicChoices.length === 0 ? (
@@ -1329,12 +1334,25 @@ export default function EditPaperPage() {
                                     rules.topicDistributions.find(
                                       (item: any) => String(item.topicId) === String(topic.id)
                                     )?.marks || 0;
-                                  const maxTopicAllowed = Math.max(0, currentMarks - (allocatedTopicMarks - currentTopicMarks));
+                                  const isNew = isNewlyAddedTopic(topic.id);
 
                                   return (
-                                    <div key={topic.id} className="rounded-md border bg-background p-3 space-y-2">
+                                    <div
+                                      key={topic.id}
+                                      className={cn(
+                                        "rounded-md border bg-background p-3 space-y-2",
+                                        isNew && "border-yellow-400 bg-yellow-50 ring-1 ring-yellow-300"
+                                      )}
+                                    >
                                       <div className="flex items-start justify-between gap-2">
-                                        <span className="text-sm font-medium leading-tight">{formatTopicTitle(topic.name)}</span>
+                                        <span className="text-sm font-medium leading-tight">
+                                          {formatTopicTitle(topic.name)}
+                                          {isNew && (
+                                            <Badge className="ml-2 bg-yellow-300 text-yellow-950 hover:bg-yellow-300">
+                                              New
+                                            </Badge>
+                                          )}
+                                        </span>
                                         <Button
                                           type="button"
                                           variant="ghost"
@@ -1356,7 +1374,7 @@ export default function EditPaperPage() {
                                           onWheel={(e) => e.currentTarget.blur()}
                                           onChange={(e) => {
                                           const val = toSafeInt(e.target.value, 0);
-                                          updateTopicMarks(subject.id, topic.id, Math.max(0, Math.min(val, maxTopicAllowed)));
+                                          updateTopicMarks(subject.id, topic.id, Math.max(0, val));
                                         }} />
                                         <span className="whitespace-nowrap text-xs text-muted-foreground">{currentTopicMarks} marks</span>
                                       </div>
@@ -1390,6 +1408,7 @@ export default function EditPaperPage() {
                   subQuestionSelectionChange={setSelectedSubQuestions}
                   selectedTopics={selectedTopics}
                   availableTopics={availableTopics}
+                  newlyAddedTopicIds={selectedTopics.filter((id) => isNewlyAddedTopic(id))}
                   questionTopicHints={questionTopicMap}
                   onQuestionTopicsLearned={(learned: Record<string, string>) =>
                     setQuestionTopicMap((prev) => ({ ...prev, ...learned }))

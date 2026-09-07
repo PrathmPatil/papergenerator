@@ -56,6 +56,7 @@ export function AppSidebar() {
   const studentLinks = [
     { name: "My Papers", href: "/dashboard/my-papers", icon: FileText },
     { name: "Papers", href: "/dashboard/papers", icon: GraduationCap },
+    { name: "Settings", href: "/dashboard/settings", icon: Settings },
   ]
 
   const role = String(user.role || "").toLowerCase()

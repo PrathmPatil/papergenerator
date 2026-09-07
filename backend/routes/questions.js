@@ -62,6 +62,7 @@ import express from "express";
 const router = express.Router();
 import multer from "multer";
 import path from "path";
+import mongoose from "mongoose";
 import Question from "../models/Question.js";
 import Paper from "../models/Paper.js";
 import Topic from "../models/Topic.js";
@@ -934,14 +935,35 @@ async function resolveTopicDisplayName(topicId, classId, subjectId) {
 
 async function buildTopicNameMapForQuestions(questions = []) {
   const rawTopicValues = [
-    ...new Set(questions.map((question) => String(question?.topicId || "").trim()).filter(Boolean)),
+    ...new Set(
+      questions
+        .map((question) => {
+          const value = question?.topicId;
+          if (value && typeof value === "object") {
+            return String(value._id || value.id || "").trim();
+          }
+          return String(value || "").trim();
+        })
+        .filter(Boolean)
+    ),
   ];
 
   if (rawTopicValues.length === 0) return new Map();
 
+  const objectIds = rawTopicValues
+    .filter((value) => /^[0-9a-fA-F]{24}$/.test(value))
+    .map((value) => {
+      try {
+        return new mongoose.Types.ObjectId(value);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
   const topicDocs = await Topic.find({
     $or: [
-      { _id: { $in: rawTopicValues.filter((value) => /^[0-9a-fA-F]{24}$/.test(value)) } },
+      ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : []),
       { name: { $in: rawTopicValues } },
       { nameLower: { $in: rawTopicValues.map((value) => normalizeExcelKey(value)) } },
     ],
@@ -949,9 +971,24 @@ async function buildTopicNameMapForQuestions(questions = []) {
 
   const map = new Map();
   topicDocs.forEach((topic) => {
-    map.set(topic._id.toString(), topic.name);
-    map.set(topic.name, topic.name);
-    map.set(topic.nameLower, topic.name);
+    const id = String(topic._id);
+    const name = String(topic.name || "").trim();
+    if (!name) return;
+    map.set(id, name);
+    map.set(name, name);
+    if (topic.nameLower) map.set(String(topic.nameLower), name);
+    map.set(normalizeExcelKey(name), name);
+  });
+
+  // Also keep populated topic names if topicId already arrived as an object.
+  questions.forEach((question) => {
+    const value = question?.topicId;
+    if (value && typeof value === "object") {
+      const id = String(value._id || value.id || "").trim();
+      const name = String(value.name || "").trim();
+      if (id && name) map.set(id, name);
+      if (name) map.set(name, name);
+    }
   });
 
   return map;
@@ -1436,6 +1473,32 @@ router.post("/", async (req, res) => {
     }
 
     const questions = sanitizeQuestionsForList(pageDocs);
+    const topicNameMap = await buildTopicNameMapForQuestions(pageDocs);
+    const questionsWithTopicNames = questions.map((question, index) => {
+      const source = pageDocs[index] || question;
+      const rawTopic = source?.topicId;
+      const topicId =
+        rawTopic && typeof rawTopic === "object"
+          ? String(rawTopic._id || rawTopic.id || "").trim()
+          : String(rawTopic || question?.topicId || "").trim();
+      const populatedName =
+        rawTopic && typeof rawTopic === "object"
+          ? String(rawTopic.name || "").trim()
+          : "";
+      const topicName =
+        populatedName ||
+        (topicId
+          ? topicNameMap.get(topicId) ||
+            topicNameMap.get(normalizeExcelKey(topicId)) ||
+            null
+          : null);
+
+      return {
+        ...question,
+        topicId,
+        topicName: topicName || null,
+      };
+    });
 
     // Full selected-marks total from DB (all selected IDs), independent of current page
     const selectionStats = await computeSelectionStats(
@@ -1446,8 +1509,8 @@ router.post("/", async (req, res) => {
 
     res.json({
       success: true,
-      questions,
-      count: questions.length,
+      questions: questionsWithTopicNames,
+      count: questionsWithTopicNames.length,
       selectedCount,
       totalRecords,
       currentPage,
@@ -1658,6 +1721,7 @@ router.get("/:id", async (req, res, next) => {
     id === "bulk-update" ||
     id === "bulk-delete" ||
     id === "bulk-clear-usage" ||
+    id === "mark-used" ||
     id === "rebuild-usage" ||
     id === "export-excel" ||
     id === "create" ||
@@ -1702,7 +1766,8 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
     if (
       id === "bulk-update" ||
       id === "bulk-delete" ||
-      id === "bulk-clear-usage"
+      id === "bulk-clear-usage" ||
+      id === "mark-used"
     ) {
       return next();
     }
@@ -2148,6 +2213,52 @@ router.put("/bulk-clear-usage", async (req, res) => {
     return res.json({
       success: true,
       message: "Question usage tags cleared successfully",
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// MARK QUESTIONS AS USED (manual usage tag)
+router.put("/mark-used", async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ids must be a non-empty array",
+      });
+    }
+
+    const uniqueIds = [...new Set(ids.map((id) => String(id)).filter(Boolean))];
+
+    if (uniqueIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "ids must contain at least one valid question id",
+      });
+    }
+
+    const result = await Question.updateMany(
+      {
+        _id: { $in: uniqueIds },
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+      },
+      {
+        $inc: { usageCount: 1 },
+        $set: { lastUsedAt: new Date() },
+      },
+    );
+
+    return res.json({
+      success: true,
+      message: "Questions marked as used successfully",
       matchedCount: result.matchedCount,
       modifiedCount: result.modifiedCount,
     });

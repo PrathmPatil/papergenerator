@@ -409,6 +409,15 @@ export const bulkClearQuestionUsageApi = async (payload: { ids: string[] }) => {
   return response;
 };
 
+export const markQuestionsUsedApi = async (payload: { ids: string[] }) => {
+  const response = await apiClient({
+    url: "/api/questions/mark-used",
+    method: "PUT",
+    data: payload,
+  });
+  return response;
+};
+
 export const rebuildQuestionUsageApi = async () => {
   const response = await apiClient({
     url: "/api/questions/rebuild-usage",

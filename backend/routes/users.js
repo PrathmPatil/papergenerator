@@ -435,10 +435,15 @@ router.get("/profile/:id", verifyToken, authorizeUser, async (req, res) => {
 
 router.put("/:userId/password", verifyToken, authorizeUser, async (req, res) => {
   try {
+    const { currentPassword, newPassword } = req.body || {};
+    const targetUserId = String(req.params.userId || "");
+    const requesterId = String(req.user?.id || "");
+    const requesterRole = String(req.user?.role || "").toLowerCase();
+    const isSelf = requesterId === targetUserId;
+    const isAdmin =
+      requesterRole === "master" || requesterRole === "administrative";
 
-    const { currentPassword, newPassword } = req.body;
-
-    const user = await User.findById(req.params.userId).select("+password");
+    const user = await User.findById(targetUserId).select("+password");
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
@@ -450,19 +455,49 @@ router.put("/:userId/password", verifyToken, authorizeUser, async (req, res) => 
       });
     }
 
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ success: false, message: "Incorrect current password" });
+    // Self-service change always requires the current password.
+    // Admins can set/reset another user's password without the current one.
+    if (isSelf || !isAdmin) {
+      if (!currentPassword) {
+        return res.status(400).json({
+          success: false,
+          message: "Current password is required",
+        });
+      }
+
+      if (!user.password) {
+        return res.status(400).json({
+          success: false,
+          message: "Password not set. Please contact an administrator.",
+        });
+      }
+
+      const isMatch = await bcrypt.compare(String(currentPassword), user.password);
+      if (!isMatch) {
+        return res.status(400).json({
+          success: false,
+          message: "Incorrect current password",
+        });
+      }
+
+      const isSamePassword = await bcrypt.compare(String(newPassword), user.password);
+      if (isSamePassword) {
+        return res.status(400).json({
+          success: false,
+          message: "New password must be different from the current password",
+        });
+      }
     }
 
-    user.password = await bcrypt.hash(newPassword, 10);
-    await User.findByIdAndUpdate(req.params.userId, {
-      password: user.password,
-    });
+    const hashedPassword = await bcrypt.hash(String(newPassword), 10);
+    await User.findByIdAndUpdate(targetUserId, { password: hashedPassword });
 
-    res.json({ success: true, message: "Password updated" });
+    return res.json({
+      success: true,
+      message: isSelf ? "Password updated successfully" : "Password set successfully",
+    });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    return res.status(400).json({ success: false, message: err.message });
   }
 });
 

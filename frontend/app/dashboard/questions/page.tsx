@@ -15,6 +15,7 @@ import {
   RotateCcw,
   ImageIcon,
   HelpCircle,
+  Tag,
 } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -71,9 +72,10 @@ import {
   bulkDeleteQuestionsApi,
   updateQuestionApi,
   bulkClearQuestionUsageApi,
+  markQuestionsUsedApi,
   rebuildQuestionUsageApi,
 } from "@/utils/apis";
-import { showConfirm, showInfo } from "@/components/app-dialog-provider";
+import { showConfirm, showDeleteConfirm, showInfo } from "@/components/app-dialog-provider";
 import { LoadingPanel } from "@/components/loading";
 /* ----------------------------------------
    TYPES
@@ -183,6 +185,9 @@ export interface IQuestion {
   classId: string;
   subjectId: string;
   topicId: string;
+  topicName?: string | null;
+  /** Some payloads may embed a populated topic document here. */
+  topic?: { _id?: string; id?: string; name?: string } | string | null;
 
   text?: string; // question text
   paragraph?: string; // for paragraph type
@@ -238,8 +243,6 @@ export default function QuestionBankPage() {
     null
   );
   const [viewModalOpen, setViewModalOpen] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -310,7 +313,16 @@ export default function QuestionBankPage() {
           ...(filterClass !== "all" ? { classId: filterClass } : {}),
           ...(filterSubject !== "all" ? { subjectId: filterSubject } : {}),
         });
-        setTopics(Array.isArray(res?.topics) ? res.topics : []);
+        setTopics(
+          Array.isArray(res?.topics)
+            ? res.topics.map((topic: TopicOption) => ({
+                ...topic,
+                _id: String(topic?._id || topic?.id || ""),
+                id: String(topic?._id || topic?.id || ""),
+                name: String(topic?.name || "").trim(),
+              }))
+            : []
+        );
       } catch (error) {
         console.error("Failed to load topics", error);
         setTopics([]);
@@ -330,26 +342,57 @@ export default function QuestionBankPage() {
     }
   }, [filterTopic, topics]);
 
-  const getTopicNameById = (topicId?: string) => {
-    const rawTopicId = String(topicId || "").trim();
+  const topicNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    topics.forEach((topic) => {
+      const id = String(topic._id || topic.id || "").trim();
+      const name = String(topic.name || "").trim();
+      if (id && name) map.set(id, name);
+      if (name) {
+        map.set(name, name);
+        map.set(name.toLowerCase().replace(/[^a-z0-9]/g, ""), name);
+      }
+    });
+    return map;
+  }, [topics]);
+
+  const resolveTopicLabel = (
+    topicRef?: unknown,
+    fallbackName?: string | null
+  ) => {
+    if (topicRef && typeof topicRef === "object") {
+      const embeddedName = String((topicRef as any).name || "").trim();
+      if (embeddedName) return embeddedName;
+      const embeddedId = String(
+        (topicRef as any)._id || (topicRef as any).id || ""
+      ).trim();
+      if (embeddedId && topicNameById.has(embeddedId)) {
+        return topicNameById.get(embeddedId)!;
+      }
+    }
+
+    const explicitName = String(fallbackName || "").trim();
+    if (explicitName && !/^[0-9a-fA-F]{24}$/.test(explicitName)) {
+      return explicitName;
+    }
+
+    const rawTopicId = String(topicRef ?? "").trim();
     if (!rawTopicId) return "No topic";
 
-    const normalizeTopicName = (value: string) =>
-      String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (topicNameById.has(rawTopicId)) return topicNameById.get(rawTopicId)!;
 
-    const normalizedTopicId = normalizeTopicName(rawTopicId);
-    const topic = topics.find((item) => {
-      const id = String(item._id || item.id || "");
-      return (
-        id === rawTopicId ||
-        item.name === rawTopicId ||
-        item.nameLower === normalizedTopicId ||
-        normalizeTopicName(item.name) === normalizedTopicId
-      );
-    });
+    const normalized = rawTopicId.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (topicNameById.has(normalized)) return topicNameById.get(normalized)!;
 
-    return topic?.name || rawTopicId;
+    if (explicitName) return explicitName;
+    if (/^[0-9a-fA-F]{24}$/.test(rawTopicId)) {
+      return topicsLoading ? "Loading topic…" : "Unknown topic";
+    }
+    return rawTopicId;
   };
+
+  const getTopicNameById = (topicId?: unknown, fallbackName?: string | null) =>
+    resolveTopicLabel(topicId, fallbackName);
 
   const isValidDisplayDate = (value: string) =>
     !value.trim() || /^(0[1-9]|[12]\d|3[01])\/(0[1-9]|1[0-2])\/\d{4}$/.test(value.trim());
@@ -1064,7 +1107,7 @@ export default function QuestionBankPage() {
 
       const groupedQuestions = new Map<string, IQuestion[]>();
       res.questions.forEach((question: IQuestion) => {
-        const groupName = getTopicNameById(question.topicId);
+        const groupName = getTopicNameById(question.topicId, question.topicName);
         if (!groupedQuestions.has(groupName)) {
           groupedQuestions.set(groupName, []);
         }
@@ -1246,29 +1289,26 @@ export default function QuestionBankPage() {
     }
   };
 
-  const handleDelete = (id: string) => {
-    setDeletingId(id);
-  };
+  const handleDelete = async (id: string) => {
+    if (!id) return;
 
-  const confirmDelete = async () => {
-    if (!deletingId) return;
+    const confirmed = await showDeleteConfirm({
+      title: "Delete question?",
+      description:
+        "This will remove the question from the question bank. This action cannot be undone.",
+    });
+    if (!confirmed) return;
 
     try {
-      setIsDeleting(true);
-      const res: any = await deleteQuestionApi(deletingId);
+      const res: any = await deleteQuestionApi(id);
 
       if (res?.success) {
-        // ✅ remove from UI also (fast update)
-        setQuestions((prev) => prev.filter((q) => q._id !== deletingId));
-        setDeletingId(null);
+        setQuestions((prev) => prev.filter((q) => q._id !== id));
         toast({
           variant: "destructive",
           title: "Question deleted",
           description: "1 question removed from the list.",
         });
-
-        // ✅ optional: reload from backend (best)
-        // fetchQuestions();  // or whatever your function is named
       } else {
         toast({
           variant: "destructive",
@@ -1283,8 +1323,46 @@ export default function QuestionBankPage() {
         title: "Delete failed",
         description: "Unable to delete the question right now.",
       });
-    } finally {
-      setIsDeleting(false);
+    }
+  };
+
+  const handleMarkAsUsed = async (id: string) => {
+    if (!id) return;
+
+    try {
+      const res: any = await markQuestionsUsedApi({ ids: [id] });
+      if (!res?.success) {
+        showInfo({
+          title: "Mark as used failed",
+          description: res?.message || "Unable to mark this question as used.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      setQuestions((prev) =>
+        prev.map((q) =>
+          q._id === id
+            ? {
+                ...q,
+                usageCount: Number(q.usageCount || 0) + 1,
+                lastUsedAt: nowIso,
+              }
+            : q
+        )
+      );
+      showInfo({
+        title: "Marked as used",
+        description: "Usage count updated for this question.",
+      });
+    } catch (error) {
+      console.error("Mark as used failed", error);
+      showInfo({
+        title: "Mark as used failed",
+        description: "Unable to mark this question as used right now.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -2034,9 +2112,11 @@ export default function QuestionBankPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Convert ${selectedQuestionIds.length} selected question(s) from Text MCQ to Image MCQ?\n\nReview each question first. This only changes the type.`
-    );
+    const confirmed = await showConfirm({
+      title: "Convert to Image MCQ?",
+      description: `Convert ${selectedQuestionIds.length} selected question(s) from Text MCQ to Image MCQ?\n\nReview each question first. This only changes the type.`,
+      confirmText: "Convert",
+    });
     if (!confirmed) return;
 
     try {
@@ -2083,11 +2163,9 @@ export default function QuestionBankPage() {
       return;
     }
 
-    const confirmed = await showConfirm({
+    const confirmed = await showDeleteConfirm({
       title: "Delete selected questions?",
-      description: `Delete ${selectedQuestionIds.length} selected question${selectedQuestionIds.length === 1 ? "" : "s"}?`,
-      confirmText: "Delete",
-      variant: "destructive",
+      description: `Delete ${selectedQuestionIds.length} selected question${selectedQuestionIds.length === 1 ? "" : "s"}? This cannot be undone.`,
     });
 
     if (!confirmed) return;
@@ -2625,7 +2703,9 @@ export default function QuestionBankPage() {
                         <TableCell>
                           {getSubjectNameById(q?.subjectId)}
                         </TableCell>
-                        <TableCell>{getTopicNameById(q.topicId)}</TableCell>
+                        <TableCell>
+                          {getTopicNameById(q.topicId, q.topicName)}
+                        </TableCell>
                         <TableCell>
                           <Badge variant={Number(q.usageCount || 0) > 0 ? "destructive" : "outline"}>
                             {Number(q.usageCount || 0) > 0
@@ -2665,17 +2745,24 @@ export default function QuestionBankPage() {
                               <DropdownMenuItem onClick={() => handleExport(q)}>
                                 <Download className="mr-2 h-4 w-4" /> Export
                               </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  if (!questionId) return;
+                                  void handleMarkAsUsed(String(questionId));
+                                }}
+                              >
+                                <Tag className="mr-2 h-4 w-4" /> Mark as used
+                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
-                                className="text-red-600"
-                                aria-label="Delete question"
-                                title="Delete question"
+                                className="text-red-600 focus:text-red-600"
+                                variant="destructive"
                                 onClick={() => {
                                   if (!questionId) return;
                                   handleDelete(String(questionId));
                                 }}
                               >
-                                <Trash className="h-4 w-4" />
+                                <Trash className="mr-2 h-4 w-4" /> Delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -2762,7 +2849,7 @@ export default function QuestionBankPage() {
                 <p>Type: {selectedQuestion.type}</p>
                 <p>Class: {getClassNameById(selectedQuestion.classId)}</p>
                 <p>Subject: {getSubjectNameById(selectedQuestion.subjectId)}</p>
-                <p>Topic: {getTopicNameById(selectedQuestion.topicId)}</p>
+                <p>Topic: {getTopicNameById(selectedQuestion.topicId, selectedQuestion.topicName)}</p>
                 <p>Marks: {selectedQuestion.marks}</p>
                 <p>Difficulty: {selectedQuestion.difficulty}</p>
               </div>
@@ -2955,23 +3042,6 @@ export default function QuestionBankPage() {
               })()}
             </>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* DELETE MODAL */}
-      <Dialog open={!!deletingId} onOpenChange={() => setDeletingId(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Question?</DialogTitle>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setDeletingId(null)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
-              Delete
-            </Button>
-          </div>
         </DialogContent>
       </Dialog>
 

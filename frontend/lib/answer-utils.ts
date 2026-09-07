@@ -106,7 +106,7 @@ export const buildAnswerKeySections = (config: any): AnswerKeySection[] => {
       if (isParagraphQuestion && subQuestions.length > 0) {
         subQuestions.forEach((subQuestion: any, subIndex: number) => {
           entries.push({
-            label: `${parentNumber}(${subIndex + 1})`,
+            label: `${parentNumber}.${subIndex + 1}`,
             answer: getCorrectAnswer(subQuestion) || "—",
             marks: Number(subQuestion?.marks) || undefined,
           });

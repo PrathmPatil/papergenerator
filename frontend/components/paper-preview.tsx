@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown } from "lucide-react";
+import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown, LayoutGrid } from "lucide-react";
 import { IconSpinner } from "@/components/loading";
 import { formatClassLabel } from "@/lib/utils";
 import {
@@ -16,6 +16,7 @@ import {
   buildAnswerKeyStyles,
   formatMarksLabel,
 } from "@/lib/answer-utils";
+import { exportOmrSheetAsPDF, openOmrSheetPreview } from "@/lib/omr-sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -630,7 +631,11 @@ export function PaperPreview({
     return `[${value} ${value === 1 ? "Mark" : "Marks"}]`;
   };
 
-  const renderQuestionHeading = (qIndex: number, text: string, marks?: unknown) => {
+  const renderQuestionHeading = (
+    label: string,
+    text: string,
+    marks?: unknown
+  ) => {
     const marksLabel = formatQuestionMarksLabel(marks);
     return (
       <div
@@ -644,7 +649,7 @@ export function PaperPreview({
         }}
       >
         <p className="question-heading-text" style={{ margin: 0, flex: "1 1 auto", minWidth: 0 }}>
-          <span style={{ fontWeight: 600 }}>{qIndex + 1}. </span>
+          <span style={{ fontWeight: 600 }}>{label} </span>
           {text}
         </p>
         {marksLabel ? (
@@ -693,7 +698,7 @@ export function PaperPreview({
     );
   };
 
-  const renderSubQuestion = (subQuestion: any, index: number) => {
+  const renderSubQuestion = (subQuestion: any, parentNumber: number, subIndex: number) => {
     const options = Array.isArray(subQuestion?.options) ? subQuestion.options : [];
     const media = Array.isArray(subQuestion?.media)
       ? subQuestion.media
@@ -702,14 +707,15 @@ export function PaperPreview({
       : [];
     const hasImageOptions = options.some((opt: any) => Boolean(opt?.mediaUrl));
     const subQuestionType = String(subQuestion?.type || "").toLowerCase();
+    const label = `${parentNumber}.${subIndex + 1}`;
 
     return (
       <div
-        key={subQuestion?.id || `sub-question-${index}`}
+        key={subQuestion?.id || `sub-question-${subIndex}`}
         className="paper-keep-unit paper-sub-question"
         style={{ marginTop: "10px" }}
       >
-        {renderQuestionHeading(index, subQuestion?.text || "", subQuestion?.marks)}
+        {renderQuestionHeading(label, subQuestion?.text || "", subQuestion?.marks)}
 
         {media.length > 0 && (
           <div style={{ display: "flex", gap: "8px", marginTop: "6px", flexWrap: "wrap" }}>
@@ -719,7 +725,7 @@ export function PaperPreview({
 
               return (
                 <img
-                  key={`${subQuestion?.id || index}-media-${idx}`}
+                  key={`${subQuestion?.id || subIndex}-media-${idx}`}
                   src={src}
                   alt={img?.alt || `Sub-question image ${idx + 1}`}
                   style={{
@@ -821,7 +827,7 @@ export function PaperPreview({
           <div style={{ display: "flex", alignItems: "flex-start", gap: "6px" }}>
             <div style={{ flex: 1 }}>
               {renderQuestionHeading(
-                qIndex,
+                `${qIndex + 1}.`,
                 q.text ? `Instruction: ${q.text}` : "Instruction:",
                 q.marks
               )}
@@ -859,10 +865,7 @@ export function PaperPreview({
 
               <div style={{ marginTop: "8px" }}>
                 {(hasSubQuestions ? q.subQuestions : []).map((subQuestion: any, subIndex: number) =>
-                  renderSubQuestion(
-                    subQuestion,
-                    subIndex
-                  )
+                  renderSubQuestion(subQuestion, qIndex + 1, subIndex)
                 )}
               </div>
             </div>
@@ -877,7 +880,7 @@ export function PaperPreview({
         key={q.questionId || `${sectionId}-${qIndex}`}
         style={{ marginTop: "6px" }}
       >
-        {renderQuestionHeading(qIndex, q.text || "", q.marks)}
+        {renderQuestionHeading(`${qIndex + 1}.`, q.text || "", q.marks)}
 
         {media.length > 0 && (
           <div style={{ display: "flex", gap: "8px", marginTop: "6px", flexWrap: "wrap" }}>
@@ -1417,6 +1420,36 @@ export function PaperPreview({
             )}
             {exportBusy === "excel" ? "Preparing Excel..." : "Export Excel"}
           </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary" disabled={isExporting}>
+                {exportBusy?.startsWith("omr-") ? (
+                  <IconSpinner icon={LayoutGrid} spinning className="mr-2" />
+                ) : (
+                  <LayoutGrid className="mr-2 h-4 w-4" />
+                )}
+                {exportBusy?.startsWith("omr-") ? "Preparing OMR..." : "OMR Sheet"}
+                <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem
+                disabled={isExporting}
+                onClick={() => void runExport("omr-preview", () => openOmrSheetPreview(config))}
+              >
+                <Eye className="mr-2 h-4 w-4" />
+                Preview OMR
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={isExporting}
+                onClick={() => void runExport("omr-pdf", () => exportOmrSheetAsPDF(config))}
+              >
+                <FileText className="mr-2 h-4 w-4" />
+                Download OMR PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

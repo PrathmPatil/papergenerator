@@ -38,7 +38,7 @@ import {
   fetchTopicsApi,
   updateTopicApi,
 } from "@/utils/apis";
-import { showConfirm, showInfo } from "@/components/app-dialog-provider";
+import { showDeleteConfirm, showInfo } from "@/components/app-dialog-provider";
 import { LoadingPanel } from "@/components/loading";
 
 type TopicRow = {
@@ -549,11 +549,10 @@ export default function TopicsPage() {
     const id = topic._id || topic.id;
     if (!id) return;
 
-    const confirmed = await showConfirm({
+    const confirmed = await showDeleteConfirm({
       title: "Delete topic?",
+      itemName: topic.name,
       description: `Delete topic "${topic.name}"? This cannot be undone.`,
-      confirmText: "Delete",
-      variant: "destructive",
     });
     if (!confirmed) return;
 

@@ -53,7 +53,7 @@ import { IconSpinner, LoadingPanel } from "@/components/loading";
 
 import { CLASSES, getClassNameById } from "@/lib/data";
 import { debounce } from "@/hooks/common";
-import { showInfo } from "@/components/app-dialog-provider";
+import { showDeleteConfirm, showInfo } from "@/components/app-dialog-provider";
 
 /* ================= TYPES ================= */
 
@@ -85,7 +85,6 @@ export default function PaperBankPage() {
   const [filterClass, setFilterClass] = useState("all");
 
   const [viewModalOpen, setViewModalOpen] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [cloningId, setCloningId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -131,24 +130,30 @@ export default function PaperBankPage() {
     setViewModalOpen(true);
   };
 
-  const confirmDelete = async () => {
-  if (!deletingId) return;
-
-  try {
-    await deletePaperApi(deletingId); // ✅ backend soft delete
-
-    // ✅ remove from UI after success
-    setPapers((prev) => prev.filter((p) => p._id !== deletingId));
-    setDeletingId(null);
-  } catch (e) {
-    console.error(e);
-    showInfo({
-      title: "Delete failed",
-      description: "Failed to delete paper. Please try again.",
-      variant: "destructive",
+  const handleDelete = async (paper: IPaper) => {
+    const confirmed = await showDeleteConfirm({
+      title: "Delete paper?",
+      itemName: paper.title,
+      description: `Delete paper "${paper.title}"? This cannot be undone.`,
     });
-  }
-};
+    if (!confirmed) return;
+
+    try {
+      await deletePaperApi(paper._id);
+      setPapers((prev) => prev.filter((p) => p._id !== paper._id));
+      showInfo({
+        title: "Paper deleted",
+        description: `"${paper.title}" was removed.`,
+      });
+    } catch (e) {
+      console.error(e);
+      showInfo({
+        title: "Delete failed",
+        description: "Failed to delete paper. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleClone = async (paper: IPaper) => {
     if (cloningId) return;
@@ -311,8 +316,9 @@ export default function PaperBankPage() {
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            className="text-red-600"
-                            onClick={() => setDeletingId(paper._id)}
+                            className="text-red-600 focus:text-red-600"
+                            variant="destructive"
+                            onClick={() => void handleDelete(paper)}
                           >
                             <Trash className="mr-2 h-4 w-4" /> Delete
                           </DropdownMenuItem>
@@ -361,23 +367,6 @@ export default function PaperBankPage() {
               ))}
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* DELETE MODAL */}
-      <Dialog open={!!deletingId} onOpenChange={() => setDeletingId(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Paper?</DialogTitle>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setDeletingId(null)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
-              Delete
-            </Button>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

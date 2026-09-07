@@ -26,7 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useUser } from "@/lib/user-context";
-import { MoreVertical, Plus, Trash2, Edit2, Search } from "lucide-react";
+import { MoreVertical, Plus, Trash2, Edit2, Search, Lock, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   fetchAllUsersApi,
@@ -34,8 +34,10 @@ import {
   toggleUserDeleteApi,
   toggleUserStatusApi,
   updateUserApi,
+  changePasswordApi,
 } from "@/utils/apis";
 import { dateConverterUTC } from "@/hooks/common";
+import { showDeleteConfirm } from "@/components/app-dialog-provider";
 import Joi from "joi";
 
 type UserRole = "master" | "administrative" | "teacher" | "student";
@@ -142,6 +144,23 @@ export default function UserManagementPage() {
   const [statusLoading, setStatusLoading] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [errors, setErrors] = useState<any>({});
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [passwordTarget, setPasswordTarget] = useState<User | null>(null);
+  const [passwordForm, setPasswordForm] = useState({
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [showPasswordFields, setShowPasswordFields] = useState({
+    new: false,
+    confirm: false,
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordErrors, setPasswordErrors] = useState<{
+    newPassword?: string;
+    confirmPassword?: string;
+  }>({});
+  const [createPassword, setCreatePassword] = useState("");
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -154,6 +173,8 @@ export default function UserManagementPage() {
     if (!isDialogOpen) {
       setErrors({});
       setIsEdit(false);
+      setCreatePassword("");
+      setShowCreatePassword(false);
       setNewUser({
         _id: undefined,
         name: "",
@@ -164,6 +185,16 @@ export default function UserManagementPage() {
       });
     }
   }, [isDialogOpen]);
+
+  useEffect(() => {
+    if (!passwordDialogOpen) {
+      setPasswordTarget(null);
+      setPasswordForm({ newPassword: "", confirmPassword: "" });
+      setShowPasswordFields({ new: false, confirm: false });
+      setPasswordErrors({});
+      setPasswordSaving(false);
+    }
+  }, [passwordDialogOpen]);
 
   const validateForm = () => {
     const payloadToValidate = {
@@ -279,13 +310,25 @@ export default function UserManagementPage() {
       return;
     }
 
+    const customPassword = createPassword.trim();
+    if (customPassword && customPassword.length < 8) {
+      setErrors((prev: any) => ({
+        ...prev,
+        password: "Password must be at least 8 characters",
+      }));
+      return;
+    }
+
     const user = {
       name: newUser.name,
       email: newUser.email,
       phone: newUser.phone,
       institution: newUser.institute,
       role: safeRole,
-      password: passwordMap[safeRole as "administrative" | "teacher" | "student"] || "Student@123",
+      password:
+        customPassword ||
+        passwordMap[safeRole as "administrative" | "teacher" | "student"] ||
+        "Student@123",
     };    
 
     try {
@@ -434,7 +477,13 @@ export default function UserManagementPage() {
       return;
     }
 
-    // setUsers(users.filter((u) => u.id !== id))
+    const confirmed = await showDeleteConfirm({
+      title: "Delete user?",
+      itemName: targetUser.name || targetUser.email,
+      description: `Delete user "${targetUser.name || targetUser.email}"? This cannot be undone.`,
+    });
+    if (!confirmed) return;
+
     try {
       const res = await toggleUserDeleteApi(id, { isDeleted: true });
       const { success, message } = res;
@@ -521,9 +570,82 @@ export default function UserManagementPage() {
       institute: "",
       role: "student",
     });
+    setCreatePassword("");
+    setShowCreatePassword(false);
     setIsDialogOpen(false);
     setIsEdit(false);
   };
+
+  const openSetPasswordDialog = (target: User) => {
+    if (!canModifyUsers) {
+      toast({
+        title: "Access Denied",
+        description: "You are not allowed to set passwords.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!canManageTargetRole(normalizeRole(target.role))) {
+      toast({
+        title: "Access Denied",
+        description: "You are not allowed to set a password for this user.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setPasswordTarget(target);
+    setPasswordDialogOpen(true);
+  };
+
+  const handleSetPassword = async () => {
+    if (!passwordTarget?._id) return;
+
+    const nextErrors: { newPassword?: string; confirmPassword?: string } = {};
+    if (!passwordForm.newPassword.trim()) {
+      nextErrors.newPassword = "New password is required";
+    } else if (passwordForm.newPassword.length < 8) {
+      nextErrors.newPassword = "Password must be at least 8 characters";
+    }
+    if (!passwordForm.confirmPassword.trim()) {
+      nextErrors.confirmPassword = "Please confirm the new password";
+    } else if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      nextErrors.confirmPassword = "Passwords do not match";
+    }
+
+    setPasswordErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    try {
+      setPasswordSaving(true);
+      const res: any = await changePasswordApi(passwordTarget._id, {
+        newPassword: passwordForm.newPassword,
+      });
+
+      if (!res?.success) {
+        toast({
+          title: "Error",
+          description: res?.message || "Failed to set password",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Password updated",
+        description: `Password set for ${passwordTarget.name || passwordTarget.email}.`,
+      });
+      setPasswordDialogOpen(false);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error?.response?.data?.message || "Failed to set password",
+        variant: "destructive",
+      });
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -634,6 +756,44 @@ export default function UserManagementPage() {
                   ))}
                 </select>
               </div>
+              {!isEdit && (
+                <div>
+                  <label className="text-sm font-medium">
+                    Password <span className="text-muted-foreground">(optional)</span>
+                  </label>
+                  <div className="relative mt-1">
+                    <Input
+                      type={showCreatePassword ? "text" : "password"}
+                      placeholder="Leave blank to use role default"
+                      value={createPassword}
+                      onChange={(e) => {
+                        setCreatePassword(e.target.value);
+                        setErrors({ ...errors, password: "" });
+                      }}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      onClick={() => setShowCreatePassword((prev) => !prev)}
+                      aria-label={showCreatePassword ? "Hide password" : "Show password"}
+                    >
+                      {showCreatePassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                  {errors.password ? (
+                    <p className="text-red-500 text-xs mt-1">{errors.password}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Defaults: Administrative@123 / Teacher@123 / Student@123
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex gap-3 pt-4">
                 <Button
                   variant="outline"
@@ -868,6 +1028,12 @@ export default function UserManagementPage() {
                                       Edit User
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
+                                      onClick={() => openSetPasswordDialog(u)}
+                                    >
+                                      <Lock className="mr-2 h-4 w-4" />
+                                      Set Password
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
                                       onClick={() =>
                                         handleToggleStatus(u._id, !u.isActive)
                                       }
@@ -905,6 +1071,109 @@ export default function UserManagementPage() {
           </>
         )}
       </div>
+
+      <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for{" "}
+              {passwordTarget?.name || passwordTarget?.email || "this user"}.
+              They can change it later from Settings.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">New Password</label>
+              <div className="relative mt-1">
+                <Input
+                  type={showPasswordFields.new ? "text" : "password"}
+                  value={passwordForm.newPassword}
+                  onChange={(e) => {
+                    setPasswordForm((prev) => ({
+                      ...prev,
+                      newPassword: e.target.value,
+                    }));
+                    setPasswordErrors((prev) => ({ ...prev, newPassword: undefined }));
+                  }}
+                  className="pr-10"
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  onClick={() =>
+                    setShowPasswordFields((prev) => ({ ...prev, new: !prev.new }))
+                  }
+                >
+                  {showPasswordFields.new ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+              {passwordErrors.newPassword && (
+                <p className="text-red-500 text-xs mt-1">{passwordErrors.newPassword}</p>
+              )}
+            </div>
+            <div>
+              <label className="text-sm font-medium">Confirm Password</label>
+              <div className="relative mt-1">
+                <Input
+                  type={showPasswordFields.confirm ? "text" : "password"}
+                  value={passwordForm.confirmPassword}
+                  onChange={(e) => {
+                    setPasswordForm((prev) => ({
+                      ...prev,
+                      confirmPassword: e.target.value,
+                    }));
+                    setPasswordErrors((prev) => ({
+                      ...prev,
+                      confirmPassword: undefined,
+                    }));
+                  }}
+                  className="pr-10"
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  onClick={() =>
+                    setShowPasswordFields((prev) => ({
+                      ...prev,
+                      confirm: !prev.confirm,
+                    }))
+                  }
+                >
+                  {showPasswordFields.confirm ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+              {passwordErrors.confirmPassword && (
+                <p className="text-red-500 text-xs mt-1">
+                  {passwordErrors.confirmPassword}
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setPasswordDialogOpen(false)}
+                disabled={passwordSaving}
+              >
+                Cancel
+              </Button>
+              <Button onClick={() => void handleSetPassword()} disabled={passwordSaving}>
+                {passwordSaving ? "Saving..." : "Set Password"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
