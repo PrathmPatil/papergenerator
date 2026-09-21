@@ -45,32 +45,49 @@ export const getOmrAudienceLabel = (classId: unknown) => {
   return label && label !== "-" ? `OMR SHEET — ${label}` : "OMR SHEET";
 };
 
-const absoluteUrl = (path: string, origin?: string) => {
-  if (!path || /^https?:\/\//i.test(path) || path.startsWith("data:")) return path;
-  const base =
-    origin ||
-    (typeof window !== "undefined" ? window.location.origin : "");
-  if (!base) return path;
-  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+/** Current academic year label, e.g. 2026-27 (April–March). */
+const getAcademicYearLabel = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = date.getMonth(); // 0-based
+  const startYear = month >= 3 ? year : year - 1;
+  const endYearShort = String((startYear + 1) % 100).padStart(2, "0");
+  return `${startYear}-${endYearShort}`;
 };
 
-/** Pick official template assets shipped under /omr-templates. */
-export const getOmrTemplateAssets = (classId: unknown, origin?: string) => {
-  const rank = getClassRank(classId);
-  const is910 = Number.isFinite(rank) && rank >= 9;
-  const headerPath = is910
-    ? "/omr-templates/omr-9-10-header.png"
-    : "/omr-templates/omr-6-8-header.png";
-  const sheetPdfPath = is910
-    ? "/omr-templates/INNOSAT_9_10.pdf"
-    : "/omr-templates/INNOSAT_6_7_8.pdf";
+const getOmrSchoolName = (config: any) => {
+  const fromConfig = String(
+    config?.institution ||
+      config?.schoolName ||
+      config?.organization ||
+      ""
+  ).trim();
+  return fromConfig || "INNOVATIVE PUBLIC SCHOOL BORAWADE";
+};
+
+/** Runtime OMR layout options — no stored template files. */
+export const getOmrLayoutOptions = (config: any) => {
+  const classId = config?.classId || config?.classLevel;
   return {
-    headerSrc: absoluteUrl(headerPath, origin),
-    sheetPdfSrc: absoluteUrl(sheetPdfPath, origin),
     rollDigits: getOmrRollDigitCount(classId),
     audience: getOmrAudienceLabel(classId),
+    schoolName: getOmrSchoolName(config),
+    academicYear: getAcademicYearLabel(),
   };
 };
+
+const renderOmrHeader = (options: {
+  schoolName: string;
+  academicYear: string;
+  audience: string;
+}) => `
+    <div class="header-wrap">
+      <div class="header-text">
+        <div class="header-school">${escapeHtml(options.schoolName)}</div>
+        <div class="header-exam">INNOVATIVE SCHOLAR'S ACHIEVEMENT TEST</div>
+        <div class="header-code">[ INNOSAT ] ${escapeHtml(options.academicYear)}</div>
+        <div class="header-sheet">${escapeHtml(options.audience)}</div>
+      </div>
+    </div>`;
 
 const optionCountForQuestion = (question: any) => {
   const options = Array.isArray(question?.options) ? question.options : [];
@@ -243,16 +260,13 @@ const waitForImages = async (root: ParentNode, timeoutMs = 2500) => {
   );
 };
 
-export const buildOmrSheetHtml = (config: any, origin?: string): string => {
-  const assetOrigin =
-    origin ||
-    (typeof window !== "undefined" ? window.location.origin : undefined);
+export const buildOmrSheetHtml = (config: any): string => {
   const sections = buildOmrSectionsFromConfig(config);
-  const assets = getOmrTemplateAssets(config?.classId || config?.classLevel, assetOrigin);
+  const layout = getOmrLayoutOptions(config);
   const title = String(config?.title || "Question Paper");
   const classLabel = formatClassLabel(config?.classId || config?.classLevel);
   const flow = buildOmrFlow(sections);
-  const columns = packColumns(flow, assets.rollDigits);
+  const columns = packColumns(flow, layout.rollDigits);
 
   const columnHtml = columns
     .map((col) => `<div class="omr-col">${col.join("")}</div>`)
@@ -303,8 +317,16 @@ export const buildOmrSheetHtml = (config: any, origin?: string): string => {
     .corner.bl { bottom: 2mm; left: 2mm; }
     .corner.br { bottom: 2mm; right: 2mm; }
 
-    .header-wrap { margin: 3mm 1mm 0; border: 1.6px solid #000; }
-    .header-img { width: 100%; height: auto; display: block; }
+    .header-wrap { margin: 3mm 1mm 0; border: 1.6px solid #000; background: #fff; }
+    .header-text {
+      text-align: center;
+      padding: 3.5mm 4mm;
+      line-height: 1.25;
+    }
+    .header-school { font-size: 15px; font-weight: 800; letter-spacing: 0.2px; }
+    .header-exam { font-size: 12px; font-weight: 700; margin-top: 1px; }
+    .header-code { font-size: 12px; font-weight: 700; margin-top: 1px; }
+    .header-sheet { font-size: 12px; font-weight: 700; margin-top: 1px; }
 
     .meta { margin: 0 1mm 2mm; }
     .meta .box {
@@ -414,9 +436,7 @@ export const buildOmrSheetHtml = (config: any, origin?: string): string => {
     <div class="corner bl"></div>
     <div class="corner br"></div>
 
-    <div class="header-wrap">
-      <img class="header-img" src="${escapeHtml(assets.headerSrc)}" alt="OMR header" />
-    </div>
+    ${renderOmrHeader(layout)}
     <div class="meta">
       <div class="box name">NAME :</div>
       <div class="row">
@@ -430,7 +450,7 @@ export const buildOmrSheetHtml = (config: any, origin?: string): string => {
       ${marks}
       <div class="cols">${columnHtml}</div>
     </div>
-    <div class="foot">Class: ${escapeHtml(classLabel)} · ${escapeHtml(assets.audience)} · Darken bubbles fully</div>
+    <div class="foot">Class: ${escapeHtml(classLabel)} · ${escapeHtml(layout.audience)} · Darken bubbles fully</div>
   </div>
 </body>
 </html>`;
@@ -450,7 +470,7 @@ export const openOmrSheetPreview = (config: any) => {
  * app's Tailwind/oklch styles (which crash color parsing).
  */
 export const exportOmrSheetAsPDF = async (config: any) => {
-  const html = buildOmrSheetHtml(config, window.location.origin);
+  const html = buildOmrSheetHtml(config);
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
   iframe.style.cssText =
@@ -474,7 +494,7 @@ export const exportOmrSheetAsPDF = async (config: any) => {
       setTimeout(() => resolve(), 400);
     });
 
-    await waitForImages(doc, 2500);
+    await waitForImages(doc, 500);
 
     const page = doc.querySelector(".page") as HTMLElement | null;
     if (!page) throw new Error("OMR page not found");
@@ -487,7 +507,7 @@ export const exportOmrSheetAsPDF = async (config: any) => {
       useCORS: true,
       logging: false,
       allowTaint: true,
-      imageTimeout: 2500,
+      imageTimeout: 500,
       windowWidth: Math.max(page.scrollWidth, 794),
       windowHeight: Math.max(page.scrollHeight, 1123),
       onclone: (clonedDoc) => {
