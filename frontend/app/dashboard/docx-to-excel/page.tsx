@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { CLASSES, SUBJECTS } from "@/lib/data";
+import Link from "next/link";
 import {
   ExcelPackageHistoryItem,
   convertDocxToExcelZipApi,
@@ -208,11 +209,16 @@ export default function DocxToExcelPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">DOCX to Excel</h2>
-        <p className="text-muted-foreground">
-          Convert Word question files into upload-ready Excel templates and image assets.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">DOCX to Excel</h2>
+          <p className="text-muted-foreground">
+            Convert Word question files into upload-ready Excel templates and image assets.
+          </p>
+        </div>
+        <Button asChild variant="outline">
+          <Link href="/dashboard/instructions">Instructions</Link>
+        </Button>
       </div>
 
       <Card>

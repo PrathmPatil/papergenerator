@@ -66,7 +66,7 @@ export function ImageSubQuestionsForm({ onChange }: ImageSubQuestionsFormProps) 
               isCorrect: o.id === correct?.id,
             })),
             correctAnswer: correct?.id,
-            marks: d.marks ?? 1,
+            marks: d.marks ?? 4,
             negativeMarks: d.negativeMarks ?? 0,
           };
         }
@@ -77,7 +77,7 @@ export function ImageSubQuestionsForm({ onChange }: ImageSubQuestionsFormProps) 
             type: "true_false",
             text: d.text,
             correctAnswer: d.correctAnswer,
-            marks: d.marks ?? 1,
+            marks: d.marks ?? 4,
             negativeMarks: d.negativeMarks ?? 0,
           };
         }

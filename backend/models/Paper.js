@@ -50,6 +50,7 @@ const PreviewSettingsSchema = new mongoose.Schema({
   year: { type: String, default: () => String(new Date().getFullYear()) },
   code: { type: String, default: "" },
   answerLinesEnabled: { type: Boolean, default: true },
+  rollNumberColumns: { type: Number, min: 1, max: 4, default: 3 },
   studentInstructions: { type: [String], default: [] },
 }, { _id: false });
 

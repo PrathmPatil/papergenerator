@@ -163,6 +163,14 @@ export default function Dashboard() {
               <Plus className="mr-2 h-4 w-4" />
               Add Question
             </Button>
+            <Button
+              variant="outline"
+              className="justify-start bg-transparent hover:bg-transparent cursor-pointer"
+              onClick={() => router.push("/dashboard/instructions")}
+            >
+              <BookOpen className="mr-2 h-4 w-4" />
+              Instructions
+            </Button>
 
             {user.role !== "student" && (
               <Button

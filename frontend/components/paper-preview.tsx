@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown, LayoutGrid } from "lucide-react";
 import { IconSpinner } from "@/components/loading";
-import { formatClassLabel } from "@/lib/utils";
+import { formatClassLabel, getApiBaseUrl } from "@/lib/utils";
+import { formatScientificText } from "@/lib/scientific-text";
 import {
   buildAnswerKeyExcelHtml,
   buildAnswerKeyHtml,
@@ -16,7 +17,7 @@ import {
   buildAnswerKeyStyles,
   formatMarksLabel,
 } from "@/lib/answer-utils";
-import { exportOmrSheetAsPDF, openOmrSheetPreview } from "@/lib/omr-sheet";
+import { exportOmrSheetAsPDF, exportOmrSheetAsWord, openOmrSheetPreview, clampOmrRollColumns } from "@/lib/omr-sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,7 +25,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 // Word/PDF "Narrow" page margins: 0.5 in = 12.7 mm = 36 pt = 720 twips.
 const PAGE_MARGIN_IN = 0.5;
 const PAGE_MARGIN_MM = PAGE_MARGIN_IN * 25.4;
@@ -293,16 +293,16 @@ const getMediaSrc = (url?: string) => {
   if (!url) return "";
   if (/^data:/i.test(url)) return url;
   if (/^https?:\/\//i.test(url)) return url;
-  if (!API_BASE_URL) {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) {
     if (typeof window !== "undefined") {
-      // make relative uploads absolute so iframe/html2canvas can load them
       if (url.startsWith("/")) return `${window.location.origin}${url}`;
       return url;
     }
     return url;
   }
 
-  return `${API_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
+  return `${apiBase}${url.startsWith("/") ? "" : "/"}${url}`;
 };
 
 const toAbsoluteUrl = (src: string) => {
@@ -542,6 +542,9 @@ export function PaperPreview({
   const [answerLinesEnabled, setAnswerLinesEnabled] = useState(
     config?.previewSettings?.answerLinesEnabled !== false
   );
+  const [rollNumberColumns, setRollNumberColumns] = useState(
+    clampOmrRollColumns(config?.previewSettings?.rollNumberColumns, 3)
+  );
   const [dynamicStudentInstructions, setDynamicStudentInstructions] = useState<string[]>(() =>
     normalizeInstructionLines(config?.previewSettings?.studentInstructions ?? config?.instructions)
   );
@@ -559,6 +562,14 @@ export function PaperPreview({
     }
   };
 
+  const omrExportConfig = {
+    ...config,
+    previewSettings: {
+      ...(config?.previewSettings || {}),
+      rollNumberColumns: clampOmrRollColumns(rollNumberColumns, 3),
+    },
+  };
+
   const isExporting = Boolean(exportBusy);
 
   useEffect(() => {
@@ -570,9 +581,10 @@ export function PaperPreview({
       year: String(paperYear || new Date().getFullYear()),
       code: String(paperCode || ""),
       answerLinesEnabled,
+      rollNumberColumns: clampOmrRollColumns(rollNumberColumns, 3),
       studentInstructions: dynamicStudentInstructions,
     });
-  }, [answerLinesEnabled, columnCount, dynamicStudentInstructions, fontSize, orientation, paperCode, paperMonth, paperYear]);
+  }, [answerLinesEnabled, columnCount, dynamicStudentInstructions, fontSize, orientation, paperCode, paperMonth, paperYear, rollNumberColumns]);
 
   const cell = {
     border: "1px solid black",
@@ -650,7 +662,7 @@ export function PaperPreview({
       >
         <p className="question-heading-text" style={{ margin: 0, flex: "1 1 auto", minWidth: 0 }}>
           <span style={{ fontWeight: 600 }}>{label} </span>
-          {text}
+          {formatScientificText(text)}
         </p>
         {marksLabel ? (
           <span
@@ -766,7 +778,7 @@ export function PaperPreview({
                 }}
               >
                 <div style={{ overflow: "visible", lineHeight: 1.35 }}>
-                  {opt.id}) {opt.text || ""}
+                  {opt.id}) {formatScientificText(opt.text || "")}
                 </div>
                 {opt.mediaUrl && (
                   <img
@@ -828,14 +840,14 @@ export function PaperPreview({
             <div style={{ flex: 1 }}>
               {renderQuestionHeading(
                 `${qIndex + 1}.`,
-                q.text ? `Instruction: ${q.text}` : "Instruction:",
+                q.text ? `Instruction: ${formatScientificText(q.text)}` : "Instruction:",
                 q.marks
               )}
 
               {hasParagraphText && (
                 <div style={{ fontSize: `${previewStyles.fontSize}pt`, marginTop: "4px", marginBottom: "8px" }}>
                   <strong>Paragraph:</strong>
-                  <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}>{q.paragraph}</div>
+                  <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}>{formatScientificText(q.paragraph)}</div>
                 </div>
               )}
 
@@ -931,7 +943,7 @@ export function PaperPreview({
                 }}
               >
                 <div style={{ overflow: "visible", lineHeight: 1.35 }}>
-                  {opt.id}) {opt.text || ""}
+                  {opt.id}) {formatScientificText(opt.text || "")}
                 </div>
                 {opt.mediaUrl && (
                   <img
@@ -1041,6 +1053,20 @@ export function PaperPreview({
               onCheckedChange={setAnswerLinesEnabled}
               aria-label="Enable answer lines"
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="preview-roll-columns">Roll number columns</Label>
+            <Input
+              id="preview-roll-columns"
+              type="number"
+              min={1}
+              max={4}
+              value={rollNumberColumns}
+              onChange={(e) => setRollNumberColumns(clampOmrRollColumns(e.target.value, 3))}
+            />
+            <p className="text-xs text-muted-foreground">
+              How many Roll No boxes to print on the OMR sheet (1 to 4). Default is 3.
+            </p>
           </div>
         </div>
 
@@ -1436,17 +1462,24 @@ export function PaperPreview({
             <DropdownMenuContent align="start">
               <DropdownMenuItem
                 disabled={isExporting}
-                onClick={() => void runExport("omr-preview", () => openOmrSheetPreview(config))}
+                onClick={() => void runExport("omr-preview", () => openOmrSheetPreview(omrExportConfig))}
               >
                 <Eye className="mr-2 h-4 w-4" />
                 Preview OMR
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={isExporting}
-                onClick={() => void runExport("omr-pdf", () => exportOmrSheetAsPDF(config))}
+                onClick={() => void runExport("omr-pdf", () => exportOmrSheetAsPDF(omrExportConfig))}
               >
                 <FileText className="mr-2 h-4 w-4" />
                 Download OMR PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={isExporting}
+                onClick={() => void runExport("omr-word", () => exportOmrSheetAsWord(omrExportConfig))}
+              >
+                <FileText className="mr-2 h-4 w-4" />
+                Download OMR Word
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

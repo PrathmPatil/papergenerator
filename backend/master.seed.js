@@ -16,7 +16,9 @@ export const seedMasterUser = async () => {
       return;
     }
 
-    const existingMaster = await User.findOne({ email: masterEmail });
+    const existingMaster = await User.findOne({
+      email: { $regex: new RegExp(`^${String(masterEmail).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+    });
 
     if (existingMaster) {
       return;

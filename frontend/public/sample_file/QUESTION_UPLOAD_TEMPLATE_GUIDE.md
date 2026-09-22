@@ -18,6 +18,16 @@ If you do not know the correct answer, set it to `A` first and review it later.
 
 Do not rename columns. Do not change column order. Do not delete required columns.
 
+## Subscripts and superscripts
+
+Excel stores `CO2` and `H2O` as plain text. The app converts them when you upload and when they are shown:
+
+- Formulas: `CO2`, `H2O`, `Al2(SO4)3`, `C6H12O6`, `Ca2+`
+- Powers: `10^-9`, `6.023 x 10^23`
+- Optional markup if auto-convert is not enough: `H_{2}O`, `Al_{2}(SO_{4})_{3}`, `10^{-9}`
+
+You do not need Excel subscript/superscript font formatting. Keep digits next to the element, for example `CO2` not `C O 2`.
+
 ## 1. Text MCQ Questions
 
 Template file:

@@ -65,6 +65,7 @@ import {
   getSubjectNameById,
   SUBJECTS,
 } from "@/lib/data";
+import { formatScientificText } from "@/lib/scientific-text";
 import { baseURL, debounce } from "@/hooks/common";
 import {
   deleteQuestionApi,
@@ -2356,6 +2357,12 @@ export default function QuestionBankPage() {
           <p className="text-muted-foreground">Manage and organize questions</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/dashboard/instructions">
+              <HelpCircle className="mr-2 h-4 w-4" />
+              Instructions
+            </Link>
+          </Button>
           <Button
             variant="outline"
             onClick={handleDownloadFilteredPdf}
@@ -2685,7 +2692,7 @@ export default function QuestionBankPage() {
                           />
                         </TableCell>
                         <TableCell className="truncate max-w-xs">
-                          {q.text}
+                          {formatScientificText(q.text)}
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap items-center gap-1">
@@ -2857,7 +2864,7 @@ export default function QuestionBankPage() {
               {/* ================= QUESTION ================= */}
               <div className="space-y-3">
                 <p className="font-medium">
-                  <b>Question:</b> {selectedQuestion.text}
+                  <b>Question:</b> {formatScientificText(selectedQuestion.text)}
                 </p>
 
                 {/* QUESTION IMAGES */}
@@ -2916,7 +2923,7 @@ export default function QuestionBankPage() {
 
                         {/* OPTION TEXT */}
                         {option.text && (
-                          <span className="text-sm">{option.text}</span>
+                          <span className="text-sm">{formatScientificText(option.text)}</span>
                         )}
 
                         {!option.text && !optionImageUrl && (
@@ -2945,7 +2952,7 @@ export default function QuestionBankPage() {
                       ? "Paragraph"
                       : "Instruction"}
                   </h3>
-                  <p>{selectedQuestion.paragraph || selectedQuestion.text}</p>
+                  <p>{formatScientificText(selectedQuestion.paragraph || selectedQuestion.text)}</p>
                   {selectedQuestion.type === "image_subquestions" && getQuestionImageUrl(selectedQuestion) && (
                     <div className="mt-3 overflow-hidden rounded border bg-background p-2 max-w-2xl">
                       <img
@@ -2970,7 +2977,7 @@ export default function QuestionBankPage() {
                       >
                         <div className="flex justify-between items-start">
                           <p className="font-medium">
-                            {index + 1}. {sq.text || "Untitled"}
+                            {index + 1}. {formatScientificText(sq.text || "Untitled")}
                           </p>
                           <span className="text-xs text-muted-foreground capitalize">
                             {String(sq.type || "").replace("_", " ")} | Marks: {sq.marks}
@@ -3012,10 +3019,10 @@ export default function QuestionBankPage() {
                                         alt={`Option ${optIndex + 1}`}
                                         className="max-h-20 rounded border"
                                       />
-                                      {opt.text && <span className="text-sm">{opt.text}</span>}
+                                      {opt.text && <span className="text-sm">{formatScientificText(opt.text)}</span>}
                                     </>
                                   ) : (
-                                    <span>{opt.text}</span>
+                                    <span>{formatScientificText(opt.text)}</span>
                                   )}
                                 </li>
                               );

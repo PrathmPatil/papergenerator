@@ -112,15 +112,19 @@ router.post("/register",verifyToken, async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const rawPassword = String(password || "");
 
-    if (!email || !password) {
+    if (!normalizedEmail || !rawPassword) {
       return res.status(400).json({
         success: false,
         message: "Email and password are required",
       });
     }
 
-    const user = await User.findOne({ email }).select("+password");
+    const user = await User.findOne({
+      email: { $regex: new RegExp(`^${normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+    }).select("+password");
 
     if (!user) {
       return res.status(401).json({
@@ -143,7 +147,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await bcrypt.compare(rawPassword, user.password);
 
     if (!isMatch) {
       return res.status(401).json({

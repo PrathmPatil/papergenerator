@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   Settings,
   UploadCloud,
+  CircleHelp,
   LayoutDashboard,
   GraduationCap,
   LogOut,
@@ -51,12 +52,14 @@ export function AppSidebar() {
    // { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
     { name: "User Management", href: "/dashboard/users", icon: Users },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
+    { name: "Instructions", href: "/dashboard/instructions", icon: CircleHelp },
   ]
 
   const studentLinks = [
     { name: "My Papers", href: "/dashboard/my-papers", icon: FileText },
     { name: "Papers", href: "/dashboard/papers", icon: GraduationCap },
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
+    { name: "Instructions", href: "/dashboard/instructions", icon: CircleHelp },
   ]
 
   const role = String(user.role || "").toLowerCase()
@@ -128,6 +131,7 @@ export function AppSidebar() {
             <Link
               key={link.href}
               href={link.href}
+              data-testid={`nav-${link.name.toLowerCase().replace(/\s+/g, "-")}`}
               title={collapsed ? link.name : undefined}
               className={cn(
                 "flex items-start rounded-md py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",

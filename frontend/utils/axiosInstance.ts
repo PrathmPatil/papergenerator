@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from "axios";
+import { getApiBaseUrl } from "@/lib/utils";
 
-const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const timeout = Number(process.env.NEXT_PUBLIC_API_TIMEOUT) || 10000;
 const endpointCooldowns = new Map<string, number>();
 
@@ -8,7 +8,7 @@ const getRequestKey = (method?: string, url?: string) =>
   `${String(method || "get").toUpperCase()}:${String(url || "")}`;
 
 const axiosInstance: AxiosInstance = axios.create({
-  baseURL,
+  baseURL: getApiBaseUrl(),
   timeout,
 });
 
@@ -26,6 +26,8 @@ axiosInstance.interceptors.request.use(
       const secondsLeft = Math.max(1, Math.ceil((cooldownUntil - Date.now()) / 1000));
       return Promise.reject(new Error(`Rate limit active. Please retry in ${secondsLeft}s.`));
     }
+
+    config.baseURL = getApiBaseUrl();
 
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("token");

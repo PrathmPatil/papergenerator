@@ -77,7 +77,7 @@ export function ParagraphForm({ onChange }: ParagraphFormProps) {
               isCorrect: o.id === correct?.id,
             })),
             correctAnswer: correct?.id,
-            marks: d.marks ?? 1,
+            marks: d.marks ?? 4,
             negativeMarks: d.negativeMarks ?? 0,
           }
         }
@@ -88,7 +88,7 @@ export function ParagraphForm({ onChange }: ParagraphFormProps) {
             type: "true_false",
             text: d.text,
             correctAnswer: d.correctAnswer,
-            marks: d.marks ?? 1,
+            marks: d.marks ?? 4,
             negativeMarks: d.negativeMarks ?? 0,
           }
         }

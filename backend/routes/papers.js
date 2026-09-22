@@ -764,6 +764,7 @@ router.put("/:id", requireStaff, async (req, res) => {
     if (previewSettings && typeof previewSettings === "object") {
       const fontSize = Number(previewSettings.fontSize);
       const columnCount = Number(previewSettings.columnCount);
+      const rollNumberColumns = Number(previewSettings.rollNumberColumns);
 
       paper.previewSettings = {
         fontSize: Number.isFinite(fontSize) && fontSize >= 0 ? fontSize : 14,
@@ -775,6 +776,9 @@ router.put("/:id", requireStaff, async (req, res) => {
         year: String(previewSettings.year || new Date().getFullYear()),
         code: String(previewSettings.code || ""),
         answerLinesEnabled: previewSettings.answerLinesEnabled !== false,
+        rollNumberColumns: Number.isFinite(rollNumberColumns)
+          ? Math.min(4, Math.max(1, Math.round(rollNumberColumns)))
+          : 3,
         studentInstructions: Array.isArray(previewSettings.studentInstructions)
           ? previewSettings.studentInstructions.map((line) => String(line || "").trim()).filter(Boolean)
           : [],

@@ -1,9 +1,19 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { getClassNameById } from '@/lib/data'
+import { formatScientificText } from '@/lib/scientific-text'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+/** Localhost uses the API port; public tunnels reuse this page origin (proxied by Next). */
+export function getApiBaseUrl() {
+  const configured = String(process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "")
+  if (typeof window === "undefined") return configured
+  const host = window.location.hostname
+  if (host === "localhost" || host === "127.0.0.1") return configured
+  return window.location.origin
 }
 
 export function formatTopicTitle(value: string) {
@@ -60,14 +70,15 @@ export function mapPaperToPreviewConfig(paper: any) {
           ...q,
           questionId: String(q?.questionId || q?._id || ""),
           type: q?.type || "",
-          text: q?.text || "",
-          paragraph: q?.paragraph || "",
+          text: formatScientificText(q?.text || ""),
+          paragraph: formatScientificText(q?.paragraph || ""),
           subQuestions: (Array.isArray(q?.subQuestions) ? q.subQuestions : []).map((sub: any) => ({
             ...sub,
+            text: formatScientificText(sub?.text || ""),
             options: (Array.isArray(sub?.options) ? sub.options : []).map((opt: any, index: number) => ({
               ...opt,
               id: opt?.id ?? String.fromCharCode(65 + index),
-              text: opt?.text || "",
+              text: formatScientificText(opt?.text || ""),
               isCorrect: Boolean(opt?.isCorrect),
               mediaUrl: opt?.mediaUrl || "",
             })),
@@ -78,7 +89,7 @@ export function mapPaperToPreviewConfig(paper: any) {
           options: (Array.isArray(q?.options) ? q.options : []).map((opt: any, index: number) => ({
             ...opt,
             id: opt?.id ?? String.fromCharCode(65 + index),
-            text: opt?.text || "",
+              text: formatScientificText(opt?.text || ""),
             isCorrect: Boolean(opt?.isCorrect),
             mediaUrl: opt?.mediaUrl || "",
           })),

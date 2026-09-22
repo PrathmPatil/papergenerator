@@ -359,7 +359,7 @@ export default function SettingsPage() {
             ))}
           </div>
           <div className="flex justify-end pt-4 border-t">
-            <Button onClick={handlePasswordChange} disabled={passwordLoading}>
+            <Button onClick={handlePasswordChange} data-testid="update-password-button" disabled={passwordLoading}>
               {passwordLoading ? "Updating..." : "Update Password"}
             </Button>
           </div>

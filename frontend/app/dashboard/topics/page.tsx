@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Download, Edit, FileSpreadsheet, Plus, Search, Trash, Upload, Tags } from "lucide-react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -587,6 +588,9 @@ export default function TopicsPage() {
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
+          <Button asChild variant="outline" className="gap-2 md:mt-1">
+            <Link href="/dashboard/instructions">Instructions</Link>
+          </Button>
           <Button
             variant="outline"
             onClick={handleDownloadSampleFile}
@@ -719,7 +723,7 @@ export default function TopicsPage() {
         </div>
 
         <div className="flex items-end">
-          <Button onClick={handleAddTopic} disabled={saving} className="w-full gap-2 md:w-auto">
+          <Button onClick={handleAddTopic} data-testid="topic-add-button" disabled={saving} className="w-full gap-2 md:w-auto">
             <Plus className="h-4 w-4" />
             Add
           </Button>

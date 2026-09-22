@@ -138,7 +138,7 @@ export default function CreateQuestionPage() {
   const [topicsLoading, setTopicsLoading] = useState(false);
   const [creatingTopic, setCreatingTopic] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
-  const [marks, setMarks] = useState(1);
+  const [marks, setMarks] = useState(4);
   const [negativeMarks, setNegativeMarks] = useState(0);
   const [questionType, setQuestionType] = useState<QuestionType>("mcq_text");
   const [isLoading, setIsLoading] = useState(false);
@@ -160,7 +160,7 @@ export default function CreateQuestionPage() {
     setSelectedTopic("");
     setTopicNameInput("");
     setDifficulty("medium");
-    setMarks(1);
+    setMarks(4);
     setNegativeMarks(0);
     setMcqData(null);
     setParagraphData(null);
@@ -556,11 +556,16 @@ export default function CreateQuestionPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <div>
-          <h2 className="text-2xl font-bold">Create New Question</h2>
-          <p className="text-muted-foreground">
-            Add a question to the master database
-          </p>
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-bold">Create New Question</h2>
+            <p className="text-muted-foreground">
+              Add a question to the master database
+            </p>
+          </div>
+          <Button asChild variant="outline">
+            <Link href="/dashboard/instructions">Instructions & samples</Link>
+          </Button>
         </div>
       </div>
 
@@ -765,6 +770,9 @@ export default function CreateQuestionPage() {
                       </div>
                       <p className="text-xs text-muted-foreground">
                         Use the same column names as the template file. classId, subjectId, type, text, optionA-optionD, and correctAnswer are required; optionE is optional.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {"Chemistry formulas can be typed as plain text (CO2, H2O, Al2(SO4)3, 10^-9). They are shown with subscripts and superscripts in the UI. You can also write H_{2}O or 10^{-9}."}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         The full Excel payload is sent in one bulk request.

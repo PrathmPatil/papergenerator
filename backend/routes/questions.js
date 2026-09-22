@@ -86,6 +86,7 @@ import { sanitizeQuestionsForList } from "../utils/questionListResponse.js";
 import { computeSelectionStats } from "../utils/selectionStats.js";
 import XLSX from "xlsx";
 import unzipper from "unzipper";
+import { formatQuestionTextFields } from "../utils/scientificText.js";
 
 router.post("/test", (req, res) => {
   res.json({ message: "OK" });
@@ -315,7 +316,8 @@ const insertQuestionsInChunks = async (questions = [], chunkSize = 500) => {
   const insertedDocs = [];
 
   for (const chunk of chunkArray(questions, chunkSize)) {
-    const inserted = await Question.insertMany(chunk, { ordered: false });
+    const formattedChunk = chunk.map((question) => formatQuestionTextFields(question));
+    const inserted = await Question.insertMany(formattedChunk, { ordered: false });
     insertedDocs.push(...inserted);
   }
 
@@ -1083,7 +1085,7 @@ router.post(
         });
       }
 
-      const q = new Question(normalizedPayload);
+      const q = new Question(formatQuestionTextFields(normalizedPayload));
       await q.save();
 
       res.json({ success: true, question: q });
@@ -2004,7 +2006,7 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
         _id: id,
         $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
       },
-      { $set: update },
+      { $set: formatQuestionTextFields(update) },
       { new: true },
     );
 

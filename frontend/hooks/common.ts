@@ -1,4 +1,5 @@
 import { CLASSES, normalizeSubjectId } from "@/lib/data";
+import { formatScientificText } from "@/lib/scientific-text";
 
 interface ExcelMCQImageRow {
   classId: string;
@@ -214,6 +215,7 @@ const normalizeClassId = (value: unknown) => {
 
   return normalized || raw;
 };
+export { getApiBaseUrl } from "@/lib/utils";
 export const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
 export function debounce<T extends (...args: any[]) => any>(
@@ -264,7 +266,7 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
     const normalizedClassId = normalizeClassId(classId);
     const normalizedSubjectId = normalizeSubjectId(String(subjectId || ""));
     const normalizedType = normalizeQuestionType(type || questionType);
-    const questionBody = text || questionText || "";
+    const questionBody = formatScientificText(text || questionText || "");
     const normalizedCorrectAnswer = normalizeCorrectAnswer(correctAnswer);
     const freeTextCorrectAnswer = String(correctAnswer || "").trim();
 
@@ -283,7 +285,7 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
         negativeMarks: Number(negativeMarks) || 0,
         text: questionBody,
         options: [],
-        correctAnswer: freeTextCorrectAnswer,
+        correctAnswer: formatScientificText(freeTextCorrectAnswer),
       };
     }
 
@@ -297,7 +299,7 @@ export function convertExcelRowsToQuestions(rows: ExcelMCQRow[] = []) {
       .filter((opt) => opt.text)
       .map((opt) => ({
         id: opt.id,
-        text: opt.text as string,
+        text: formatScientificText(opt.text),
         isCorrect: opt.id === normalizedCorrectAnswer,
       }));
 
@@ -368,7 +370,7 @@ export function convertExcelRowsToImageMCQQuestions(
 
       return {
         id,
-        text: text || "",
+        text: formatScientificText(text || ""),
         image: image ? { url: `/uploads/${image}` } : null,
         isCorrect: id === correctAnswer,
         showPreview: true,
@@ -391,7 +393,7 @@ export function convertExcelRowsToImageMCQQuestions(
       difficulty: difficulty || "easy",
       marks: Number(marks) || 1,
       negativeMarks: Number(negativeMarks) || 0,
-      text: questionText || "",
+      text: formatScientificText(questionText || ""),
       image: questionImage ? { url: `/uploads/${questionImage}` } : null,
       options,
       correctAnswer,
@@ -488,7 +490,7 @@ export function convertExcelRowsToParagraphQuestions(
         .filter((o) => o.text)
         .map((o) => ({
           id: o.id,
-          text: o.text as string,
+          text: formatScientificText(o.text),
           isCorrect: o.id === normalizedCorrectAnswer,
         }));
 
@@ -499,7 +501,7 @@ export function convertExcelRowsToParagraphQuestions(
       return {
         id: subQuestionId,
         type: "mcq_text",
-        text: subQuestionText || "",
+        text: formatScientificText(subQuestionText || ""),
         options,
         correctAnswer: normalizedCorrectAnswer,
         marks: Number(marks) || 1,
@@ -520,7 +522,7 @@ export function convertExcelRowsToParagraphQuestions(
       return {
         id: subQuestionId,
         type: "true_false",
-        text: subQuestionText || "",
+        text: formatScientificText(subQuestionText || ""),
         correctAnswer: correctAnswer === true || String(correctAnswer).toLowerCase() === "true",
         marks: Number(marks) || 1,
         negativeMarks: Number(negativeMarks) || 0,
@@ -531,8 +533,8 @@ export function convertExcelRowsToParagraphQuestions(
       return {
         id: subQuestionId,
         type: "short_answer",
-        text: subQuestionText || "",
-        correctAnswer: correctAnswer || "",
+        text: formatScientificText(subQuestionText || ""),
+        correctAnswer: formatScientificText(correctAnswer || ""),
         marks: Number(marks) || 2,
         negativeMarks: Number(negativeMarks) || 0,
       };
@@ -597,8 +599,8 @@ export function convertExcelRowsToParagraphQuestions(
       topicId: topicId || firstRow.topicName || "",
       difficulty: normalizeDifficulty(difficulty),
       type: "paragraph",
-      text: instructionText,
-      paragraph,
+      text: formatScientificText(instructionText),
+      paragraph: formatScientificText(paragraph),
       subQuestions,
       marks: subQuestions.reduce((sum, q) => sum + q.marks, 0),
       negativeMarks: subQuestions.reduce((sum, q) => sum + q.negativeMarks, 0),

@@ -69,7 +69,7 @@ export default function LoginPage() {
     try {
       setLoading(true)
 
-      const res = await loginUserApi({ email, password })
+      const res = await loginUserApi({ email: email.trim(), password })
       console.log(res)
       const { data, success } = res
       if (success !== true) {
@@ -120,6 +120,7 @@ export default function LoginPage() {
                 <Label>Email</Label>
                 <Input
                   type="email"
+                  data-testid="login-email"
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value)
@@ -136,6 +137,7 @@ export default function LoginPage() {
                 <Label>Password</Label>
                 <Input
                   type="password"
+                  data-testid="login-password"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value)
@@ -152,7 +154,7 @@ export default function LoginPage() {
                 <p className="text-sm text-red-500">{errors.general}</p>
               )}
 
-              <Button className="w-full" disabled={loading}>
+              <Button className="w-full" data-testid="login-submit" disabled={loading}>
                 {loading ? "Logging in..." : "Login"}
               </Button>
             </form>

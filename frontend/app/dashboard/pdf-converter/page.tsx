@@ -33,6 +33,7 @@ import {
   fetchTopicsApi,
 } from "@/utils/apis";
 import { CLASSES, SUBJECTS } from "@/lib/data";
+import Link from "next/link";
 
 const MAX_FILE_SIZE_MB = 50;
 const HISTORY_PAGE_SIZE = 5;
@@ -407,6 +408,9 @@ export default function PdfConverterPage() {
             Convert uploaded PDFs into DOCX files and download extracted image assets.
         </p>
         </div>
+        <Button asChild variant="outline">
+          <Link href="/dashboard/instructions">Instructions</Link>
+        </Button>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
