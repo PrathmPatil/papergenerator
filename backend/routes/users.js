@@ -4,7 +4,7 @@ const router = express.Router();
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { authorizeUser, verifyAdmin, verifyToken } from "../middleware/tokenVerification.middleware.js";
-import { getClientIp, logActivity } from "../utils/activityLogger.js";
+import { logActivity, resolveClientIp } from "../utils/activityLogger.js";
 
 const normalizeRole = (role) => {
   const value = String(role || "").trim().toLowerCase();
@@ -114,7 +114,7 @@ router.post("/login", async (req, res) => {
   const { email, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const rawPassword = String(password || "");
-  const ip = getClientIp(req);
+  const ip = await resolveClientIp(req);
   let logPayload = {
     action: "LOGIN_FAILED",
     statusCode: 500,

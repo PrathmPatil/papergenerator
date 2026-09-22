@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 import { getApiBaseUrl } from "@/lib/utils";
+import { getPublicClientIp } from "@/lib/client-ip";
 
 const timeout = Number(process.env.NEXT_PUBLIC_API_TIMEOUT) || 10000;
 const endpointCooldowns = new Map<string, number>();
@@ -14,7 +15,7 @@ const axiosInstance: AxiosInstance = axios.create({
 
 // Request interceptor – attach token
 axiosInstance.interceptors.request.use(
-  (config) => {
+  async (config) => {
     const urlPath = String(config.url || "").split("?")[0];
     // Title availability checks are user-driven and must always reach the server.
     // A prior 429 on the same URL was blocking "Unit Test 5" with no network call.
@@ -28,11 +29,16 @@ axiosInstance.interceptors.request.use(
     }
 
     config.baseURL = getApiBaseUrl();
+    config.headers = config.headers || {};
 
     if (typeof window !== "undefined") {
       const token = localStorage.getItem("token");
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
+      }
+      const publicIp = await getPublicClientIp();
+      if (publicIp) {
+        config.headers["X-Client-Public-IP"] = publicIp;
       }
     }
     return config;
