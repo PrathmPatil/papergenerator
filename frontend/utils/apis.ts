@@ -879,3 +879,11 @@ export const downloadPdfConversionImagesZipApi = async (jobId: string): Promise<
 
   return ensureDownloadBlob(response as unknown as Blob, "Images ZIP download failed.");
 };
+
+export const fetchActivityLogsApi = async (params: Record<string, string | number> = {}) => {
+  const response = await apiClient({
+    url: "/api/activity-logs",
+    params,
+  });
+  return response;
+};

@@ -15,6 +15,8 @@ import { swaggerDocs } from "./swagger.js";
 import { requireStaff, verifyToken } from "./middleware/tokenVerification.middleware.js";
 import { seedMasterUser } from "./master.seed.js";
 import { apiRateLimiter, authRateLimiter } from "./middleware/rateLimit.middleware.js";
+import { activityLogMiddleware } from "./middleware/activityLog.middleware.js";
+import activityLogRoutes from "./routes/activityLogs.js";
 
 
 dotenv.config();
@@ -37,6 +39,7 @@ app.use("/api/users/register", authRateLimiter);
 
 // Apply shared API rate limiting for all API routes.
 app.use("/api", apiRateLimiter);
+app.use("/api", activityLogMiddleware);
 
 if (process.env.LOG_REQUESTS === "true") {
   app.use((req, res, next) => {
@@ -53,6 +56,7 @@ app.use("/api/templates", verifyToken, requireStaff, templateRoutes);
 app.use("/api/pdf-conversion", verifyToken, requireStaff, pdfConversionRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/setting",userSettingRoutes)
+app.use("/api/activity-logs", activityLogRoutes);
 
 app.use((err, req, res, next) => {
   if (err?.type === "entity.too.large") {

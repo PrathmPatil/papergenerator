@@ -15,6 +15,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  ScrollText,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -42,6 +43,11 @@ export function AppSidebar() {
 
   const commonLinks = [{ name: "Dashboard", href: "/dashboard", icon: LayoutDashboard }]
 
+  const role = String(user.role || "").toLowerCase()
+  const hasFullAccess =
+    role === "master" || role === "administrative" || role === "teacher"
+  const canViewLogs = role === "master" || role === "administrative"
+
   const fullAccessLinks = [
     { name: "Question Bank", href: "/dashboard/questions", icon: BookOpen },
     { name: "Topics", href: "/dashboard/topics", icon: Tags },
@@ -49,8 +55,10 @@ export function AppSidebar() {
     { name: "Papers", href: "/dashboard/papers", icon: GraduationCap },
     { name: "PDF Converter", href: "/dashboard/pdf-converter", icon: UploadCloud },
     { name: "DOCX to Excel", href: "/dashboard/docx-to-excel", icon: FileSpreadsheet },
-   // { name: "Bulk Upload", href: "/dashboard/upload", icon: Upload },
     { name: "User Management", href: "/dashboard/users", icon: Users },
+    ...(canViewLogs
+      ? [{ name: "Activity Logs", href: "/dashboard/logs", icon: ScrollText }]
+      : []),
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
     { name: "Instructions", href: "/dashboard/instructions", icon: CircleHelp },
   ]
@@ -61,10 +69,6 @@ export function AppSidebar() {
     { name: "Settings", href: "/dashboard/settings", icon: Settings },
     { name: "Instructions", href: "/dashboard/instructions", icon: CircleHelp },
   ]
-
-  const role = String(user.role || "").toLowerCase()
-  const hasFullAccess =
-    role === "master" || role === "administrative" || role === "teacher"
 
   const links = [
     ...commonLinks,

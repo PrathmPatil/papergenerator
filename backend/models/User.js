@@ -11,6 +11,8 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, required: true, default: Date.now },
   updatedAt: { type: Date, required: true, default: Date.now },
   password: { type: String, required: true, select: false },
+  lastLoginIp: { type: String, default: "" },
+  lastLoginAt: { type: Date, default: null },
   // ✅ Soft delete fields (ADD)
   deletedAt: { type: Date, default: null },
   deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },

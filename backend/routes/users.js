@@ -4,6 +4,7 @@ const router = express.Router();
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { authorizeUser, verifyAdmin, verifyToken } from "../middleware/tokenVerification.middleware.js";
+import { getClientIp, logActivity } from "../utils/activityLogger.js";
 
 const normalizeRole = (role) => {
   const value = String(role || "").trim().toLowerCase();
@@ -110,12 +111,22 @@ router.post("/register",verifyToken, async (req, res) => {
 });
 
 router.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const normalizedEmail = String(email || "").trim().toLowerCase();
-    const rawPassword = String(password || "");
+  const { email, password } = req.body;
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const rawPassword = String(password || "");
+  const ip = getClientIp(req);
+  let logPayload = {
+    action: "LOGIN_FAILED",
+    statusCode: 500,
+    success: false,
+    user: { email: normalizedEmail },
+    details: { email: normalizedEmail, ip },
+  };
 
+  try {
     if (!normalizedEmail || !rawPassword) {
+      logPayload.statusCode = 400;
+      logPayload.details.reason = "missing_credentials";
       return res.status(400).json({
         success: false,
         message: "Email and password are required",
@@ -127,13 +138,24 @@ router.post("/login", async (req, res) => {
     }).select("+password");
 
     if (!user) {
+      logPayload.statusCode = 401;
+      logPayload.details.reason = "user_not_found";
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
       });
     }
 
+    logPayload.user = {
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    };
+
     if (user.isDeleted) {
+      logPayload.statusCode = 403;
+      logPayload.details.reason = "account_deleted";
       return res.status(403).json({
         success: false,
         message: "Account is deleted. Please contact admin.",
@@ -141,6 +163,8 @@ router.post("/login", async (req, res) => {
     }
 
     if (!user.password) {
+      logPayload.statusCode = 500;
+      logPayload.details.reason = "password_not_set";
       return res.status(500).json({
         success: false,
         message: "Password not set. Please reset password.",
@@ -150,6 +174,8 @@ router.post("/login", async (req, res) => {
     const isMatch = await bcrypt.compare(rawPassword, user.password);
 
     if (!isMatch) {
+      logPayload.statusCode = 401;
+      logPayload.details.reason = "bad_password";
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
@@ -158,13 +184,14 @@ router.post("/login", async (req, res) => {
 
     if (!process.env.JWT_SECRET) {
       console.error("JWT_SECRET is not configured");
+      logPayload.statusCode = 500;
+      logPayload.details.reason = "jwt_not_configured";
       return res.status(500).json({
         success: false,
         message: "Authentication is not configured",
       });
     }
 
-    // send the token 
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
@@ -172,6 +199,23 @@ router.post("/login", async (req, res) => {
         expiresIn: "1d",
       },
     );
+
+    user.lastLoginIp = ip;
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    logPayload = {
+      action: "LOGIN_SUCCESS",
+      statusCode: 200,
+      success: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+      details: { email: user.email, ip },
+    };
 
     return res.status(200).json({
       success: true,
@@ -190,10 +234,14 @@ router.post("/login", async (req, res) => {
     });
   } catch (error) {
     console.error("LOGIN ERROR:", error);
+    logPayload.statusCode = 500;
+    logPayload.details.reason = "server_error";
     return res.status(500).json({
       success: false,
       message: "Internal server error",
     });
+  } finally {
+    await logActivity({ req, ...logPayload });
   }
 });
 
