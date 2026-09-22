@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Plus,
   Eye,
   Edit,
   Trash,
   MoreHorizontal,
-  Filter,
   X,
   Copy,
   FileText,
+  Search,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -46,7 +46,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { fetchAllPapersApi, deletePaperApi, clonePaperApi } from "@/utils/apis";
 import { IconSpinner, LoadingPanel } from "@/components/loading";
@@ -196,36 +202,29 @@ export default function PaperBankPage() {
   /* ================= UI ================= */
 
   return (
-    <div className="space-y-6">
+    <TooltipProvider>
+    <div className="space-y-3">
       {/* HEADER */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-3xl font-bold">Paper Bank</h2>
-          <p className="text-muted-foreground">
-            Manage exam papers and sections
-          </p>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold leading-tight">Paper Bank</h2>
+          <p className="text-xs text-muted-foreground">{stats.totalPapers} papers</p>
         </div>
-        <Link href="/dashboard/generate" className="cursor-pointer">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" /> Create Paper
+        <IconAction label="Create Paper">
+          <Button asChild size="icon-sm">
+            <Link href="/dashboard/generate" aria-label="Create Paper">
+              <Plus />
+            </Link>
           </Button>
-        </Link>
+        </IconAction>
       </div>
 
-      {/* STATS */}
-      <div className="grid md:grid-cols-4 gap-4">
-        <StatCard label="Total Papers" value={stats.totalPapers} />
-        <Card className="col-span-3">
-          <CardHeader className="flex justify-between items-center">
-            <CardTitle className="flex gap-2 items-center">
-              <Filter className="h-4 w-4" /> Filters
-            </CardTitle>
-            <Button variant="ghost" onClick={clearFilters}>
-              <X className="h-4 w-4 mr-1" /> Clear
-            </Button>
-          </CardHeader>
-          <CardContent className="grid md:grid-cols-3 gap-4">
+      <Card className="gap-0 py-0">
+        <CardContent className="flex items-center gap-1 p-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              className="h-8 pl-8"
               placeholder="Search paper title..."
               value={searchTerm}
               onChange={(e) => {
@@ -233,31 +232,41 @@ export default function PaperBankPage() {
                 debouncedSearch(e.target.value);
               }}
             />
-
-            <Select value={filterClass} onValueChange={setFilterClass}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Class" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Classes</SelectItem>
-                {CLASSES.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          <Select value={filterClass} onValueChange={setFilterClass}>
+            <SelectTrigger className="h-8 w-[9.5rem] shrink-0">
+              <SelectValue placeholder="Class" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Classes</SelectItem>
+              {CLASSES.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <IconAction label="Clear filters">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Clear filters"
+              onClick={clearFilters}
+            >
+              <X />
+            </Button>
+          </IconAction>
+        </CardContent>
+      </Card>
 
       {/* TABLE */}
-      <Card>
+      <Card className="gap-0 py-0">
         <CardContent className="p-0">
           {isLoading ? (
             <LoadingPanel label="Loading papers..." icon={FileText} />
           ) : papers.length === 0 ? (
-            <div className="p-6 text-center">No papers found</div>
+            <div className="p-3 text-center text-sm">No papers found</div>
           ) : (
             <Table>
               <TableHeader>
@@ -284,7 +293,7 @@ export default function PaperBankPage() {
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button size="icon" variant="ghost" disabled={cloningId === paper._id}>
+                          <Button size="icon-sm" variant="ghost" disabled={cloningId === paper._id}>
                             <IconSpinner
                               icon={MoreHorizontal}
                               spinning={cloningId === paper._id}
@@ -349,8 +358,8 @@ export default function PaperBankPage() {
           </DialogHeader>
 
           {selectedPaper && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 text-sm gap-2">
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-1 text-sm">
                 <p>Class: {getClassNameById(selectedPaper.classId)}</p>
                 <p>Total Marks: {selectedPaper.totalMarks}</p>
                 <p>Duration: {selectedPaper.durationMinutes} min</p>
@@ -358,8 +367,8 @@ export default function PaperBankPage() {
               </div>
 
               {selectedPaper.sections.map((sec) => (
-                <Card key={sec.id}>
-                  <CardContent className="p-4 flex justify-between">
+                <Card key={sec.id} className="gap-0 py-0">
+                  <CardContent className="flex justify-between p-2">
                     <span>{sec.name}</span>
                     <Badge>{sec.marks} marks</Badge>
                   </CardContent>
@@ -370,18 +379,23 @@ export default function PaperBankPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </TooltipProvider>
   );
 }
 
-/* ================= STAT CARD ================= */
-
-function StatCard({ label, value }: { label: string; value: number }) {
+function IconAction({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
-    <Card className="col-span-1">
-      <CardContent className="pt-6 text-center">
-        <div className="text-3xl font-bold">{value}</div>
-        <p className="text-sm text-muted-foreground">{label}</p>
-      </CardContent>
-    </Card>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{children}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   );
 }

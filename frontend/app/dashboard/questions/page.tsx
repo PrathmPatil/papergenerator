@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
 import {
   Plus,
   Search,
@@ -8,7 +8,6 @@ import {
   Eye,
   Edit,
   Trash,
-  Download,
   Filter,
   X,
   Calendar,
@@ -16,6 +15,12 @@ import {
   ImageIcon,
   HelpCircle,
   Tag,
+  FileText,
+  FileSpreadsheet,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
@@ -57,6 +62,12 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { downloadQuestionBankExcelApi, fetchAllQuestionsApi, fetchTopicsApi, getQuestionByIdApi } from "@/utils/apis";
 import {
@@ -232,6 +243,7 @@ export default function QuestionBankPage() {
   const [filterDifficulty, setFilterDifficulty] = useState("all");
   const [filterCreatedFrom, setFilterCreatedFrom] = useState("");
   const [filterCreatedTo, setFilterCreatedTo] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [reviewTextMcqWithImages, setReviewTextMcqWithImages] = useState(false);
   const [topics, setTopics] = useState<TopicOption[]>([]);
   const [topicsLoading, setTopicsLoading] = useState(false);
@@ -1391,6 +1403,16 @@ export default function QuestionBankPage() {
      UI
   ---------------------------------------- */
 
+  const activeFilterCount = [
+    filterClass !== "all",
+    filterSubject !== "all",
+    filterTopic !== "all",
+    filterType !== "all",
+    filterDifficulty !== "all",
+    Boolean(filterCreatedFrom),
+    Boolean(filterCreatedTo),
+  ].filter(Boolean).length;
+
   const clearFilters = () => {
     setSearchTerm("");
     setSearchDebounce("");
@@ -2349,81 +2371,75 @@ export default function QuestionBankPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <TooltipProvider>
+    <div className="space-y-3">
       {/* HEADER */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-3xl font-bold">Question Bank</h2>
-          <p className="text-muted-foreground">Manage and organize questions</p>
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold leading-tight">Question Bank</h2>
+          <p className="text-xs text-muted-foreground">
+            {totalRecords} questions · {recordsPerPage}/page · {totalPages} pages
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button asChild variant="outline">
-            <Link href="/dashboard/instructions">
-              <HelpCircle className="mr-2 h-4 w-4" />
-              Instructions
-            </Link>
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleDownloadFilteredPdf}
-            disabled={isDownloadingPdf || isLoading}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            {isDownloadingPdf ? "Preparing..." : "Download PDF"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleDownloadFilteredExcel}
-            disabled={isDownloadingExcel || isLoading}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            {isDownloadingExcel ? "Preparing..." : "Download Excel"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleRebuildUsage}
-            disabled={isRebuildingUsage || isLoading}
-          >
-            <RotateCcw className="mr-2 h-4 w-4" />
-            {isRebuildingUsage ? "Rebuilding..." : "Rebuild Usage"}
-          </Button>
-          <Link href="/dashboard/questions/new">
-            <Button className="cursor-pointer">
-              <Plus className="mr-2 h-4 w-4" /> Add Question
+        <div className="flex shrink-0 items-center gap-1">
+          <IconAction label="Instructions">
+            <Button asChild variant="outline" size="icon-sm">
+              <Link href="/dashboard/instructions" aria-label="Instructions">
+                <HelpCircle />
+              </Link>
             </Button>
-          </Link>
+          </IconAction>
+          <IconAction label={isDownloadingPdf ? "Preparing PDF..." : "Download PDF"}>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Download PDF"
+              onClick={handleDownloadFilteredPdf}
+              disabled={isDownloadingPdf || isLoading}
+            >
+              <FileText />
+            </Button>
+          </IconAction>
+          <IconAction label={isDownloadingExcel ? "Preparing Excel..." : "Download Excel"}>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Download Excel"
+              onClick={handleDownloadFilteredExcel}
+              disabled={isDownloadingExcel || isLoading}
+            >
+              <FileSpreadsheet />
+            </Button>
+          </IconAction>
+          <IconAction label={isRebuildingUsage ? "Rebuilding usage..." : "Rebuild Usage"}>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Rebuild Usage"
+              onClick={handleRebuildUsage}
+              disabled={isRebuildingUsage || isLoading}
+            >
+              <RotateCcw />
+            </Button>
+          </IconAction>
+          <IconAction label="Add Question">
+            <Button asChild size="icon-sm">
+              <Link href="/dashboard/questions/new" aria-label="Add Question">
+                <Plus />
+              </Link>
+            </Button>
+          </IconAction>
         </div>
       </div>
 
-      {/* STATS */}
-      <div className="grid md:grid-cols-4 gap-4">
-        <StatCard label="Total Questions" value={totalRecords} />
-         <StatCard label="Records Per Page" value={recordsPerPage} />
-        <StatCard label="Total Pages" value={totalPages} />
-       {/*} <StatCard
-          label="Medium / Hard"
-          value={stats.byDifficulty.medium + stats.byDifficulty.hard}
-        /> */}
-      </div>
-
-      {/* FILTERS */}
-      <Card>
-        <CardHeader className="flex justify-between items-center">
-          <CardTitle className="flex gap-2 items-center">
-            <Filter className="h-4 w-4" /> Filters
-          </CardTitle>
-          <CardTitle
-            className="flex gap-2 items-center cursor-pointer"
-            onClick={clearFilters}
-          >
-            <X className="h-4 w-4" /> clear filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid md:grid-cols-4 lg:grid-cols-8 gap-3">
-          <div>
-            <h3>search</h3>
+      {/* SEARCH + FILTER DRAWER */}
+      <Card className="gap-0 py-0">
+        <CardContent className="flex items-center gap-1 p-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search question..."
+              className="h-8 pl-8"
+              placeholder="Search question text..."
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -2431,8 +2447,38 @@ export default function QuestionBankPage() {
               }}
             />
           </div>
-          <div>
-            <h3>Class</h3>
+          <IconAction label="Filters">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              className="relative"
+              aria-label="Filters"
+              onClick={() => setFiltersOpen(true)}
+            >
+              <Filter />
+              {activeFilterCount > 0 ? (
+                <Badge className="absolute -right-1.5 -top-1.5 h-4 min-w-4 px-1 text-[10px]" variant="secondary">
+                  {activeFilterCount}
+                </Badge>
+              ) : null}
+            </Button>
+          </IconAction>
+        </CardContent>
+      </Card>
+
+      <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <DialogContent
+          className="inset-y-0 right-0 left-auto top-0 flex h-svh w-full max-w-sm translate-x-0 translate-y-0 grid-cols-1 flex-col gap-0 rounded-none border-l p-0 sm:max-w-sm data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right"
+        >
+          <DialogHeader className="border-b px-3 py-2 text-left">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Filter className="h-4 w-4" /> Filters
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
+            <div className="w-full space-y-1">
+            <h3 className="text-sm font-medium">Class</h3>
             <Select
               value={filterClass}
               onValueChange={(value) => {
@@ -2453,8 +2499,8 @@ export default function QuestionBankPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <h3>Subject</h3>
+          <div className="w-full space-y-1">
+            <h3 className="text-sm font-medium">Subject</h3>
             <Select
               value={filterSubject}
               onValueChange={(value) => {
@@ -2475,8 +2521,8 @@ export default function QuestionBankPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <h3>Topic</h3>
+          <div className="w-full space-y-1">
+            <h3 className="text-sm font-medium">Topic</h3>
             <Select value={filterTopic} onValueChange={setFilterTopic}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Topic" />
@@ -2494,8 +2540,8 @@ export default function QuestionBankPage() {
               <p className="mt-1 text-xs text-muted-foreground">Loading topics...</p>
             )}
           </div>
-          <div>
-            <h3>Type</h3>
+          <div className="w-full space-y-1">
+            <h3 className="text-sm font-medium">Type</h3>
             <Select value={filterType} onValueChange={setFilterType}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Type" />
@@ -2510,8 +2556,8 @@ export default function QuestionBankPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <h3>Difficulty</h3>
+          <div className="w-full space-y-1">
+            <h3 className="text-sm font-medium">Difficulty</h3>
             <Select
               value={filterDifficulty}
               onValueChange={setFilterDifficulty}
@@ -2527,8 +2573,8 @@ export default function QuestionBankPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <h3>From Date</h3>
+          <div className="w-full space-y-1">
+            <h3 className="text-sm font-medium">From Date</h3>
             <div className="relative flex items-center gap-2">
               <Input
                 inputMode="numeric"
@@ -2555,8 +2601,8 @@ export default function QuestionBankPage() {
               />
             </div>
           </div>
-          <div>
-            <h3>To Date</h3>
+          <div className="w-full space-y-1">
+            <h3 className="text-sm font-medium">To Date</h3>
             <div className="relative flex items-center gap-2">
               <Input
                 inputMode="numeric"
@@ -2584,71 +2630,86 @@ export default function QuestionBankPage() {
               />
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card className={reviewTextMcqWithImages ? "border-amber-300 bg-amber-50/40" : undefined}>
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <p className="text-sm font-medium">Review: Text MCQ with option images</p>
-            <p className="text-xs text-muted-foreground">
-              Finds questions saved as <span className="font-medium">mcq_text</span> that also have
-              option images. Open each one, then convert to Image MCQ or delete.
-            </p>
           </div>
-          <Button
-            type="button"
-            variant={reviewTextMcqWithImages ? "default" : "outline"}
-            onClick={() => {
-              setReviewTextMcqWithImages((prev) => !prev);
-              setFilterType("mcq_text");
-              setCurrentPage(1);
-            }}
-          >
-            <ImageIcon className="mr-2 h-4 w-4" />
-            {reviewTextMcqWithImages ? "Review ON" : "Show mismatches"}
-          </Button>
-        </CardContent>
-      </Card>
+          <div className="flex gap-2 border-t px-3 py-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={clearFilters}>
+              <X className="mr-2 h-4 w-4" />
+              Clear
+            </Button>
+            <Button type="button" className="flex-1" onClick={() => setFiltersOpen(false)}>
+              Done
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* TABLE */}
-      <Card>
-        <div className="px-6 pt-4 flex items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">
+      <Card className="gap-0 py-0">
+        <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+          <p className="text-xs text-muted-foreground">
             {selectedQuestionIds.length} selected
             {reviewTextMcqWithImages ? ` · reviewing mismatches (${totalRecords})` : ""}
           </p>
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            <Button
-              variant="outline"
-              onClick={handleBulkConvertToImageMcq}
-              disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting || isClearingUsage}
-            >
-              <ImageIcon className="mr-2 h-4 w-4" />
-              Convert to Image MCQ
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleOpenBulkEdit}
-              disabled={selectedQuestionIds.length === 0 || isBulkDeleting || isClearingUsage}
-            >
-              <Edit className="mr-2 h-4 w-4" /> Bulk Edit
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleBulkClearUsage}
-              disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting || isClearingUsage}
-            >
-              <RotateCcw className="mr-2 h-4 w-4" />
-              {isClearingUsage ? "Clearing..." : "Clear Usage"}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleBulkDelete}
-              disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting || isClearingUsage}
-            >
-              <Trash className="mr-2 h-4 w-4" /> Delete Selected
-            </Button>
+          <div className="flex items-center gap-1">
+            <IconAction label={reviewTextMcqWithImages ? "Review ON: Text MCQ with option images" : "Show mismatches: Text MCQ with option images"}>
+              <Button
+                type="button"
+                variant={reviewTextMcqWithImages ? "default" : "outline"}
+                size="icon-sm"
+                aria-label="Show mismatches"
+                onClick={() => {
+                  setReviewTextMcqWithImages((prev) => !prev);
+                  setFilterType("mcq_text");
+                  setCurrentPage(1);
+                }}
+              >
+                <AlertTriangle />
+              </Button>
+            </IconAction>
+            <IconAction label="Convert to Image MCQ">
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label="Convert to Image MCQ"
+                onClick={handleBulkConvertToImageMcq}
+                disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting || isClearingUsage}
+              >
+                <ImageIcon />
+              </Button>
+            </IconAction>
+            <IconAction label="Bulk Edit">
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label="Bulk Edit"
+                onClick={handleOpenBulkEdit}
+                disabled={selectedQuestionIds.length === 0 || isBulkDeleting || isClearingUsage}
+              >
+                <Edit />
+              </Button>
+            </IconAction>
+            <IconAction label={isClearingUsage ? "Clearing usage..." : "Clear Usage"}>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label="Clear Usage"
+                onClick={handleBulkClearUsage}
+                disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting || isClearingUsage}
+              >
+                <RotateCcw />
+              </Button>
+            </IconAction>
+            <IconAction label="Delete Selected">
+              <Button
+                variant="destructive"
+                size="icon-sm"
+                aria-label="Delete Selected"
+                onClick={handleBulkDelete}
+                disabled={selectedQuestionIds.length === 0 || isBulkUpdating || isBulkDeleting || isClearingUsage}
+              >
+                <Trash />
+              </Button>
+            </IconAction>
           </div>
         </div>
         <CardContent className="p-0">
@@ -2781,41 +2842,46 @@ export default function QuestionBankPage() {
                 <TableFooter>
                   <TableRow>
                     <TableHead colSpan={10} className="text-right">
-                      <div className="w-full flex items-center justify-between p-4">
-                        <span className="text-sm text-muted-foreground">
-                          Showing {(currentPage - 1) * recordsPerPage + 1}–
-                          {Math.min(currentPage * recordsPerPage, totalRecords)}{" "}
-                          of {totalRecords}
+                      <div className="flex w-full items-center justify-between gap-2 px-2 py-1">
+                        <span className="text-xs text-muted-foreground">
+                          {(currentPage - 1) * recordsPerPage + 1}–
+                          {Math.min(currentPage * recordsPerPage, totalRecords)} of {totalRecords}
                         </span>
 
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={currentPage === 1}
-                            onClick={() => handlePageChange(currentPage - 1)}
-                          >
-                            Previous
-                          </Button>
+                        <div className="flex items-center gap-1">
+                          <IconAction label="Previous page">
+                            <Button
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label="Previous page"
+                              disabled={currentPage === 1}
+                              onClick={() => handlePageChange(currentPage - 1)}
+                            >
+                              <ChevronLeft />
+                            </Button>
+                          </IconAction>
 
-                          <span className="text-sm">
-                            Page {currentPage} of {totalPages}
+                          <span className="px-1 text-xs">
+                            {currentPage}/{totalPages}
                           </span>
 
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={currentPage === totalPages}
-                            onClick={() => handlePageChange(currentPage + 1)}
-                          >
-                            Next
-                          </Button>
+                          <IconAction label="Next page">
+                            <Button
+                              variant="outline"
+                              size="icon-sm"
+                              aria-label="Next page"
+                              disabled={currentPage === totalPages}
+                              onClick={() => handlePageChange(currentPage + 1)}
+                            >
+                              <ChevronRight />
+                            </Button>
+                          </IconAction>
 
                           <Select
                             value={recordsPerPage.toString()}
                             onValueChange={handleRecordsPerPageChange}
                           >
-                            <SelectTrigger className="w-[120px]">
+                            <SelectTrigger className="h-8 w-[4.5rem]">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -3610,19 +3676,23 @@ export default function QuestionBankPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </TooltipProvider>
   );
 }
 
-/* ----------------------------------------
-   SMALL STAT CARD
----------------------------------------- */
-function StatCard({ label, value }: { label: string; value: number }) {
+function IconAction({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
-    <Card>
-      <CardContent className="pt-6 text-center">
-        <div className="text-3xl font-bold">{value}</div>
-        <p className="text-sm text-muted-foreground">{label}</p>
-      </CardContent>
-    </Card>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">{children}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   );
 }

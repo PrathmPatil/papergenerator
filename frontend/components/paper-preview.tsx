@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown, LayoutGrid } from "lucide-react";
 import { IconSpinner } from "@/components/loading";
 import { formatClassLabel, getApiBaseUrl } from "@/lib/utils";
@@ -1043,29 +1043,47 @@ export function PaperPreview({
               onChange={(e) => setPaperCode(e.target.value)}
             />
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2 md:col-span-1">
-            <Label htmlFor="preview-answer-lines" className="cursor-pointer">
-              Answer Lines
-            </Label>
-            <Switch
-              id="preview-answer-lines"
-              checked={answerLinesEnabled}
-              onCheckedChange={setAnswerLinesEnabled}
-              aria-label="Enable answer lines"
-            />
+          <div className="space-y-2 sm:col-span-2 md:col-span-1">
+            <Label>Answer Lines</Label>
+            <RadioGroup
+              className="flex items-center gap-4"
+              value={answerLinesEnabled ? "on" : "off"}
+              onValueChange={(value) => setAnswerLinesEnabled(value === "on")}
+              aria-label="Answer lines"
+            >
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="on" id="preview-answer-lines-on" />
+                <Label htmlFor="preview-answer-lines-on" className="cursor-pointer font-normal">
+                  On
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="off" id="preview-answer-lines-off" />
+                <Label htmlFor="preview-answer-lines-off" className="cursor-pointer font-normal">
+                  Off
+                </Label>
+              </div>
+            </RadioGroup>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="preview-roll-columns">Roll number columns</Label>
-            <Input
-              id="preview-roll-columns"
-              type="number"
-              min={1}
-              max={4}
-              value={rollNumberColumns}
-              onChange={(e) => setRollNumberColumns(clampOmrRollColumns(e.target.value, 3))}
-            />
+            <Label>Roll number columns</Label>
+            <RadioGroup
+              className="flex items-center gap-3"
+              value={String(rollNumberColumns)}
+              onValueChange={(value) => setRollNumberColumns(clampOmrRollColumns(value, 3))}
+              aria-label="Roll number columns"
+            >
+              {["1", "2", "3", "4"].map((n) => (
+                <div key={n} className="flex items-center gap-1.5">
+                  <RadioGroupItem value={n} id={`preview-roll-columns-${n}`} />
+                  <Label htmlFor={`preview-roll-columns-${n}`} className="cursor-pointer font-normal">
+                    {n}
+                  </Label>
+                </div>
+              ))}
+            </RadioGroup>
             <p className="text-xs text-muted-foreground">
-              How many Roll No boxes to print on the OMR sheet (1 to 4). Default is 3.
+              How many Roll No boxes to print on the OMR sheet. Default is 3.
             </p>
           </div>
         </div>

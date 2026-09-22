@@ -22,6 +22,13 @@ const escapeHtml = (value: unknown) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
+/** Word/PDF "Narrow" margins: 0.5 in. */
+const OMR_MARGIN_IN = 0.5;
+const OMR_MARGIN_MM = OMR_MARGIN_IN * 25.4;
+const OMR_MARGIN_PT = OMR_MARGIN_IN * 72;
+const A4_WIDTH_PT = (210 / 25.4) * 72;
+const A4_HEIGHT_PT = (297 / 25.4) * 72;
+
 export const clampOmrRollColumns = (value: unknown, fallback = 3) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -194,15 +201,17 @@ const renderRoll = (digits: number) => {
 };
 
 const rowWeight = (row: OmrFlowRow) => {
-  if (row.kind === "section") return 2.6;
+  if (row.kind === "section") return 2.2;
   return 1;
 };
 
 /**
- * How many row-units fit in one OMR column on a single A4 sheet.
- * Fill left → middle → right continuously (do not balance/split subjects early).
+ * Fill the visible A4 column to the bottom before starting the next column.
+ * Sized so one Word/PDF page (narrow 0.5in margins + header/footer) does not
+ * overflow: col1 is roll + questions; leftover questions go to col2 then col3.
  */
-const COLUMN_CAPACITY = 26;
+const ROLL_WEIGHT = 11;
+const COLUMN_CAPACITY = 38;
 
 /**
  * Fill column 1 (with roll), then 2, then 3.
@@ -216,13 +225,22 @@ type PackedItem =
 
 const packStructuredColumns = (flow: OmrFlowRow[]): PackedItem[][] => {
   const cols: PackedItem[][] = [[{ kind: "roll" }], [], []];
-  const weights = [5.5, 0, 0];
+  const weights = [ROLL_WEIGHT, 0, 0];
   const abcdPlaced = [false, false, false];
   let col = 0;
 
-  flow.forEach((row) => {
+  const overflowIfAdded = (extra: number) =>
+    col < 2 && weights[col] + extra > COLUMN_CAPACITY && weights[col] >= ROLL_WEIGHT;
+
+  flow.forEach((row, index) => {
     const weight = rowWeight(row);
-    if (col < 2 && weights[col] + weight > COLUMN_CAPACITY && weights[col] >= 8) {
+    const abcdExtra = row.kind === "question" && !abcdPlaced[col] ? 1.2 : 0;
+    let needed = weight + abcdExtra;
+    if (row.kind === "section") {
+      const next = flow[index + 1];
+      if (next?.kind === "question") needed += rowWeight(next) + (!abcdPlaced[col] ? 1.2 : 0);
+    }
+    if (overflowIfAdded(needed)) {
       col += 1;
     }
     if (row.kind === "question" && !abcdPlaced[col]) {
@@ -314,12 +332,13 @@ export const buildOmrSheetHtml = (config: any): string => {
       color: #000000;
       font-family: Arial, Helvetica, sans-serif;
       overflow: hidden;
+      font-size: 12px;
     }
     .page {
       width: 210mm;
       height: 297mm;
       margin: 0;
-      padding: 10mm 12mm 12mm;
+      padding: ${OMR_MARGIN_MM}mm;
       position: relative;
       background: #ffffff;
       color: #000000;
@@ -328,10 +347,10 @@ export const buildOmrSheetHtml = (config: any): string => {
     .corner {
       position: absolute; width: 4.2mm; height: 4.2mm; background: #000; z-index: 5;
     }
-    .corner.tl { top: 6mm; left: 6mm; }
-    .corner.tr { top: 6mm; right: 6mm; }
-    .corner.bl { bottom: 6mm; left: 6mm; }
-    .corner.br { bottom: 6mm; right: 6mm; }
+    .corner.tl { top: 5mm; left: 5mm; }
+    .corner.tr { top: 5mm; right: 5mm; }
+    .corner.bl { bottom: 5mm; left: 5mm; }
+    .corner.br { bottom: 5mm; right: 5mm; }
 
     .header-wrap { margin: 2mm 0 0; border: 1.6px solid #000; background: #fff; overflow: visible; }
     .header-text {
@@ -340,7 +359,7 @@ export const buildOmrSheetHtml = (config: any): string => {
       line-height: 1.35;
       overflow: visible;
     }
-    .header-school { font-size: 15px; font-weight: 800; letter-spacing: 0.2px; }
+    .header-school { font-size: 12px; font-weight: 800; letter-spacing: 0.2px; }
     .header-exam { font-size: 12px; font-weight: 700; margin-top: 1.5px; }
     .header-code { font-size: 12px; font-weight: 700; margin-top: 1.5px; }
     .header-sheet { font-size: 12px; font-weight: 700; margin-top: 1.5px; }
@@ -368,7 +387,7 @@ export const buildOmrSheetHtml = (config: any): string => {
       word-break: break-word;
     }
 
-    .body-wrap { position: relative; margin: 1mm 0 0; padding: 1mm 6mm 0; overflow: visible; }
+    .body-wrap { position: relative; margin: 1mm 0 0; padding: 1mm 2mm 0; overflow: visible; }
     .fid {
       position: absolute; width: 2.8mm; height: 2.8mm; background: #000; z-index: 4;
     }
@@ -386,7 +405,7 @@ export const buildOmrSheetHtml = (config: any): string => {
     .omr-col { padding: 0 1px; }
 
     .sec-head { text-align: center; margin: 4px 0 2px; line-height: 1.15; }
-    .sec-title { font-size: 13px; font-weight: 700; }
+    .sec-title { font-size: 12px; font-weight: 700; }
     .sec-sub { font-size: 12px; font-weight: 700; }
 
     .abcd-row, .q-row {
@@ -399,14 +418,14 @@ export const buildOmrSheetHtml = (config: any): string => {
     .abcd-row {
       margin-top: 1px;
       margin-bottom: 1px;
-      font-size: 10px;
+      font-size: 12px;
       font-weight: 700;
       text-align: center;
       letter-spacing: 0.5px;
     }
     .abcd-row .qno { visibility: hidden; }
     .qno {
-      font-size: 10px;
+      font-size: 12px;
       font-weight: 700;
       text-align: right;
       padding-right: 3px;
@@ -430,16 +449,16 @@ export const buildOmrSheetHtml = (config: any): string => {
     .roll-col { display: flex; flex-direction: column; gap: 1.4px; }
     .roll-cell {
       display: flex; align-items: center; gap: 2px;
-      font-size: 8px; font-weight: 600;
+      font-size: 12px; font-weight: 600;
     }
     .roll-cell .bubble { width: 3.2mm; height: 3.2mm; margin: 0; flex-shrink: 0; }
-    .roll-cell .digit { width: 8px; text-align: left; line-height: 1; }
+    .roll-cell .digit { width: 12px; text-align: left; line-height: 1; }
 
-    .omr-empty { text-align: center; margin: 24px 0; font-size: 13px; }
+    .omr-empty { text-align: center; margin: 24px 0; font-size: 12px; }
     .foot {
       margin-top: 4mm;
       text-align: center;
-      font-size: 8.5px;
+      font-size: 12px;
       color: #000;
     }
     @media print {
@@ -481,6 +500,52 @@ export const openOmrSheetPreview = (config: any) => {
   win.document.open();
   win.document.write(html);
   win.document.close();
+
+  const style = win.document.createElement("style");
+  style.textContent = `
+    html, body {
+      width: 100% !important;
+      height: auto !important;
+      min-height: 100% !important;
+      overflow: auto !important;
+      background: #cfd4da !important;
+    }
+    body {
+      display: flex !important;
+      justify-content: center !important;
+      align-items: flex-start !important;
+      padding: 24px 16px 64px !important;
+      box-sizing: border-box !important;
+    }
+    .page {
+      margin: 0 auto !important;
+      overflow: visible !important;
+      height: auto !important;
+      min-height: 297mm !important;
+      flex: 0 0 auto;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+    }
+    @media print {
+      @page { size: A4; margin: ${OMR_MARGIN_IN}in; }
+      html, body {
+        background: #ffffff !important;
+        padding: 0 !important;
+        display: block !important;
+        overflow: visible !important;
+        width: auto !important;
+        height: auto !important;
+      }
+      .page {
+        box-shadow: none !important;
+        margin: 0 auto !important;
+        height: auto !important;
+        min-height: auto !important;
+        padding: ${OMR_MARGIN_MM}mm !important;
+        overflow: visible !important;
+      }
+    }
+  `;
+  win.document.head.appendChild(style);
 };
 
 /**
@@ -609,20 +674,20 @@ export const exportOmrSheetAsWord = (config: any) => {
       ).join("");
       return `<tr>${cells}</tr>`;
     }).join("");
-    return `<table class="roll" align="center" cellspacing="4" cellpadding="0">
+    return `<table class="roll" align="center" cellspacing="2" cellpadding="0">
       <tr><td class="rt" colspan="${layout.rollDigits}">Roll No</td></tr>
       <tr>${boxCells}</tr>
     </table>
-    <table class="roll" align="center" cellspacing="3" cellpadding="1">
+    <table class="roll" align="center" cellspacing="2" cellpadding="0">
       ${digitRows}
     </table>`;
   };
 
   const wordQuestion = (label: string) =>
-    `<table class="q" cellspacing="2" cellpadding="0"><tr><td class="n" valign="middle">${escapeHtml(label)}</td>${bubbleCell}${bubbleCell}${bubbleCell}${bubbleCell}</tr></table>`;
+    `<table class="q" cellspacing="0" cellpadding="0"><tr><td class="n" valign="middle">${escapeHtml(label)}</td>${bubbleCell}${bubbleCell}${bubbleCell}${bubbleCell}</tr></table>`;
 
   const wordAbcd = () =>
-    `<table class="q abcd" cellspacing="2" cellpadding="0"><tr><td class="n">&nbsp;</td><td class="opt">A</td><td class="opt">B</td><td class="opt">C</td><td class="opt">D</td></tr></table>`;
+    `<table class="q abcd" cellspacing="0" cellpadding="0"><tr><td class="n">&nbsp;</td><td class="opt">A</td><td class="opt">B</td><td class="opt">C</td><td class="opt">D</td></tr></table>`;
 
   const wordSection = (heading: string, subtitle: string) =>
     `<p class="sec">${escapeHtml(heading)}<br/>${escapeHtml(subtitle)}</p>`;
@@ -662,44 +727,57 @@ export const exportOmrSheetAsWord = (config: any) => {
   <style>
     v\\:* { behavior: url(#default#VML); display: inline-block; }
     o\\:* { behavior: url(#default#VML); }
-    @page { size: A4; margin: 12mm 10mm; }
+    /* Word ignores unnamed @page — named section sets Layout > Margins to Narrow (0.5"). */
+    @page WordSection1 {
+      size: ${A4_WIDTH_PT.toFixed(2)}pt ${A4_HEIGHT_PT.toFixed(2)}pt;
+      margin: ${OMR_MARGIN_PT}pt ${OMR_MARGIN_PT}pt ${OMR_MARGIN_PT}pt ${OMR_MARGIN_PT}pt;
+      mso-header-margin: ${OMR_MARGIN_PT}pt;
+      mso-footer-margin: ${OMR_MARGIN_PT}pt;
+      mso-gutter-margin: 0pt;
+      mso-paper-source: 0;
+      mso-page-orientation: portrait;
+    }
+    div.WordSection1 { page: WordSection1; }
     body {
+      margin: 0;
+      padding: 0;
       font-family: Arial, Helvetica, sans-serif;
       mso-ascii-font-family: Arial;
       mso-hansi-font-family: Arial;
       color: #000;
-      font-size: 11pt;
+      font-size: 12pt;
     }
     table { border-collapse: collapse; }
     .mark { width: 10px; height: 10px; background: #000; }
     .head { width: 100%; border: 1.5pt solid #000; text-align: center; }
     .head td { padding: 8px 10px; font-weight: 700; line-height: 1.35; border: none; }
-    .school { font-size: 16pt; letter-spacing: 0.3pt; }
-    .exam { font-size: 11pt; }
-    .note { font-size: 8.5pt; font-weight: 400; text-align: center; margin: 4px 0 6px; }
+    .school { font-size: 12pt; letter-spacing: 0.3pt; }
+    .exam { font-size: 12pt; }
+    .note { font-size: 12pt; font-weight: 400; text-align: center; margin: 2px 0 4px; }
     .meta { width: 100%; }
-    .meta td { border: 1.5pt solid #000; padding: 7px 10px; font-weight: 700; font-size: 11pt; }
-    .meta .name { border-bottom: none; height: 22px; }
-    .roll { margin: 4px auto 2px; border: none; }
-    .rt { font-size: 12pt; font-weight: 800; text-align: center; padding-bottom: 4px; border: none; }
-    .rb { width: 24px; height: 18px; border: 1.25pt solid #000; }
-    .rd { border: none; white-space: nowrap; padding: 1px 4px; }
-    .dn { font-size: 8pt; font-weight: 700; font-family: Arial, Helvetica, sans-serif; }
+    .meta td { border: 1.5pt solid #000; padding: 4px 8px; font-weight: 700; font-size: 12pt; }
+    .meta .name { border-bottom: none; height: 18px; }
+    .roll { margin: 2px auto 1px; border: none; }
+    .rt { font-size: 12pt; font-weight: 800; text-align: center; padding-bottom: 2px; border: none; }
+    .rb { width: 24px; height: 16px; border: 1.25pt solid #000; }
+    .rd { border: none; white-space: nowrap; padding: 0 3px; }
+    .dn { font-size: 12pt; font-weight: 700; font-family: Arial, Helvetica, sans-serif; }
     .b, .opt, .n { border: none !important; }
     .circ { display: inline-block; line-height: 12pt; }
-    .circ-fallback { font-size: 15pt; line-height: 15pt; color: #000; }
-    .cols { width: 100%; margin-top: 6px; }
-    .col { width: 33%; padding: 0 8px; border: none; }
-    .sec { text-align: center; font-size: 11pt; font-weight: 700; margin: 10px 0 4px; }
+    .circ-fallback { font-size: 14pt; line-height: 14pt; color: #000; }
+    .cols { width: 100%; margin-top: 4px; }
+    .col { width: 33%; padding: 0 6px; border: none; }
+    .sec { text-align: center; font-size: 12pt; font-weight: 700; margin: 4px 0 2px; }
     .q { width: 100%; border: none; margin: 0; }
-    .q td { text-align: center; font-size: 10pt; font-weight: 700; border: none; height: 16px; }
+    .q td { text-align: center; font-size: 12pt; font-weight: 700; border: none; height: 14pt; }
     .q .n { width: 22px; text-align: right; padding-right: 6px; }
     .q .opt { width: 18px; }
     .q .b { width: 18px; }
-    .foot { text-align: center; font-size: 9pt; margin-top: 12px; }
+    .foot { text-align: center; font-size: 12pt; margin-top: 6px; }
   </style>
 </head>
 <body>
+<div class="WordSection1">
   <table class="head"><tr><td>
     <div class="school">${escapeHtml(layout.schoolName)}</div>
     <div class="exam">INNOVATIVE SCHOLAR'S ACHIEVEMENT TEST</div>
@@ -716,6 +794,7 @@ export const exportOmrSheetAsWord = (config: any) => {
   </table>
   <table class="cols"><tr>${bodyCols}</tr></table>
   <p class="foot">Class: ${escapeHtml(classLabel)} &nbsp;|&nbsp; Darken circles fully &nbsp;|&nbsp; One response per question</p>
+</div>
 </body>
 </html>`;
 
