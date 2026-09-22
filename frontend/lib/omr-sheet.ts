@@ -152,7 +152,7 @@ export const buildOmrSectionsFromConfig = (config: any): OmrSectionBlock[] => {
         items,
       };
     })
-    .filter((section) => section.items.length > 0);
+    .filter((section: OmrSectionBlock) => section.items.length > 0);
 };
 
 const buildOmrFlow = (sections: OmrSectionBlock[]): OmrFlowRow[] => {
@@ -529,7 +529,6 @@ export const exportOmrSheetAsPDF = async (config: any) => {
       logging: false,
       allowTaint: true,
       imageTimeout: 500,
-      letterRendering: true,
       scrollX: 0,
       scrollY: 0,
       windowWidth: page.offsetWidth,
