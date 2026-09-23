@@ -671,7 +671,6 @@ const renderOmrSheetCanvas = async (config: any) => {
       useCORS: true,
       logging: false,
       allowTaint: true,
-      letterRendering: true,
       onclone: (clonedDoc) => {
         const clonedPage = clonedDoc.querySelector(".page") as HTMLElement | null;
         if (clonedPage) {
