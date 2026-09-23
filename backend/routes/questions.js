@@ -84,9 +84,17 @@ import {
 import { buildQuestionListSortOptions } from "../utils/questionListSort.js";
 import { sanitizeQuestionsForList } from "../utils/questionListResponse.js";
 import { computeSelectionStats } from "../utils/selectionStats.js";
+import {
+  collectTopicFilterValues,
+  compactTopicKey,
+  findMatchingTopics,
+  resolveCanonicalTopicId,
+  TOPIC_OBJECT_ID_RE,
+} from "../utils/topicResolve.js";
 import XLSX from "xlsx";
 import unzipper from "unzipper";
 import { formatQuestionTextFields } from "../utils/scientificText.js";
+import { buildQuestionDuplicateFingerprint } from "../utils/questionDuplicate.js";
 
 router.post("/test", (req, res) => {
   res.json({ message: "OK" });
@@ -123,111 +131,27 @@ const bufferToDataUrl = (buffer, mimeType) => {
   return `data:${mimeType || "application/octet-stream"};base64,${buffer.toString("base64")}`;
 };
 
-const QUESTION_DUPLICATE_FIELDS = [
-  "type",
-  "classId",
-  "subjectId",
-  "topicId",
-  "text",
-  "paragraph",
-  "media",
-  "options",
-  "subQuestions",
-  "correctAnswer",
-  "matches",
-  "marks",
-  "negativeMarks",
-  "difficulty",
-  "ocrText",
-  "ocrConfidence",
-  "needsReview",
-];
+const getDuplicateTopicFilter = async (question = {}) => {
+  const topicId = question.topicId || "";
+  if (!topicId) return { $in: ["", null] };
 
-const ARRAY_DUPLICATE_FIELDS = new Set(["media", "options", "subQuestions"]);
-const NUMBER_DUPLICATE_FIELDS = new Set([
-  "marks",
-  "negativeMarks",
-  "ocrConfidence",
-]);
-
-const normalizeDuplicateValue = (value) => {
-  if (value === undefined || value === null) return "";
-  if (value instanceof Date) return value.toISOString();
-
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeDuplicateValue(item));
-  }
-
-  if (typeof value === "object") {
-    const normalized = {};
-
-    Object.keys(value)
-      .filter(
-        (key) =>
-          ![
-            "_id",
-            "__v",
-            "createdAt",
-            "deletedAt",
-            "deletedBy",
-            "isDeleted",
-          ].includes(key),
-      )
-      .sort()
-      .forEach((key) => {
-        normalized[key] = normalizeDuplicateValue(value[key]);
-      });
-
-    return normalized;
-  }
-
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "number") return Number.isFinite(value) ? value : "";
-  return value;
-};
-
-const normalizeDuplicateField = (field, value) => {
-  if (ARRAY_DUPLICATE_FIELDS.has(field)) {
-    return Array.isArray(value) ? normalizeDuplicateValue(value) : [];
-  }
-
-  if (NUMBER_DUPLICATE_FIELDS.has(field)) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : "";
-  }
-
-  if (field === "needsReview") {
-    return Boolean(value);
-  }
-
-  if (field === "difficulty") {
-    return normalizeDuplicateValue(value || "easy");
-  }
-
-  return normalizeDuplicateValue(value);
-};
-
-const buildQuestionDuplicateFingerprint = (question = {}) => {
-  const source =
-    typeof question.toObject === "function" ? question.toObject() : question;
-  const normalized = {};
-
-  QUESTION_DUPLICATE_FIELDS.forEach((field) => {
-    normalized[field] = normalizeDuplicateField(field, source?.[field]);
-  });
-
-  return JSON.stringify(normalized);
+  const matches = await findMatchingTopics(
+    buildClassIdCandidates(question.classId),
+    buildSubjectIdCandidates(question.subjectId),
+    topicId,
+  );
+  const aliasIds = matches.map((topic) => String(topic._id));
+  if (!aliasIds.includes(String(topicId))) aliasIds.push(String(topicId));
+  return { $in: aliasIds };
 };
 
 const findDuplicateQuestion = async (question) => {
   const fingerprint = buildQuestionDuplicateFingerprint(question);
-  const topicId = question.topicId || "";
-  const topicFilter = topicId ? topicId : { $in: ["", null] };
 
   const candidates = await Question.find({
     classId: question.classId,
     subjectId: question.subjectId,
-    topicId: topicFilter,
+    topicId: await getDuplicateTopicFilter(question),
     type: question.type,
     isDeleted: { $ne: true },
   }).lean();
@@ -260,12 +184,10 @@ const filterDuplicateQuestions = async (questions = []) => {
       return candidateCache.get(cacheKey);
     }
 
-    const topicId = question.topicId || "";
-    const topicFilter = topicId ? topicId : { $in: ["", null] };
     const candidates = await Question.find({
       classId: question.classId,
       subjectId: question.subjectId,
-      topicId: topicFilter,
+      topicId: await getDuplicateTopicFilter(question),
       type: question.type,
       isDeleted: { $ne: true },
     }).lean();
@@ -464,8 +386,7 @@ const verifyInsertedQuestions = async (insertedDocs = []) => {
   return Question.countDocuments({ _id: { $in: ids } });
 };
 
-const normalizeTopicKey = (value = "") =>
-  String(value || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+const normalizeTopicKey = compactTopicKey;
 
 const normalizeLegacyTopicKey = (value = "") =>
   String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -489,36 +410,12 @@ async function hasExistingQuestionTopic(classCandidates, subjectCandidates, topi
 }
 
 async function findExistingTopic(classCandidates, subjectCandidates, topicIdentifier) {
-  const rawValue = String(topicIdentifier || "").trim();
-  if (!rawValue) return null;
-
-  const topicKey = normalizeTopicKey(rawValue);
-  const keyCandidates = buildTopicKeyCandidates(rawValue);
-  const isObjectId = /^[0-9a-fA-F]{24}$/.test(rawValue);
-
-  const existing = await Topic.findOne({
-    classId: { $in: classCandidates },
-    subjectId: { $in: subjectCandidates },
-    $or: [
-      ...(isObjectId ? [{ _id: rawValue }] : []),
-      { nameLower: { $in: keyCandidates } },
-    ],
-  }).lean();
-
-  if (existing) return existing;
-
-  const candidateTopics = await Topic.find({
-    classId: { $in: classCandidates },
-    subjectId: { $in: subjectCandidates },
-  }).lean();
-
-  return (
-    candidateTopics.find(
-      (topic) =>
-        normalizeTopicKey(topic?.name) === topicKey ||
-        normalizeTopicKey(topic?.nameLower) === topicKey
-    ) || null
+  const matches = await findMatchingTopics(
+    classCandidates,
+    subjectCandidates,
+    topicIdentifier,
   );
+  return matches[0] || null;
 }
 
 function logUnknownTopics(unknownTopics = []) {
@@ -552,10 +449,18 @@ async function ensureTopicId(classId, subjectId, topicIdentifier) {
   const classCandidates = buildClassIdCandidates(classId);
   const subjectCandidates = buildSubjectIdCandidates(subjectId);
   const nameLower = normalizeTopicKey(rawValue);
-  const existing = await findExistingTopic(classCandidates, subjectCandidates, rawValue);
+  const resolved = await resolveCanonicalTopicId(
+    classCandidates,
+    subjectCandidates,
+    rawValue,
+    {
+      merge: true,
+      preferredId: TOPIC_OBJECT_ID_RE.test(rawValue) ? rawValue : "",
+    },
+  );
 
-  if (existing) {
-    return existing._id.toString();
+  if (resolved.id) {
+    return resolved.id;
   }
 
   try {
@@ -568,9 +473,14 @@ async function ensureTopicId(classId, subjectId, topicIdentifier) {
     return created._id.toString();
   } catch (err) {
     if (err?.code === 11000) {
-      const deduped = await findExistingTopic(classCandidates, subjectCandidates, rawValue);
-      if (deduped) {
-        return deduped._id.toString();
+      const deduped = await resolveCanonicalTopicId(
+        classCandidates,
+        subjectCandidates,
+        rawValue,
+        { merge: true },
+      );
+      if (deduped.id) {
+        return deduped.id;
       }
     }
     throw err;
@@ -631,22 +541,27 @@ async function buildQuestionFilterFromPayload(payload = {}) {
 
   if (topicId) {
     const requestedTopicIds = String(topicId).split(",").map((t) => t.trim()).filter(Boolean);
-    const topicFilterValues = new Set(requestedTopicIds);
+    const classCandidates = classId ? buildClassIdCandidates(classId) : [];
+    const subjectCandidates = subjectId
+      ? String(subjectId)
+          .split(",")
+          .flatMap((value) => buildSubjectIdCandidates(value.trim()))
+          .filter(Boolean)
+      : [];
 
-    const topicDocs = await Topic.find({
-      $or: [
-        { _id: { $in: requestedTopicIds.filter((id) => /^[0-9a-fA-F]{24}$/.test(id)) } },
-        { nameLower: { $in: requestedTopicIds.map((id) => normalizeExcelKey(id)) } },
-      ],
-    }).lean();
+    const aliasMatches = [];
+    for (const requested of requestedTopicIds) {
+      const matches = await findMatchingTopics(
+        classCandidates,
+        subjectCandidates,
+        requested,
+      );
+      aliasMatches.push(...matches);
+    }
 
-    topicDocs.forEach((topic) => {
-      topicFilterValues.add(topic._id.toString());
-      topicFilterValues.add(topic.name);
-      topicFilterValues.add(topic.nameLower);
-    });
-
-    filter.topicId = { $in: Array.from(topicFilterValues) };
+    filter.topicId = {
+      $in: collectTopicFilterValues(requestedTopicIds, aliasMatches),
+    };
   }
 
   if (difficulty) {
@@ -1879,11 +1794,15 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
       if (!rawTopicId) {
         update.topicId = "";
       } else {
-        const topic = /^[0-9a-fA-F]{24}$/.test(rawTopicId)
-          ? await Topic.findById(rawTopicId).lean()
-          : await Topic.findOne({
-              nameLower: normalizeExcelKey(rawTopicId),
-            }).lean();
+        const currentQuestion = await Question.findById(id).lean();
+        const resolvedTopicId = await ensureTopicId(
+          body.classId || currentQuestion?.classId,
+          body.subjectId || currentQuestion?.subjectId,
+          rawTopicId,
+        );
+        const topic = resolvedTopicId
+          ? await Topic.findById(resolvedTopicId).lean()
+          : null;
 
         if (!topic) {
           return res.status(400).json({
@@ -1892,7 +1811,7 @@ router.put("/:id", upload.array("media"), async (req, res, next) => {
           });
         }
 
-        update.topicId = topic._id.toString();
+        update.topicId = resolvedTopicId;
         update.classId = topic.classId;
         update.subjectId = topic.subjectId;
       }
@@ -2071,11 +1990,15 @@ router.put("/bulk-update", async (req, res) => {
       if (!rawTopicId) {
         update.topicId = "";
       } else {
-        const topic = /^[0-9a-fA-F]{24}$/.test(rawTopicId)
-          ? await Topic.findById(rawTopicId).lean()
-          : await Topic.findOne({
-              nameLower: normalizeExcelKey(rawTopicId),
-            }).lean();
+        const sampleQuestion = await Question.findById(ids[0]).lean();
+        const resolvedTopicId = await ensureTopicId(
+          sampleQuestion?.classId,
+          sampleQuestion?.subjectId,
+          rawTopicId,
+        );
+        const topic = resolvedTopicId
+          ? await Topic.findById(resolvedTopicId).lean()
+          : null;
 
         if (!topic) {
           return res.status(400).json({
@@ -2084,7 +2007,7 @@ router.put("/bulk-update", async (req, res) => {
           });
         }
 
-        update.topicId = topic._id.toString();
+        update.topicId = resolvedTopicId;
         update.classId = topic.classId;
         update.subjectId = topic.subjectId;
       }

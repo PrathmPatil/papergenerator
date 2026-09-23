@@ -6,6 +6,7 @@ const TopicSchema = new mongoose.Schema(
     nameLower: { type: String, required: true, trim: true }, // normalized key used for uniqueness
     classId: { type: String, required: true },
     subjectId: { type: String, required: true },
+    aliasIds: { type: [String], default: [] },
   },
   { timestamps: true }
 );

@@ -151,6 +151,7 @@ export function PaperGenerationTemplate({
   questionTopicHints = null,
   onQuestionTopicsLearned,
   onTopicOrderChange,
+  onSubjectOrderChange,
 }: any) {
   const PAGE_SIZE = 10;
   const newlyAddedTopicSet = useMemo(
@@ -162,6 +163,7 @@ export function PaperGenerationTemplate({
   const [selectedQuestions, setSelectedQuestions] = useState<SelectedMap>({});
   const [selectedSubQuestions, setSelectedSubQuestions] = useState<SelectedSubQuestionMap>({});
   const [topicOrderBySubject, setTopicOrderBySubject] = useState<Record<string, string[]>>({});
+  const [subjectOrder, setSubjectOrder] = useState<string[]>([]);
   const questionTopicByIdRef = useRef<Record<string, string>>({});
   const onQuestionTopicsLearnedRef = useRef(onQuestionTopicsLearned);
   useEffect(() => {
@@ -208,6 +210,27 @@ export function PaperGenerationTemplate({
         };
       });
       return initial;
+    });
+  }, [data?.subjectId]);
+
+  useEffect(() => {
+    const ids = String(data?.subjectId || "")
+      .split(",")
+      .map((x: string) => x.trim())
+      .filter(Boolean);
+    setSubjectOrder((prev) => {
+      if (ids.length === 0) return prev.length === 0 ? prev : [];
+      const allowed = new Set(ids);
+      const kept = prev.filter((id) => allowed.has(id));
+      const missing = ids.filter((id) => !kept.includes(id));
+      const merged = [...kept, ...missing];
+      if (
+        merged.length === prev.length &&
+        merged.every((id, index) => String(id) === String(prev[index]))
+      ) {
+        return prev;
+      }
+      return merged;
     });
   }, [data?.subjectId]);
 
@@ -821,6 +844,17 @@ export function PaperGenerationTemplate({
     onTopicOrderChange?.(subjectId, swapped);
   };
 
+  const moveSubject = (subjectId: string, delta: -1 | 1) => {
+    const current = subjectOrder.length > 0 ? [...subjectOrder] : Object.keys(subjects);
+    const index = current.findIndex((id) => String(id) === String(subjectId));
+    const nextIndex = index + delta;
+    if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return;
+    const swapped = [...current];
+    [swapped[index], swapped[nextIndex]] = [swapped[nextIndex], swapped[index]];
+    setSubjectOrder(swapped);
+    onSubjectOrderChange?.(swapped);
+  };
+
   const setActiveTopic = (subjectId: string, topicId: string) => {
     setSubjects((prev) => ({
       ...prev,
@@ -926,8 +960,15 @@ export function PaperGenerationTemplate({
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Question Paper Generator</h1>
+      {subjectOrder.length > 1 && (
+        <p className="text-xs text-muted-foreground">
+          Use the arrows on each subject to change the paper sequence.
+        </p>
+      )}
 
-      {Object.entries(subjects).map(([subjectId, state]) => {
+      {(subjectOrder.length > 0 ? subjectOrder : Object.keys(subjects)).map((subjectId, subjectIndex, orderedSubjects) => {
+        const state = subjects[subjectId];
+        if (!state) return null;
         const sec = data?.sections?.find(
           (s: any) => String(s.subjectId) === String(subjectId)
         );
@@ -940,6 +981,27 @@ export function PaperGenerationTemplate({
 
         return (
           <Card key={subjectId} className="p-4">
+            <div className="flex items-start gap-2">
+              <div className="flex shrink-0 flex-col pt-0.5">
+                <button
+                  type="button"
+                  className="rounded p-0.5 disabled:opacity-30"
+                  disabled={subjectIndex === 0}
+                  title="Move subject earlier"
+                  onClick={() => moveSubject(subjectId, -1)}
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded p-0.5 disabled:opacity-30"
+                  disabled={subjectIndex === orderedSubjects.length - 1}
+                  title="Move subject later"
+                  onClick={() => moveSubject(subjectId, 1)}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </div>
             <button
               onClick={() => toggleSubject(subjectId)}
               className="w-full flex justify-between items-center"
@@ -965,6 +1027,7 @@ export function PaperGenerationTemplate({
               </div>
               {state.open ? <ChevronUp /> : <ChevronDown />}
             </button>
+            </div>
 
             {state.open && (
               <div className="mt-4 space-y-3">

@@ -472,6 +472,34 @@ export default function EditPaperPage() {
     });
   };
 
+  const handleSubjectOrderChange = (subjectIds: string[]) => {
+    const orderedIds = subjectIds.map((id) => String(id)).filter(Boolean);
+    if (orderedIds.length === 0) return;
+
+    const reorderSections = (list: any[] = []) => {
+      const bySubject = new Map(list.map((section: any) => [String(section.subjectId), section]));
+      const ordered = orderedIds
+        .map((id) => bySubject.get(id))
+        .filter(Boolean);
+      list.forEach((section: any) => {
+        const id = String(section?.subjectId || "");
+        if (id && !orderedIds.includes(id)) ordered.push(section);
+      });
+      return ordered;
+    };
+
+    setSelectedSubjects(orderedIds);
+    setSections((prev) => reorderSections(prev));
+    setTemplate((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        subjectId: orderedIds.join(","),
+        sections: reorderSections(Array.isArray(prev.sections) ? prev.sections : []),
+      };
+    });
+  };
+
   const toggleTopic = (topicId: string) => {
     setSelectedTopics((prev) => (prev.includes(topicId) ? prev.filter((id) => id !== topicId) : [...prev, topicId]));
   };
@@ -1414,6 +1442,7 @@ export default function EditPaperPage() {
                     setQuestionTopicMap((prev) => ({ ...prev, ...learned }))
                   }
                   onTopicOrderChange={handleTopicOrderChange}
+                  onSubjectOrderChange={handleSubjectOrderChange}
                 />
               </div>
             ) : null}

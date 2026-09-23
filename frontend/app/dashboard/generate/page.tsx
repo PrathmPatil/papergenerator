@@ -1018,6 +1018,34 @@ const handleSave = async () => {
     });
   }, []);
 
+  const handleSubjectOrderChange = useCallback((subjectIds: string[]) => {
+    const orderedIds = subjectIds.map((id) => String(id)).filter(Boolean);
+    if (orderedIds.length === 0) return;
+
+    const reorderSections = (list: any[] = []) => {
+      const bySubject = new Map(list.map((section: any) => [String(section.subjectId), section]));
+      const ordered = orderedIds
+        .map((id) => bySubject.get(id))
+        .filter(Boolean);
+      list.forEach((section: any) => {
+        const id = String(section?.subjectId || "");
+        if (id && !orderedIds.includes(id)) ordered.push(section);
+      });
+      return ordered;
+    };
+
+    setSelectedSubjects(orderedIds);
+    setSections((prev) => reorderSections(prev));
+    setTemplate((prev: any) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        subjectId: orderedIds.join(","),
+        sections: reorderSections(Array.isArray(prev.sections) ? prev.sections : []),
+      };
+    });
+  }, []);
+
   const handleSelectedQuestionsChange = useCallback((next: Record<string, string[]>) => {
     setSelectedQuestions((prev) => {
       const prevKeys = Object.keys(prev).sort();
@@ -1696,6 +1724,7 @@ const handleSave = async () => {
                     setQuestionTopicMap((prev) => ({ ...prev, ...learned }))
                   }
                   onTopicOrderChange={handleTopicOrderChange}
+                  onSubjectOrderChange={handleSubjectOrderChange}
                 />
               </div>
             ) : null}

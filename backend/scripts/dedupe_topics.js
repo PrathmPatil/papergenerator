@@ -11,8 +11,11 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-function normalizeTopicKey(raw = "") {
-  return String(raw || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+function compactTopicKey(raw = "") {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 async function run() {
@@ -23,7 +26,7 @@ async function run() {
   const groups = new Map();
 
   for (const t of topics) {
-    const key = `${t.classId}||${t.subjectId}||${normalizeTopicKey(t.name || t.nameLower || "")}`;
+    const key = `${t.classId}||${t.subjectId}||${compactTopicKey(t.name || t.nameLower || "")}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(t);
   }
@@ -47,12 +50,32 @@ async function run() {
 
     // Delete duplicate topic docs
     const { deletedCount } = await Topic.deleteMany({ _id: { $in: dupIds } });
+    await Topic.updateOne(
+      { _id: keep._id },
+      {
+        $set: { nameLower: compactTopicKey(keep.name || keep.nameLower) },
+        $addToSet: { aliasIds: { $each: dupIds } },
+      },
+    );
 
     console.log(`Reassigned ${modifiedCount} questions, removed ${deletedCount} duplicate topics`);
     totalMerged += duplicates.length;
   }
 
-  console.log(`Done. Total duplicate topic docs removed: ${totalMerged}`);
+  const remaining = await Topic.find({}).lean();
+  let compacted = 0;
+  for (const t of remaining) {
+    const nextKey = compactTopicKey(t.name || t.nameLower);
+    if (!nextKey || t.nameLower === nextKey) continue;
+    try {
+      await Topic.updateOne({ _id: t._id }, { $set: { nameLower: nextKey } });
+      compacted += 1;
+    } catch (err) {
+      console.warn(`Could not compact nameLower for ${t._id}:`, err.message);
+    }
+  }
+
+  console.log(`Done. Total duplicate topic docs removed: ${totalMerged}. Compacted nameLower: ${compacted}`);
   await mongoose.disconnect();
 }
 

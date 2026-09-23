@@ -10,6 +10,7 @@ import {
   normalizeLookupToken,
   normalizeSubjectId,
 } from "../utils/normalization.js";
+import { compactTopicKey, pickCanonicalTopic } from "../utils/topicResolve.js";
 
 const router = express.Router();
 const upload = multer({
@@ -64,7 +65,7 @@ router.get("/", async (req, res) => {
     const { classId, subjectId, search } = req.query;
 
     const normalizeName = (value) => String(value || "").trim();
-    const normalizeLower = (value) => normalizeName(value).toLowerCase().replace(/[^a-z0-9]/g, "");
+    const normalizeLower = (value) => compactTopicKey(value);
 
     const filter = {};
     const questionFilter = {};
@@ -113,7 +114,7 @@ router.get("/", async (req, res) => {
 
     const merged = new Map();
     const makeTopicKey = (topic) =>
-      `${topic.classId || classId || ""}|${topic.subjectId || subjectId || ""}|${normalizeLower(topic.name)}`;
+      `${normalizeClassId(topic.classId || classId || "")}|${normalizeSubjectId(topic.subjectId || subjectId || "")}|${normalizeLower(topic.name || topic.nameLower)}`;
     const questionCountByTopicId = new Map();
     const questionCountByNormalizedName = new Map();
 
@@ -134,48 +135,47 @@ router.get("/", async (req, res) => {
       );
     });
 
-    const getTopicQuestionCount = (topic) => {
-      const topicClassId = String(topic?.classId || classId || "");
-      const topicSubjectId = String(topic?.subjectId || subjectId || "");
+    const getTopicQuestionCount = (topic, siblingIds = []) => {
+      const topicClassId = normalizeClassId(topic?.classId || classId || "");
+      const topicSubjectId = normalizeSubjectId(topic?.subjectId || subjectId || "");
       if (!topicClassId || !topicSubjectId) return 0;
 
-      const exactIds = new Set([
-        topic?._id?.toString?.(),
-        topic?.id?.toString?.(),
-      ].filter(Boolean));
+      const ids = new Set(
+        [topic?._id?.toString?.(), topic?.id?.toString?.(), ...siblingIds].filter(Boolean),
+      );
 
-      const normalizedNames = new Set([
-        topic?.name,
-        topic?.nameLower,
-        normalizeLower(topic?.name),
-      ].filter(Boolean).map((value) => normalizeLower(value)));
-
-      const exactCount = Array.from(exactIds).reduce(
+      return Array.from(ids).reduce(
         (total, value) =>
           total + (questionCountByTopicId.get(`${topicClassId}|${topicSubjectId}|${String(value)}`) || 0),
-        0
+        0,
       );
-
-      const nameCount = Array.from(normalizedNames).reduce(
-        (total, value) =>
-          total + (questionCountByNormalizedName.get(`${topicClassId}|${topicSubjectId}|${String(value)}`) || 0),
-        0
-      );
-
-      return exactCount + nameCount;
     };
 
+    const grouped = new Map();
     topicDocs.forEach((topic) => {
       const key = makeTopicKey(topic);
       if (!key) return;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(topic);
+    });
+
+    grouped.forEach((group, key) => {
+      const siblingIds = group.map((topic) => String(topic._id));
+      const keep = pickCanonicalTopic(
+        group.map((topic) => ({
+          ...topic,
+          questionCount: getTopicQuestionCount(topic, [String(topic._id)]),
+        })),
+      );
+      if (!keep) return;
       merged.set(key, {
-        _id: topic._id,
-        id: topic._id,
-        name: topic.name,
-        nameLower: topic.nameLower || key,
-        classId: topic.classId,
-        subjectId: topic.subjectId,
-        questionCount: getTopicQuestionCount(topic),
+        _id: keep._id,
+        id: keep._id,
+        name: keep.name,
+        nameLower: compactTopicKey(keep.name || keep.nameLower),
+        classId: keep.classId,
+        subjectId: keep.subjectId,
+        questionCount: getTopicQuestionCount(keep, siblingIds),
       });
     });
 
