@@ -1,5 +1,5 @@
 let cachedPublicIp = "";
-let inflight = null;
+let inflight: Promise<string> | null = null;
 
 export const getPublicClientIp = async () => {
   if (typeof window === "undefined") return "";
