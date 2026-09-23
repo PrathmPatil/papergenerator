@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -645,7 +645,7 @@ export function PaperPreview({
 
   const renderQuestionHeading = (
     label: string,
-    text: unknown,
+    text: ReactNode,
     marks?: unknown
   ) => {
     const marksLabel = formatQuestionMarksLabel(marks);
@@ -662,11 +662,7 @@ export function PaperPreview({
       >
         <p className="question-heading-text" style={{ margin: 0, flex: "1 1 auto", minWidth: 0 }}>
           <span style={{ fontWeight: 600 }}>{label} </span>
-          {typeof text === "string" || text == null ? (
-            <ScientificText value={text} />
-          ) : (
-            text
-          )}
+          {typeof text === "string" ? <ScientificText value={text} /> : text}
         </p>
         {marksLabel ? (
           <span
