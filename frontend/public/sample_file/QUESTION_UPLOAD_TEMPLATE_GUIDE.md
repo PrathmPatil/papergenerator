@@ -28,6 +28,24 @@ Excel stores `CO2` and `H2O` as plain text. The app converts them when you uploa
 
 You do not need Excel subscript/superscript font formatting. Keep digits next to the element, for example `CO2` not `C O 2`.
 
+## Italic g (printed gravity letter)
+
+A normal keyboard `g` is not the Times italic g from the exam booklet.
+
+Type this:
+
+- `*g*` in the question, option, or Excel cell
+- or `<i>g</i>`
+
+Examples:
+
+- `The value of *g* is 9.8 m/s^2`
+- `*F* = m*g*`
+
+Keep gram as a normal letter: `22 g CO2`, not `22 *g* CO2`.
+
+Put stars against the letter: `*g*` not `* g *`.
+
 ## 1. Text MCQ Questions
 
 Template file:

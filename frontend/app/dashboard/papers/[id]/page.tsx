@@ -14,7 +14,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { PaperPreview, exportAsPDF, printPaper } from "@/components/paper-preview"
 import { exportPaperPdfApi } from "@/utils/apis"
 import { mapPaperToPreviewConfig } from "@/lib/utils"
-import { formatScientificText } from "@/lib/scientific-text"
+import { ScientificText } from "@/components/scientific-text"
 import { showInfo } from "@/components/app-dialog-provider"
 import { LoadingPanel } from "@/components/loading"
 
@@ -254,7 +254,7 @@ export default function PaperDetailsPage() {
                             {/* QUESTION HEADER */}
                             <div className="flex justify-between items-start">
                               <p className="font-medium">
-                                Q{index + 1}. {formatScientificText(q.text)}
+                                Q{index + 1}. <ScientificText value={q.text} />
                               </p>
                               <Badge variant="outline">
                                 {q.marks} Mark{q.marks > 1 ? "s" : ""}
@@ -264,7 +264,7 @@ export default function PaperDetailsPage() {
                             {q.type === "paragraph" && q.paragraph ? (
                               <div className="mt-3 whitespace-pre-wrap text-sm">
                                 <span className="font-semibold">Paragraph: </span>
-                                {formatScientificText(q.paragraph)}
+                                <ScientificText value={q.paragraph} />
                               </div>
                             ) : null}
 
@@ -288,7 +288,7 @@ export default function PaperDetailsPage() {
                                 {q.options.map((opt) => (
                                   <div key={opt.id} className="text-sm flex gap-2">
                                     <span className="font-semibold">({opt.id})</span>
-                                    <span>{formatScientificText(opt.text)}</span>
+                                    <span><ScientificText value={opt.text} /></span>
                                   </div>
                                 ))}
                               </div>
@@ -299,7 +299,7 @@ export default function PaperDetailsPage() {
                                 {q.subQuestions.map((subQuestion, subIndex) => (
                                   <div key={subQuestion?.id || `${q.questionId}-${subIndex}`} className="rounded border bg-white p-3">
                                     <p className="text-sm font-medium">
-                                      {subIndex + 1}. {formatScientificText(subQuestion?.text || "")}
+                                      {subIndex + 1}. <ScientificText value={subQuestion?.text || ""} />
                                     </p>
 
                                     {Array.isArray(subQuestion?.options) && subQuestion.options.length > 0 ? (
@@ -307,7 +307,7 @@ export default function PaperDetailsPage() {
                                         {subQuestion.options.map((opt: any) => (
                                           <div key={opt.id} className="text-sm flex gap-2">
                                             <span className="font-semibold">({opt.id})</span>
-                                            <span>{formatScientificText(opt.text)}</span>
+                                            <span><ScientificText value={opt.text} /></span>
                                           </div>
                                         ))}
                                       </div>

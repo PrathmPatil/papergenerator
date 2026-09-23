@@ -9,7 +9,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FileText, Eye, Plus, Printer, Trash2, KeyRound, ChevronDown, LayoutGrid } from "lucide-react";
 import { IconSpinner } from "@/components/loading";
 import { formatClassLabel, getApiBaseUrl } from "@/lib/utils";
-import { formatScientificText } from "@/lib/scientific-text";
+import { ScientificText } from "@/components/scientific-text";
 import {
   buildAnswerKeyExcelHtml,
   buildAnswerKeyHtml,
@@ -645,7 +645,7 @@ export function PaperPreview({
 
   const renderQuestionHeading = (
     label: string,
-    text: string,
+    text: unknown,
     marks?: unknown
   ) => {
     const marksLabel = formatQuestionMarksLabel(marks);
@@ -662,7 +662,11 @@ export function PaperPreview({
       >
         <p className="question-heading-text" style={{ margin: 0, flex: "1 1 auto", minWidth: 0 }}>
           <span style={{ fontWeight: 600 }}>{label} </span>
-          {formatScientificText(text)}
+          {typeof text === "string" || text == null ? (
+            <ScientificText value={text} />
+          ) : (
+            text
+          )}
         </p>
         {marksLabel ? (
           <span
@@ -778,7 +782,7 @@ export function PaperPreview({
                 }}
               >
                 <div style={{ overflow: "visible", lineHeight: 1.35 }}>
-                  {opt.id}) {formatScientificText(opt.text || "")}
+                  {opt.id}) <ScientificText value={opt.text || ""} />
                 </div>
                 {opt.mediaUrl && (
                   <img
@@ -840,14 +844,22 @@ export function PaperPreview({
             <div style={{ flex: 1 }}>
               {renderQuestionHeading(
                 `${qIndex + 1}.`,
-                q.text ? `Instruction: ${formatScientificText(q.text)}` : "Instruction:",
+                q.text ? (
+                  <>
+                    Instruction: <ScientificText value={q.text} />
+                  </>
+                ) : (
+                  "Instruction:"
+                ),
                 q.marks
               )}
 
               {hasParagraphText && (
                 <div style={{ fontSize: `${previewStyles.fontSize}pt`, marginTop: "4px", marginBottom: "8px" }}>
                   <strong>Paragraph:</strong>
-                  <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}>{formatScientificText(q.paragraph)}</div>
+                  <div style={{ marginTop: "4px", whiteSpace: "pre-wrap" }}>
+                    <ScientificText value={q.paragraph} />
+                  </div>
                 </div>
               )}
 
@@ -943,7 +955,7 @@ export function PaperPreview({
                 }}
               >
                 <div style={{ overflow: "visible", lineHeight: 1.35 }}>
-                  {opt.id}) {formatScientificText(opt.text || "")}
+                  {opt.id}) <ScientificText value={opt.text || ""} />
                 </div>
                 {opt.mediaUrl && (
                   <img
@@ -1723,6 +1735,11 @@ const getPdfSafePaperCss = () => `
     background-color: #ffffff !important;
     color: #000000 !important;
     font-family: "Times New Roman", Times, serif !important;
+  }
+  i, em {
+    font-family: "Times New Roman", Times, serif !important;
+    font-style: italic !important;
+    font-weight: 500 !important;
   }
   #paper-preview, #paper-preview * {
     word-break: normal !important;
@@ -2894,6 +2911,10 @@ export const exportAsWord = async (config: any) => {
         text-align: center;
         font-size: 10pt;
         font-family: 'Times New Roman', serif;
+      }
+      i, em {
+        font-family: 'Times New Roman', Times, serif !important;
+        font-style: italic !important;
       }
       table {
         width: 100%;

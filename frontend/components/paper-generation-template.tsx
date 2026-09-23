@@ -17,7 +17,7 @@ import {
   pruneSelectedSubQuestions,
 } from "@/lib/question-selection";
 import { formatTopicTitle } from "@/lib/utils";
-import { formatScientificText } from "@/lib/scientific-text";
+import { ScientificText } from "@/components/scientific-text";
 
 interface IQuestion {
   _id: string;
@@ -1208,7 +1208,7 @@ export function PaperGenerationTemplate({
 
                       <div className="flex-1">
                         <div className="flex items-start justify-between gap-2">
-                          <p className="font-medium line-clamp-2">{formatScientificText(q.text || q.paragraph)}</p>
+                          <p className="font-medium line-clamp-2"><ScientificText value={q.text || q.paragraph} /></p>
                           <div className="flex items-center gap-2">
                             {Array.isArray(q.subQuestions) && q.subQuestions.length > 0 && (
                               <button
@@ -1313,7 +1313,7 @@ export function PaperGenerationTemplate({
                                 />
                                 <div className="flex-1">
                                   <div className="flex items-start justify-between gap-2">
-                                    <p className="font-medium">{idx + 1}. {formatScientificText(sq.text || "Untitled")}</p>
+                                    <p className="font-medium">{idx + 1}. <ScientificText value={sq.text || "Untitled"} /></p>
                                     <span className="shrink-0 text-xs text-muted-foreground">{String(sq.type || "").replace("_", " ")} · {sq.marks ?? 0} marks</span>
                                   </div>
 
@@ -1330,7 +1330,7 @@ export function PaperGenerationTemplate({
                                   {sq.options.map((opt: any, oi: number) => (
                                     <li key={oi} className="flex items-center gap-2">
                                       <input type="radio" disabled checked={opt.isCorrect} />
-                                      {opt.mediaUrl ? <img src={opt.mediaUrl} className="max-h-16" /> : <span>{formatScientificText(opt.text)}</span>}
+                                      {opt.mediaUrl ? <img src={opt.mediaUrl} className="max-h-16" /> : <span><ScientificText value={opt.text} /></span>}
                                     </li>
                                   ))}
                                 </ul>
@@ -1450,7 +1450,7 @@ export function PaperGenerationTemplate({
                               }}
                               aria-label={`Select sub-question ${idx + 1}`}
                             />
-                            <p className="font-medium">{idx + 1}. {formatScientificText(sq.text || 'Untitled')}</p>
+                            <p className="font-medium">{idx + 1}. <ScientificText value={sq.text || 'Untitled'} /></p>
                           </div>
                           <span className="text-xs text-muted-foreground capitalize">{String(sq.type || '').replace('_', ' ')} | Marks: {sq.marks}</span>
                         </div>
@@ -1463,7 +1463,7 @@ export function PaperGenerationTemplate({
                                 {opt.mediaUrl ? (
                                   <img src={opt.mediaUrl} alt="Option" className="max-h-20 rounded border" />
                                 ) : (
-                                  <span>{formatScientificText(opt.text)}</span>
+                                  <span><ScientificText value={opt.text} /></span>
                                 )}
                               </li>
                             ))}

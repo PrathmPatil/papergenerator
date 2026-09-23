@@ -139,3 +139,34 @@ export function formatScientificText(value: unknown) {
   const withMarkup = formatScientificNotation(formatMarkup(raw));
   return withMarkup.replace(/[A-Z][A-Za-z0-9()+\-^]*/g, formatFormulaToken);
 }
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+const ITALIC_STYLE =
+  "font-family:'Times New Roman',Times,Georgia,'Liberation Serif',serif;font-style:italic;font-weight:500";
+
+/** Times-italic letters (the printed *g*). Type *g* or &lt;i&gt;g&lt;/i&gt;. */
+export function toScientificHtml(value: unknown) {
+  const raw = String(value ?? "");
+  if (!raw) return "";
+
+  const re = /<i>([\s\S]*?)<\/i>|\*([^*]+)\*/gi;
+  const parts: string[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(raw))) {
+    parts.push(escapeHtml(formatScientificText(raw.slice(last, match.index))));
+    const inner = match[1] ?? match[2] ?? "";
+    parts.push(
+      `<i style="${ITALIC_STYLE}">${escapeHtml(formatScientificText(inner))}</i>`
+    );
+    last = match.index + match[0].length;
+  }
+  parts.push(escapeHtml(formatScientificText(raw.slice(last))));
+  return parts.join("");
+}

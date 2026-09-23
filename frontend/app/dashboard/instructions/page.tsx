@@ -10,9 +10,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { downloadFile } from "@/hooks/common";
 import { CLASSES, SUBJECTS } from "@/lib/data";
 import { formatScientificText } from "@/lib/scientific-text";
+import { ScientificText } from "@/components/scientific-text";
 
 const SECTIONS = [
   { id: "formulas", label: "Formulas" },
+  { id: "italic-g", label: "Italic g" },
   { id: "excel-rules", label: "Excel rules" },
   { id: "samples", label: "Sample files" },
   { id: "question-types", label: "Question types" },
@@ -36,6 +38,7 @@ const FORMULA_SAMPLES = [
   { excel: "H_{2}O", note: "Brace markup when auto-convert is not enough" },
   { excel: "Al_{2}(SO_{4})_{3}", note: "Brace markup for nested counts" },
   { excel: "10^{-9}", note: "Brace markup for powers" },
+  { excel: "*g*", note: "Times italic g (gravity). Type *g*" },
 ];
 
 const SAMPLE_FILES = [
@@ -167,6 +170,13 @@ export default function InstructionsPage() {
                   {formatScientificText("Al2(SO4)3")}, {formatScientificText("10^-9")}.
                 </span>
               </p>
+              <p className="mt-2">
+                For the printed italic gravity letter, see{" "}
+                <a href="#italic-g" className="font-medium underline">
+                  Italic g
+                </a>
+                .
+              </p>
             </div>
 
             <div className="overflow-x-auto rounded-md border">
@@ -182,7 +192,7 @@ export default function InstructionsPage() {
                   {FORMULA_SAMPLES.map((row) => (
                     <tr key={row.excel} className="border-t">
                       <td className="px-3 py-2 font-mono text-xs">{row.excel}</td>
-                      <td className="px-3 py-2 font-medium">{formatScientificText(row.excel)}</td>
+                      <td className="px-3 py-2 font-medium"><ScientificText value={row.excel} /></td>
                       <td className="px-3 py-2 text-muted-foreground">{row.note}</td>
                     </tr>
                   ))}
@@ -196,6 +206,86 @@ export default function InstructionsPage() {
                 "This works in question text, options, paragraphs, and sub-questions.",
                 "Existing questions already in the bank are formatted on screen even if they were saved as CO2.",
                 "Ordinary words and plain numbers are left unchanged, for example 342 u.",
+              ]}
+            />
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="space-y-3">
+        <SectionTitle id="italic-g">How to write italic g</SectionTitle>
+        <Card>
+          <CardHeader>
+            <CardTitle>Printed Times italic g (gravity)</CardTitle>
+            <CardDescription>
+              A normal keyboard g does not match the exam booklet. Wrap the letter in stars so the paper uses Times italic.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-md border bg-muted/20 p-4 text-sm leading-6">
+              <p>
+                Type <code className="rounded bg-background px-1 py-0.5">*g*</code> in the question, option, paragraph, or Excel cell.
+              </p>
+              <p className="mt-2">
+                You can also type <code className="rounded bg-background px-1 py-0.5">&lt;i&gt;g&lt;/i&gt;</code>.
+              </p>
+              <p className="mt-2">
+                Do not type a plain <code className="rounded bg-background px-1 py-0.5">g</code> if you need the printed look. Plain g stays a normal letter (also used for gram).
+              </p>
+            </div>
+
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">What you type</th>
+                    <th className="px-3 py-2 font-medium">What is shown</th>
+                    <th className="px-3 py-2 font-medium">Use for</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t">
+                    <td className="px-3 py-2 font-mono text-xs">g</td>
+                    <td className="px-3 py-2 font-medium">g</td>
+                    <td className="px-3 py-2 text-muted-foreground">Normal letter or gram, for example 22 g CO2</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="px-3 py-2 font-mono text-xs">*g*</td>
+                    <td className="px-3 py-2 font-medium">
+                      <ScientificText value="*g*" />
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">Acceleration due to gravity, same as the printed booklet</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="px-3 py-2 font-mono text-xs">&lt;i&gt;g&lt;/i&gt;</td>
+                    <td className="px-3 py-2 font-medium">
+                      <ScientificText value="<i>g</i>" />
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">Same italic g, HTML form</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="px-3 py-2 font-mono text-xs">The value of *g* is 9.8 m/s^2</td>
+                    <td className="px-3 py-2 font-medium">
+                      <ScientificText value="The value of *g* is 9.8 m/s^2" />
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">Full sentence in a question or option</td>
+                  </tr>
+                  <tr className="border-t">
+                    <td className="px-3 py-2 font-mono text-xs">*F* = m*g*</td>
+                    <td className="px-3 py-2 font-medium">
+                      <ScientificText value="*F* = m*g*" />
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">Any letter can be italic the same way</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <NoteList
+              items={[
+                "Put stars immediately around the letter: *g* not * g *.",
+                "Works in Add Question, Excel upload, options, and paper preview / PDF / Word.",
+                "Gram stays as a normal g: type 22 g, not 22 *g*.",
               ]}
             />
           </CardContent>
@@ -500,6 +590,7 @@ correctAnswer: A`}
                 "type or question_type is correct for that template.",
                 "MCQ rows have options A–D and a correctAnswer of A/B/C/D/E.",
                 "Formulas are written as CO2, H2O, Al2(SO4)3, or with braces when needed.",
+                "Italic gravity g is written as *g*, not a plain g.",
                 "Image filenames exactly match files inside the ZIP.",
                 "Paragraph rows share paragraph_group_id. Image sub-questions share question_group_id.",
                 "New topics were added from Topics before upload.",

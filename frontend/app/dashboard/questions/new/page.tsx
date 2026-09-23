@@ -772,7 +772,7 @@ export default function CreateQuestionPage() {
                         Use the same column names as the template file. classId, subjectId, type, text, optionA-optionD, and correctAnswer are required; optionE is optional.
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {"Chemistry formulas can be typed as plain text (CO2, H2O, Al2(SO4)3, 10^-9). They are shown with subscripts and superscripts in the UI. You can also write H_{2}O or 10^{-9}."}
+                        {"Chemistry formulas can be typed as plain text (CO2, H2O, Al2(SO4)3, 10^-9). For italic g like the printed paper, type *g*. They are shown with subscripts, superscripts, and Times italic in the UI."}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         The full Excel payload is sent in one bulk request.
